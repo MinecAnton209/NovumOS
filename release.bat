@@ -1,6 +1,6 @@
 @echo off
 set RELEASE_DIR=release
-set VERSION=v0.20
+set VERSION=v0.20.1
 
 echo Packaging NovumOS %VERSION%...
 

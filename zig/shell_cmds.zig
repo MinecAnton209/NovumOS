@@ -419,10 +419,12 @@ pub export fn cmd_mkfs_fat32(drive_num_ptr: [*]const u8, drive_num_len: u32) voi
 pub export fn zig_init() void {
     common.fs_init();
 
-    // Auto-select only Disk 1 (Slave) by default if formatted,
+    // Auto-select only Disk 1 (Slave) by default if it exists and is formatted,
     // leave Disk 0 (Master/System) unmounted for safety.
-    if (fat.read_bpb(.Slave) != null) {
-        common.selected_disk = 1;
+    if (ata.identify(.Slave) > 0) {
+        if (fat.read_bpb(.Slave) != null) {
+            common.selected_disk = 1;
+        }
     }
 }
 
