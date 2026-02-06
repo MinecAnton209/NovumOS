@@ -7,7 +7,7 @@ pub fn execute(name_ptr: [*]const u8, name_len: u8) void {
         common.printZ("File not found\r\n");
         return;
     }
-    
+
     _ = common.fs_delete(@intCast(id));
     common.printZ("Deleted: ");
     var i: u8 = 0;

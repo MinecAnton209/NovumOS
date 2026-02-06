@@ -25,16 +25,16 @@ pub const DateTime = struct {
 
 pub fn get_datetime() DateTime {
     while (is_updating()) {}
-    
+
     var second = read_rtc(0x00);
     var minute = read_rtc(0x02);
     var hour = read_rtc(0x04);
     var day = read_rtc(0x07);
     var month = read_rtc(0x08);
     var year: u16 = read_rtc(0x09);
-    
+
     const registerB = read_rtc(0x0B);
-    
+
     // Convert BCD to Binary if needed
     if ((registerB & 0x04) == 0) {
         second = (second & 0x0F) + ((second / 16) * 10);
@@ -44,14 +44,14 @@ pub fn get_datetime() DateTime {
         month = (month & 0x0F) + ((month / 16) * 10);
         year = (year & 0x0F) + ((year / 16) * 10);
     }
-    
+
     // Convert 12h to 24h if needed
     if ((registerB & 0x02) == 0 and (hour & 0x80) != 0) {
         hour = ((hour & 0x7F) + 12) % 24;
     }
-    
+
     year += 2000; // Simplified
-    
+
     return .{
         .year = year,
         .month = month,
@@ -63,9 +63,16 @@ pub fn get_datetime() DateTime {
 }
 
 fn outb(port: u16, val: u8) void {
-    asm volatile ("outb %[val], %[port]" : : [val] "{al}" (val), [port] "{dx}" (port));
+    asm volatile ("outb %[val], %[port]"
+        :
+        : [val] "{al}" (val),
+          [port] "{dx}" (port),
+    );
 }
 
 fn inb(port: u16) u8 {
-    return asm volatile ("inb %[port], %[ret]" : [ret] "={al}" (-> u8) : [port] "{dx}" (port));
+    return asm volatile ("inb %[port], %[ret]"
+        : [ret] "={al}" (-> u8),
+        : [port] "{dx}" (port),
+    );
 }

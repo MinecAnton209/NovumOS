@@ -405,6 +405,16 @@ pub export fn cmd_mkfs_fat16(drive_num_ptr: [*]const u8, drive_num_len: u32) voi
     disk_cmds.mkfs_fat16(@intCast(drive_num));
 }
 
+/// Execute 'mkfs-fat32' command
+pub export fn cmd_mkfs_fat32(drive_num_ptr: [*]const u8, drive_num_len: u32) void {
+    if (drive_num_len == 0) {
+        common.printZ("Usage: mkfs-fat32 <drive_num>\n");
+        return;
+    }
+    const drive_num = drive_num_ptr[0] - '0';
+    disk_cmds.mkfs_fat32(@intCast(drive_num));
+}
+
 /// Global initialization for Zig-based modules (FS, etc.)
 pub export fn zig_init() void {
     common.fs_init();
@@ -535,45 +545,105 @@ fn tree_node(drive: ata.Drive, bpb: fat.BPB, dir_cluster: u32, depth: usize) voi
     // Let's add an iterator or just uses a simplified version.
 
     var buffer: [512]u8 = undefined;
+    var lfn: fat.LfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
+
     if (dir_cluster == 0) {
+        if (bpb.fat_type == .FAT32) {
+            tree_node(drive, bpb, bpb.root_cluster, depth);
+            return;
+        }
         var sector = bpb.first_root_dir_sector;
         while (sector < bpb.first_data_sector) : (sector += 1) {
             ata.read_sector(drive, sector, &buffer);
-            if (!tree_sector(drive, bpb, &buffer, depth)) break;
+            if (!tree_sector(drive, bpb, &buffer, depth, &lfn)) break;
         }
     } else {
         var current = dir_cluster;
-        const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+        const eof_val = switch (bpb.fat_type) {
+            .FAT12 => @as(u32, 0xFF8),
+            .FAT16 => @as(u32, 0xFFF8),
+            .FAT32 => @as(u32, 0x0FFFFFF8),
+            else => @as(u32, 0xFFF8),
+        };
         while (current < eof_val) {
             const lba = bpb.first_data_sector + (current - 2) * bpb.sectors_per_cluster;
             var s: u32 = 0;
             while (s < bpb.sectors_per_cluster) : (s += 1) {
                 ata.read_sector(drive, lba + s, &buffer);
-                if (!tree_sector(drive, bpb, &buffer, depth)) break;
+                if (!tree_sector(drive, bpb, &buffer, depth, &lfn)) break;
             }
             current = fat.get_fat_entry(drive, bpb, current);
-            if (current == 0) break;
+            if (current < 2 or current >= eof_val) break;
         }
     }
 }
 
-fn tree_sector(drive: ata.Drive, bpb: fat.BPB, buffer: *[512]u8, depth: usize) bool {
+fn tree_sector(drive: ata.Drive, bpb: fat.BPB, buffer: *[512]u8, depth: usize, lfn: *fat.LfnState) bool {
     var i: u32 = 0;
     while (i < 512) : (i += 32) {
         if (buffer[i] == 0) return false;
-        if (buffer[i] == 0xE5) continue;
-        if (buffer[i + 11] == 0x0F) continue; // LFN
+
+        if (buffer[i] == 0xE5) {
+            lfn.active = false;
+            continue;
+        }
+
+        // LFN Entry
+        if (buffer[i + 11] == 0x0F) {
+            const seq = buffer[i];
+            const chk = buffer[i + 13];
+
+            if ((seq & 0x40) != 0) {
+                lfn.active = true;
+                lfn.checksum = chk;
+                @memset(&lfn.buf, 0);
+            } else if (!lfn.active or lfn.checksum != chk) {
+                lfn.active = false;
+                continue;
+            }
+
+            var index = (seq & 0x1F);
+            if (index < 1) index = 1;
+            const offset = (index - 1) * 13;
+
+            if (offset < 240) {
+                fat.extract_lfn_part(buffer, i + 1, 5, &lfn.buf, offset);
+                fat.extract_lfn_part(buffer, i + 14, 6, &lfn.buf, offset + 5);
+                fat.extract_lfn_part(buffer, i + 28, 2, &lfn.buf, offset + 11);
+            }
+            continue;
+        }
 
         const name = fat.get_name_from_raw(buffer[i .. i + 32]);
-        if (common.std_mem_eql(name.buf[0..name.len], ".") or common.std_mem_eql(name.buf[0..name.len], "..")) continue;
+        if (common.std_mem_eql(name.buf[0..name.len], ".") or common.std_mem_eql(name.buf[0..name.len], "..")) {
+            lfn.active = false;
+            continue;
+        }
+
+        // Checksum for LFN match
+        var sum: u8 = 0;
+        for (0..11) |k| {
+            const is_odd = (sum & 1) != 0;
+            sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
+            sum = sum +% buffer[i + k];
+        }
+
+        var print_name: []const u8 = name.buf[0..name.len];
+        if (lfn.active and lfn.checksum == sum) {
+            var len: usize = 0;
+            while (len < 256 and lfn.buf[len] != 0) : (len += 1) {}
+            print_name = lfn.buf[0..len];
+        }
+        lfn.active = false;
 
         for (0..depth) |_| common.printZ("  ");
         common.printZ("|- ");
-        common.printZ(name.buf[0..name.len]);
+        common.printZ(print_name);
         common.printZ("\n");
 
         if ((buffer[i + 11] & 0x10) != 0) { // Directory
-            const cluster = @as(u32, buffer[i + 26]) | (@as(u32, buffer[i + 27]) << 8);
+            const cluster = @as(u32, buffer[i + 26]) | (@as(u32, buffer[i + 27]) << 8) |
+                (@as(u32, buffer[i + 20]) << 16) | (@as(u32, buffer[i + 21]) << 24);
             if (cluster != 0) tree_node(drive, bpb, cluster, depth + 1);
         }
     }

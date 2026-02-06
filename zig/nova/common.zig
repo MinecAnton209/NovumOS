@@ -48,25 +48,25 @@ pub fn parseInt(str: []const u8) i32 {
     var res: i32 = 0;
     var sign: i32 = 1;
     var i: usize = 0;
-    
+
     if (str.len == 0) return 0;
-    
+
     // Handle whitespace? Assuming trimmed
-    
+
     if (str[0] == '-') {
         sign = -1;
         i = 1;
     }
-    
+
     while (i < str.len) : (i += 1) {
         if (str[i] >= '0' and str[i] <= '9') {
             const digit: i32 = str[i] - '0';
             res = (res * 10) + digit;
         } else {
-            break; 
+            break;
         }
     }
-    
+
     return res * sign;
 }
 
@@ -75,29 +75,29 @@ pub fn intToString(val: i32, buf: []u8) []const u8 {
         if (buf.len > 0) buf[0] = '0';
         return buf[0..1];
     }
-    
+
     var is_neg = false;
     var uv: u32 = 0;
-    
+
     if (val < 0) {
         is_neg = true;
         uv = @intCast(-val);
     } else {
         uv = @intCast(val);
     }
-    
+
     var i: usize = 0;
     while (uv > 0 and i < buf.len) {
         buf[i] = @as(u8, @intCast(uv % 10)) + '0';
         uv = uv / 10;
         i += 1;
     }
-    
+
     if (is_neg and i < buf.len) {
         buf[i] = '-';
         i += 1;
     }
-    
+
     // Reverse
     var left: usize = 0;
     var right: usize = i - 1;
@@ -108,6 +108,6 @@ pub fn intToString(val: i32, buf: []u8) []const u8 {
         left += 1;
         right -= 1;
     }
-    
+
     return buf[0..i];
 }

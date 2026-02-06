@@ -19,7 +19,7 @@ const Variable = struct {
     name_len: usize,
     value: [MAX_VAL_LEN]u8, // String storage
     val_len: usize,
-    int_val: i32,           // Int storage
+    int_val: i32, // Int storage
     vtype: VarType,
 };
 
@@ -88,11 +88,11 @@ fn setVariable(name: []const u8, val: []const u8, vtype: VarType, int_val: i32) 
         // Create new
         if (var_count < MAX_VARS) {
             var v = &variables[var_count];
-            
+
             const name_copy_len = if (name.len > MAX_VAR_NAME) MAX_VAR_NAME else name.len;
             common.copy(v.name[0..], name[0..name_copy_len]);
             v.name_len = name_copy_len;
-            
+
             if (vtype == .string) {
                 const val_copy_len = if (val.len > MAX_VAL_LEN) MAX_VAL_LEN else val.len;
                 common.copy(v.value[0..], val[0..val_copy_len]);
@@ -101,7 +101,7 @@ fn setVariable(name: []const u8, val: []const u8, vtype: VarType, int_val: i32) 
                 v.int_val = int_val;
             }
             v.vtype = vtype;
-            
+
             var_count += 1;
         } else {
             common.printZ("Error: Too many variables\n");
@@ -120,19 +120,19 @@ const EvalResult = struct {
 fn getValue(raw_term: []const u8) EvalResult {
     const term = trim(raw_term);
     if (term.len == 0) return .{ .str_val = "", .int_val = 0, .etype = .string };
-    
+
     // Literal String
     if (term[0] == '"') {
         var end = term.len;
         if (term.len > 1 and term[term.len - 1] == '"') {
-             end = term.len - 1;
+            end = term.len - 1;
         }
         if (end > 1) {
             return .{ .str_val = term[1..end], .int_val = 0, .etype = .string };
         }
         return .{ .str_val = "", .int_val = 0, .etype = .string };
     }
-    
+
     // Variable
     if (findVariable(term)) |v| {
         if (v.vtype == .string) {
@@ -141,13 +141,13 @@ fn getValue(raw_term: []const u8) EvalResult {
             return .{ .str_val = "", .int_val = v.int_val, .etype = .int };
         }
     }
-    
+
     // Literal Int
     // Assume if it starts with digit or -, and parses, it's int
     if ((term[0] >= '0' and term[0] <= '9') or term[0] == '-') {
         return .{ .str_val = "", .int_val = common.parseInt(term), .etype = .int };
     }
-    
+
     return .{ .str_val = "", .int_val = 0, .etype = .string };
 }
 
@@ -157,18 +157,17 @@ fn getValue(raw_term: []const u8) EvalResult {
 // For a simple toy OS language this might be acceptable unless full math parser is needed.
 // To support full precedence, we need a better parser. Given constraints, let's try a simple L-R split.
 
-
 fn evaluateTerm(raw_term: []const u8) EvalResult {
     const term = trim(raw_term);
     if (term.len == 0) return .{ .str_val = "", .int_val = 0, .etype = .int };
-    
+
     // Check for parens
     if (term.len >= 2 and term[0] == '(' and term[term.len - 1] == ')') {
         // We assume valid nesting from the splitter, but let's be safe later if needed.
         // For now, strip and recurse.
-        return evaluateExpression(term[1..term.len-1]);
+        return evaluateExpression(term[1 .. term.len - 1]);
     }
-    
+
     if (common.startsWith(term, "read(")) {
         if (term[term.len - 1] == ')') {
             const path_expr = term[5 .. term.len - 1];
@@ -269,18 +268,18 @@ fn evaluateTerm(raw_term: []const u8) EvalResult {
                 common.printZ(s);
             }
         }
-        
+
         // Use interpreter's global buffer temporarily or a local one
         // Let's use a local one for safety during expression evaluation
         var input_buf: [64]u8 = [_]u8{0} ** 64;
         const len = interpreter.readInput(&input_buf);
-        
+
         const final_input = input_buf[0..len];
         // Try to see if it's an int
         if (len > 0 and ((final_input[0] >= '0' and final_input[0] <= '9') or final_input[0] == '-')) {
-             return .{ .str_val = final_input, .int_val = common.parseInt(final_input), .etype = .int };
+            return .{ .str_val = final_input, .int_val = common.parseInt(final_input), .etype = .int };
         }
-        
+
         // Return as string
         // Copy to persistent storage
         common.copy(global_result_buffer[0..], final_input);
@@ -318,20 +317,20 @@ fn evaluateExpression(expr_in: []const u8) EvalResult {
     var start: usize = 0;
     var depth: i32 = 0;
     var in_quotes: bool = false;
-    
+
     var accum_int: i32 = 0;
     var eval_buffer: [256]u8 = [_]u8{0} ** 256;
     var accum_str_len: usize = 0;
     var current_type: VarType = .int;
-    
+
     while (pos <= expr_in.len) {
         var is_op = false;
         var c: u8 = 0;
-        
+
         if (pos < expr_in.len) {
             c = expr_in[pos];
             if (c == '"') in_quotes = !in_quotes;
-            
+
             if (!in_quotes) {
                 if (c == '(') {
                     depth += 1;
@@ -350,12 +349,12 @@ fn evaluateExpression(expr_in: []const u8) EvalResult {
                 }
             }
         }
-        
+
         if (depth == 0 and !in_quotes and (pos == expr_in.len or is_op)) {
             const part = trim(expr_in[start..pos]);
             if (part.len > 0 or pos == expr_in.len) {
                 const val = evaluateTerm(part);
-                 
+
                 if (last_op == 0) {
                     current_type = val.etype;
                     if (current_type == .int) {
@@ -385,43 +384,47 @@ fn evaluateExpression(expr_in: []const u8) EvalResult {
                         }
                     } else if (current_type == .string) {
                         if (last_op == '+') {
-                             // We need to be careful: evaluateTerm might have used global_result_buffer
-                             // So we copy our current accum_str to a temp buffer if needed
-                             var to_add_buf: [64]u8 = [_]u8{0} ** 64;
-                             var to_add: []const u8 = "";
-                             
-                             if (val.etype == .string) {
-                                 // Copy to temp because next evaluateTerm/Expression might overwrite global_result_buffer
-                                 const t_len = if (val.str_val.len > 64) 64 else val.str_val.len;
-                                 for (0..t_len) |j| to_add_buf[j] = val.str_val[j];
-                                 to_add = to_add_buf[0..t_len];
-                             } else {
-                                 to_add = common.intToString(val.int_val, &int_conv_buf);
-                             }
-                             
-                             if (accum_str_len + to_add.len < 256) {
-                                 common.copy(eval_buffer[accum_str_len..], to_add);
-                                 accum_str_len += to_add.len;
-                             }
+                            // We need to be careful: evaluateTerm might have used global_result_buffer
+                            // So we copy our current accum_str to a temp buffer if needed
+                            var to_add_buf: [64]u8 = [_]u8{0} ** 64;
+                            var to_add: []const u8 = "";
+
+                            if (val.etype == .string) {
+                                // Copy to temp because next evaluateTerm/Expression might overwrite global_result_buffer
+                                const t_len = if (val.str_val.len > 64) 64 else val.str_val.len;
+                                for (0..t_len) |j| to_add_buf[j] = val.str_val[j];
+                                to_add = to_add_buf[0..t_len];
+                            } else {
+                                to_add = common.intToString(val.int_val, &int_conv_buf);
+                            }
+
+                            if (accum_str_len + to_add.len < 256) {
+                                common.copy(eval_buffer[accum_str_len..], to_add);
+                                accum_str_len += to_add.len;
+                            }
                         } else if (last_op == '=') {
                             if (val.etype == .string) {
                                 accum_int = if (common.streq(eval_buffer[0..accum_str_len], val.str_val)) 1 else 0;
-                            } else { accum_int = 0; }
+                            } else {
+                                accum_int = 0;
+                            }
                             current_type = .int;
                         } else if (last_op == '!') {
                             if (val.etype == .string) {
                                 accum_int = if (!common.streq(eval_buffer[0..accum_str_len], val.str_val)) 1 else 0;
-                            } else { accum_int = 1; }
+                            } else {
+                                accum_int = 1;
+                            }
                             current_type = .int;
                         } else {
                             common.printZ("Error: Invalid op for strings\n");
                         }
                     } else {
-                         common.printZ("Error: Type mismatch\n");
+                        common.printZ("Error: Type mismatch\n");
                     }
                 }
             }
-            
+
             if (pos < expr_in.len) {
                 last_op = c;
                 if (c == '=' or c == '!') {
@@ -434,7 +437,7 @@ fn evaluateExpression(expr_in: []const u8) EvalResult {
         }
         pos += 1;
     }
-    
+
     if (current_type == .int) {
         return .{ .str_val = "", .int_val = accum_int, .etype = .int };
     } else {
@@ -454,13 +457,13 @@ fn execSetString(buffer: []const u8, stmt: parser.Statement) void {
         const res = evaluateExpression(expr);
         // Force string
         if (res.etype == .string) {
-             setVariable(name, res.str_val, .string, 0);
+            setVariable(name, res.str_val, .string, 0);
         } else {
             // Convert int to string if assigning to string? Or error?
             // "set string ... = 10" -> usually error or auto-cast.
             // Let's auto-cast for friendliness
-             const s = common.intToString(res.int_val, &int_conv_buf);
-             setVariable(name, s, .string, 0);
+            const s = common.intToString(res.int_val, &int_conv_buf);
+            setVariable(name, s, .string, 0);
         }
     }
 }
@@ -472,9 +475,9 @@ fn execSetInt(buffer: []const u8, stmt: parser.Statement) void {
         const expr = arg[eq_pos + 1 ..];
         const res = evaluateExpression(expr);
         if (res.etype == .int) {
-             setVariable(name, "", .int, res.int_val);
+            setVariable(name, "", .int, res.int_val);
         } else {
-             common.printZ("Error: Expected int\n");
+            common.printZ("Error: Expected int\n");
         }
     }
 }
@@ -482,7 +485,7 @@ fn execSetInt(buffer: []const u8, stmt: parser.Statement) void {
 fn execPrint(buffer: []const u8, stmt: parser.Statement) void {
     const expr = buffer[stmt.arg_start .. stmt.arg_start + stmt.arg_len];
     const res = evaluateExpression(expr);
-    
+
     if (res.etype == .string) {
         for (res.str_val) |c| {
             common.print_char(c);
@@ -511,7 +514,7 @@ fn splitArgs(expr: []const u8) struct { args: [4][]const u8, count: usize } {
     var start: usize = 0;
     var depth: i32 = 0;
     var in_quotes: bool = false;
-    
+
     for (expr, 0..) |c, i| {
         if (c == '"') in_quotes = !in_quotes;
         if (in_quotes) continue;
@@ -559,7 +562,7 @@ fn execRename(buffer: []const u8, stmt: parser.Statement) void {
 
     const old_path_res = evaluateExpression(args.args[0]);
     const new_path_res = evaluateExpression(args.args[1]);
-    
+
     if (old_path_res.etype == .string and new_path_res.etype == .string) {
         // Safety copy both paths
         var old_buf: [64]u8 = [_]u8{0} ** 64;
@@ -574,7 +577,7 @@ fn execRename(buffer: []const u8, stmt: parser.Statement) void {
 
         const drive = getDrive();
         if (common.fat.read_bpb(drive)) |bpb| {
-             _ = common.fat.rename_file(drive, bpb, common.global_common.current_dir_cluster, old_p, new_p);
+            _ = common.fat.rename_file(drive, bpb, common.global_common.current_dir_cluster, old_p, new_p);
         }
     }
 }
@@ -586,7 +589,7 @@ fn execCopy(buffer: []const u8, stmt: parser.Statement) void {
 
     const src_res = evaluateExpression(args.args[0]);
     const dest_res = evaluateExpression(args.args[1]);
-    
+
     if (src_res.etype == .string and dest_res.etype == .string) {
         // Safety copy paths
         var src_buf: [64]u8 = [_]u8{0} ** 64;
@@ -637,11 +640,11 @@ fn execWriteFile(buffer: []const u8, stmt: parser.Statement) void {
     const path = path_buf[0..path_len];
 
     const data_res = evaluateExpression(args.args[1]);
-    
+
     if (path_res.etype == .string and data_res.etype == .string) {
         const drive = getDrive();
         if (common.fat.read_bpb(drive)) |bpb| {
-             _ = common.fat.write_file(drive, bpb, common.global_common.current_dir_cluster, path, data_res.str_val);
+            _ = common.fat.write_file(drive, bpb, common.global_common.current_dir_cluster, path, data_res.str_val);
         }
     }
 }
@@ -679,14 +682,14 @@ fn execShell(buffer: []const u8, stmt: parser.Statement) void {
 fn approx_sin(deg: i32) i32 {
     var x = @mod(deg, 360);
     if (x < 0) x += 360;
-    
+
     // Normalize to 0-180
     var sign: i32 = 1;
     if (x > 180) {
         x -= 180;
         sign = -1;
     }
-    
+
     // 0-180 approximation: 4*x*(180-x) / (40500 - x*(180-x))
     // This is Bhaskara I's sine approximation formula
     // For x in degrees: sin(x) approx 4x(180-x) / (40500 - x(180-x))

@@ -1,6 +1,5 @@
 // VGA Text Mode Driver - Safe Version
 
-
 pub const VIDEO_MEMORY: [*]volatile u16 = @ptrFromInt(0xb8000);
 pub const MAX_COLS: usize = 80;
 pub const MAX_ROWS: usize = 25;
@@ -45,7 +44,7 @@ pub export fn restore_screen_buffer() void {
 pub export fn clear_screen() void {
     var i: usize = 0;
     while (i < MAX_COLS * MAX_ROWS) : (i += 1) {
-        VIDEO_MEMORY[i] =  DEFAULT_ATTR | ' ';
+        VIDEO_MEMORY[i] = DEFAULT_ATTR | ' ';
     }
     cursor_row = 0;
     cursor_col = 0;
@@ -58,8 +57,12 @@ pub export fn zig_set_cursor(row: u8, col: u8) void {
     update_hardware_cursor();
 }
 
-pub export fn zig_get_cursor_row() u8 { return cursor_row; }
-pub export fn zig_get_cursor_col() u8 { return cursor_col; }
+pub export fn zig_get_cursor_row() u8 {
+    return cursor_row;
+}
+pub export fn zig_get_cursor_col() u8 {
+    return cursor_col;
+}
 
 fn scroll() void {
     var i: usize = 0;
@@ -103,13 +106,13 @@ pub export fn zig_print_char(c: u8) void {
 
         const idx = @as(usize, cursor_row) * MAX_COLS + cursor_col;
         VIDEO_MEMORY[idx] = current_color | @as(u16, c);
-        
+
         cursor_col += 1;
         if (cursor_col >= MAX_COLS) {
             internal_newline();
         }
     }
-    
+
     update_vga_cursor();
 }
 
@@ -135,5 +138,9 @@ pub export fn update_hardware_cursor() void {
 }
 
 fn outb(port: u16, val: u8) void {
-    asm volatile ("outb %[val], %[port]" : : [val] "{al}" (val), [port] "{dx}" (port));
+    asm volatile ("outb %[val], %[port]"
+        :
+        : [val] "{al}" (val),
+          [port] "{dx}" (port),
+    );
 }

@@ -7,13 +7,13 @@ pub fn execute(name_ptr: [*]const u8, name_len: u8) void {
         common.printZ("File already exists\r\n");
         return;
     }
-    
+
     const id = common.fs_create(name_ptr, name_len);
     if (id < 0) {
         common.printZ("Cannot create file\r\n");
         return;
     }
-    
+
     common.printZ("Created: ");
     var i: u8 = 0;
     while (i < name_len) : (i += 1) {

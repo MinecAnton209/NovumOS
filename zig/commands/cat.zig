@@ -7,7 +7,7 @@ pub fn execute(name_ptr: [*]const u8, name_len: u8) void {
         common.printZ("File not found\r\n");
         return;
     }
-    
+
     var buffer: [1024]u8 = undefined;
     const size = common.fs_read(@intCast(id), &buffer, 1024);
     if (size > 0) {

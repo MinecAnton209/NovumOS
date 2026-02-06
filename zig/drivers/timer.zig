@@ -15,7 +15,7 @@ var ticks: usize = 0;
 pub fn init() void {
     const divisor = PIT_FREQ / TARGET_FREQ;
 
-    // Command byte: 
+    // Command byte:
     // Channel 0 (00), Access Mode: LSB/MSB (11), Mode 2: Rate Generator (010), Binary (0)
     // 00 11 010 0 = 0x34
     outb(PIT_COMMAND, 0x34);
@@ -27,7 +27,7 @@ pub fn init() void {
 pub export fn isr_timer() void {
     const ptr = @as(*volatile usize, &ticks);
     ptr.* += 1;
-    
+
     // Poll serial for input to support -nographic
     const serial = @import("serial.zig");
     if (serial.serial_has_data()) {

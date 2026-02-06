@@ -288,3 +288,127 @@ pub fn mkfs_fat16(drive_num: u8) void {
 
     common.printZ("Format complete.\n");
 }
+
+pub fn mkfs_fat32(drive_num: u8) void {
+    if (drive_num >= 2) {
+        common.printZ("Error: Invalid drive number (0-1)\n");
+        return;
+    }
+
+    const drive = if (drive_num == 0) ata.Drive.Master else ata.Drive.Slave;
+    const total_sectors = ata.identify(drive);
+
+    if (total_sectors == 0) {
+        common.printZ("Error: Drive not found\n");
+        return;
+    }
+
+    // FAT32 Limits:
+    // - Partition: Standard u32 LBA @ 512B/sector = 2 TB (theoretical 16 TB with 4KB sectors)
+    // - File: 4 GB (u32 file_size)
+    if (total_sectors < 65536) {
+        common.printZ("Error: Disk too small for FAT32 (Min 32MB recommended)\n");
+        return;
+    }
+
+    common.printZ("Formatting drive ");
+    common.printNum(@intCast(drive_num));
+    common.printZ(" with FAT32...\n");
+
+    var boot_sector: [512]u8 = [_]u8{0} ** 512;
+    boot_sector[0] = 0xEB;
+    boot_sector[1] = 0x34;
+    boot_sector[2] = 0x90;
+    const oem = "NOVUMOS ";
+    for (oem, 0..) |c, j| boot_sector[3 + j] = c;
+
+    boot_sector[11] = 0x00;
+    boot_sector[12] = 0x02; // 512 bytes per sector
+
+    // Choose sectors per cluster based on disk size
+    var spc: u8 = 8; // 4KB
+    if (total_sectors > 16777216) spc = 16; // > 8GB
+    if (total_sectors > 33554432) spc = 32; // > 16GB
+    if (total_sectors > 67108864) spc = 64; // > 32GB
+    boot_sector[13] = spc;
+
+    const reserved_sectors: u16 = 32;
+    boot_sector[14] = @intCast(reserved_sectors & 0xFF);
+    boot_sector[15] = @intCast(reserved_sectors >> 8);
+    boot_sector[16] = 0x02; // 2 FATs
+    boot_sector[17] = 0;
+    boot_sector[18] = 0; // Root entries 0 for FAT32
+    boot_sector[19] = 0;
+    boot_sector[20] = 0;
+    boot_sector[21] = 0xF8;
+    boot_sector[22] = 0;
+    boot_sector[23] = 0; // FAT16 size 0
+
+    boot_sector[32] = @intCast(total_sectors & 0xFF);
+    boot_sector[33] = @intCast((total_sectors >> 8) & 0xFF);
+    boot_sector[34] = @intCast((total_sectors >> 16) & 0xFF);
+    boot_sector[35] = @intCast((total_sectors >> 24) & 0xFF);
+
+    // Calculate FAT size
+    const data_sectors = total_sectors - reserved_sectors;
+    const total_clusters = data_sectors / spc;
+    const fat_size = (total_clusters * 4 + 511) / 512;
+
+    boot_sector[36] = @intCast(fat_size & 0xFF);
+    boot_sector[37] = @intCast((fat_size >> 8) & 0xFF);
+    boot_sector[38] = @intCast((fat_size >> 16) & 0xFF);
+    boot_sector[39] = @intCast((fat_size >> 24) & 0xFF);
+
+    boot_sector[44] = 2; // Root cluster starts at 2
+    boot_sector[48] = 1; // FSInfo sector
+    boot_sector[50] = 6; // Backup boot sector (standard)
+
+    boot_sector[66] = 0x29;
+    boot_sector[67] = 0x78;
+    boot_sector[68] = 0x56;
+    boot_sector[69] = 0x34;
+    boot_sector[70] = 0x12;
+    const label = "NOVUMOS F32";
+    for (label, 0..) |c, j| boot_sector[71 + j] = c;
+    const fstype = "FAT32   ";
+    for (fstype, 0..) |c, j| boot_sector[82 + j] = c;
+
+    boot_sector[510] = 0x55;
+    boot_sector[511] = 0xAA;
+    ata.write_sector(drive, 0, &boot_sector);
+
+    // Clear FAT tables
+    var zero_sector: [512]u8 = [_]u8{0} ** 512;
+    common.printZ("Initializing FAT tables...\n");
+    var i: u32 = 0;
+    while (i < fat_size * 2) : (i += 1) {
+        if (i == 0 or i == fat_size) {
+            var fat_start: [512]u8 = [_]u8{0} ** 512;
+            fat_start[0] = 0xF8;
+            fat_start[1] = 0xFF;
+            fat_start[2] = 0xFF;
+            fat_start[3] = 0x0F; // Media
+            fat_start[4] = 0xFF;
+            fat_start[5] = 0xFF;
+            fat_start[6] = 0xFF;
+            fat_start[7] = 0x0F; // Partition
+            fat_start[8] = 0xFF;
+            fat_start[9] = 0xFF;
+            fat_start[10] = 0xFF;
+            fat_start[11] = 0x0F; // Root EOC
+            ata.write_sector(drive, reserved_sectors + i, &fat_start);
+        } else {
+            ata.write_sector(drive, reserved_sectors + i, &zero_sector);
+        }
+    }
+
+    // Initialize Root Directory Cluster (Clear cluster 2)
+    common.printZ("Initializing Root Directory Cluster...\n");
+    const root_lba = reserved_sectors + (2 * fat_size);
+    i = 0;
+    while (i < spc) : (i += 1) {
+        ata.write_sector(drive, root_lba + i, &zero_sector);
+    }
+
+    common.printZ("Format complete. (Note: 4GB Max File Size Supported)\n");
+}

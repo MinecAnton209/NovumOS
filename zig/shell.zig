@@ -60,6 +60,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "tree", .help = "Display recursive directory structure", .handler = cmd_handler_tree },
     .{ .name = "mkfs-fat12", .help = "Format drive as FAT12 (legacy)", .handler = cmd_handler_mkfs12 },
     .{ .name = "mkfs-fat16", .help = "Format drive as FAT16 (standard)", .handler = cmd_handler_mkfs16 },
+    .{ .name = "mkfs-fat32", .help = "Format drive as FAT32 (advanced)", .handler = cmd_handler_mkfs32 },
     .{ .name = "touch", .help = "Create an empty file", .handler = cmd_handler_touch },
     .{ .name = "write", .help = "write [-a] <f> <t> - Write string to file (-a to append)", .handler = cmd_handler_write },
     .{ .name = "rm", .help = "rm [-d] [-r] <f|*> - Delete file/dir", .handler = cmd_handler_rm },
@@ -550,7 +551,12 @@ fn autocomplete() void {
                 }
             } else {
                 var current = common.current_dir_cluster;
-                const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+                const eof_val = switch (bpb.fat_type) {
+                    .FAT12 => @as(u32, 0xFF8),
+                    .FAT16 => @as(u32, 0xFFF8),
+                    .FAT32 => @as(u32, 0x0FFFFFF8),
+                    else => @as(u32, 0xFFF8),
+                };
                 while (current < eof_val) {
                     const lba = bpb.first_data_sector + (current - 2) * bpb.sectors_per_cluster;
                     var s: u32 = 0;
@@ -619,7 +625,7 @@ fn autocomplete() void {
                         }
                     }
                     current = fat.get_fat_entry(drive, bpb, current);
-                    if (current == 0) break;
+                    if (current < 2 or current >= eof_val) break;
                 }
             }
         }
@@ -1121,6 +1127,14 @@ fn cmd_handler_mkfs16(args: []const u8) void {
         shell_cmds.cmd_mkfs_fat16(args.ptr, @intCast(args.len));
     } else {
         common.printZ("Usage: mkfs-fat16 <drive>\n");
+    }
+}
+
+fn cmd_handler_mkfs32(args: []const u8) void {
+    if (args.len > 0) {
+        shell_cmds.cmd_mkfs_fat32(args.ptr, @intCast(args.len));
+    } else {
+        common.printZ("Usage: mkfs-fat32 <drive>\n");
     }
 }
 

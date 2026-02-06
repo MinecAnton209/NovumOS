@@ -13,22 +13,22 @@ pub fn cmd_cp(args: []const u8) void {
     }
     const src = argv[0];
     const dest = argv[1];
-    
+
     // 1. Initialize FS
     const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
     const bpb = fat.read_bpb(drive) orelse {
         common.printZ("Error: Could not read filesystem\n");
         return;
     };
-    
+
     // 2. Resolve source
     const entry = fat.find_entry(drive, bpb, common.current_dir_cluster, src) orelse {
         common.printZ("Error: Source not found\n");
         return;
     };
-    
+
     const is_dir = (entry.attr & 0x10) != 0;
-    
+
     if (is_dir) {
         if (fat.copy_directory(drive, bpb, common.current_dir_cluster, src, dest)) {
             common.printZ("Directory copied recursively.\n");
@@ -78,7 +78,7 @@ fn format_progress(current: u32, total: u32) void {
         // Redraw line
         common.print_char('\r');
         common.printZ("Formatting: [");
-        
+
         // 20 chars for 100%
         const filled = percent / 5;
         var i: u32 = 0;
@@ -104,7 +104,7 @@ pub fn cmd_format(args: []const u8) void {
         if (common.std_mem_eql(arg, "--force")) {
             force = true;
         } else if (arg.len == 1 and arg[0] >= '0' and arg[0] <= '9') {
-             drive_idx = @intCast(arg[0] - '0');
+            drive_idx = @intCast(arg[0] - '0');
         }
     }
 
@@ -112,7 +112,9 @@ pub fn cmd_format(args: []const u8) void {
         common.printZ("ERROR: Drive ID and --force flag are required.\n");
         common.printZ("Usage: format <drive_id> --force\n");
         common.printZ("Example: format 1 --force\n");
-        common.printZ("Current selected disk: "); common.printNum(common.selected_disk); common.printZ("\n");
+        common.printZ("Current selected disk: ");
+        common.printNum(common.selected_disk);
+        common.printZ("\n");
         return;
     }
 
@@ -139,7 +141,7 @@ pub fn cmd_format(args: []const u8) void {
         common.printZ("\nFormat complete on Drive ");
         common.printNum(drive_idx);
         common.printZ(".\n");
-        
+
         // Clear history if we just formatted the disk we are using
         if (common.selected_disk == drive_idx) {
             shell_clear_history();
