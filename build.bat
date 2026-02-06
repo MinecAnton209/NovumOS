@@ -1,5 +1,5 @@
 @echo off
-echo Building NewOS...
+echo Building NovumOS...
 
 :: Create build directory
 if not exist build mkdir build

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Building NewOS..."
+echo "Building NovumOS..."
 
 # Create build directory
 mkdir -p build

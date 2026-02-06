@@ -7,7 +7,7 @@ if [ ! -f build/os-image.bin ]; then
     exit 1
 fi
 
-echo "Creating NewOS.img..."
-cp build/os-image.bin NewOS.img
+echo "Creating NovumOS.img..."
+cp build/os-image.bin NovumOS.img
 
-echo "Success! Created NewOS.img"
+echo "Success! Created NovumOS.img"

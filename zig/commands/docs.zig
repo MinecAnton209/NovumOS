@@ -4,13 +4,13 @@ const vga = @import("../drivers/vga.zig");
 
 pub fn execute(args: []const u8) void {
     const COLOR_HEADER = 14; // Yellow
-    const COLOR_TEXT = 7;    // Light Grey
+    const COLOR_TEXT = 7; // Light Grey
     const COLOR_BG = 0;
 
     if (common.std_mem_eql(args, "nova")) {
         vga.set_color(COLOR_HEADER, COLOR_BG);
         common.printZ("=== Nova Language Syntax ===\n\n");
-        
+
         vga.set_color(COLOR_HEADER, COLOR_BG);
         common.printZ("[ Variables ]\n");
         vga.set_color(COLOR_TEXT, COLOR_BG);
@@ -30,8 +30,8 @@ pub fn execute(args: []const u8) void {
         common.printZ("\n[ Commands ]\n");
         vga.set_color(COLOR_TEXT, COLOR_BG);
         print_doc("print(a + b);", "Print result to console.");
-        print_doc("exit();", "Return to NewOS Shell.");
-        
+        print_doc("exit();", "Return to NovumOS Shell.");
+
         common.printZ("\nStatements MUST end with a semicolon (;).\n");
         vga.reset_color();
         return;
@@ -39,7 +39,7 @@ pub fn execute(args: []const u8) void {
 
     if (common.std_mem_eql(args, "memory")) {
         vga.set_color(COLOR_HEADER, COLOR_BG);
-        common.printZ("=== NewOS Memory Architecture ===\n\n");
+        common.printZ("=== NovumOS Memory Architecture ===\n\n");
 
         vga.set_color(COLOR_HEADER, COLOR_BG);
         common.printZ("[ Foundation ]\n");
@@ -61,7 +61,7 @@ pub fn execute(args: []const u8) void {
         print_doc("mem --test [M]", "Stress test with pre-mapping & PF count.");
         print_doc("Ctrl+C", "Interrupt long memory tests safely.");
         print_doc("GC Tool", "coalesce() merges free blocks after tests.");
-        
+
         vga.reset_color();
         return;
     }
@@ -71,7 +71,7 @@ pub fn execute(args: []const u8) void {
 
     if (is_page2) {
         vga.set_color(COLOR_HEADER, COLOR_BG);
-        common.printZ("=== NewOS Documentation (Page 2/2) ===\n\n");
+        common.printZ("=== NovumOS Documentation (Page 2/2) ===\n\n");
 
         vga.set_color(COLOR_HEADER, COLOR_BG);
         common.printZ("[ File System ]\n");
@@ -102,7 +102,7 @@ pub fn execute(args: []const u8) void {
     }
 
     vga.set_color(COLOR_HEADER, COLOR_BG);
-    common.printZ("=== NewOS Documentation (Page 1/2) ===\n\n");
+    common.printZ("=== NovumOS Documentation (Page 1/2) ===\n\n");
 
     vga.set_color(COLOR_HEADER, COLOR_BG);
     common.printZ("[ System & Info ]\n");
@@ -127,11 +127,11 @@ fn print_doc(cmd: []const u8, desc: []const u8) void {
     vga.set_color(COLOR_CMD, COLOR_BG);
     common.printZ("  ");
     common.printZ(cmd);
-    
+
     // Simple padding
     var i: usize = cmd.len;
     while (i < 20) : (i += 1) common.print_char(' ');
-    
+
     vga.set_color(COLOR_TEXT, COLOR_BG);
     common.printZ("- ");
     common.printZ(desc);

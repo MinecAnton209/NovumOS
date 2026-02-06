@@ -1,6 +1,6 @@
-# NewOS Commands Reference (v0.18)
+# NovumOS Commands Reference (v0.19)
 
-Comprehensive documentation for all built-in NewOS shell commands.
+Comprehensive documentation for all built-in NovumOS shell commands.
 
 ---
 
@@ -17,7 +17,8 @@ Comprehensive documentation for all built-in NewOS shell commands.
 | `touch` | Create empty file | `touch <path>` |
 | `edit` | Text editor | `edit <path>` |
 | `write` | Write/Append text to file | `write [-a] <path> <text>` |
-| `cat` | View file content | `cat <path>` |
+| `cat` | View file content (Raw) | `cat <path>` |
+| `more` | Paginated file viewer | `more <file>` |
 | `rm` | Delete file/dir | `rm [-d] [-r] <f|*>` |
 | `cp` | Copy file/folder | `cp <src> <dest>` |
 | `mv` | Move/Rename file/dir | `mv <src> <dest>` |
@@ -140,8 +141,19 @@ Writes or appends a string of text into a file.
 - **Example:** `write -a logs.txt "New entry"`
 
 ### `cat`
-Displays the text content of a file on the screen.
+Displays the raw content of a file. Use `more` for larger files.
 - **Usage:** `cat <file_path>`
+
+### `more`
+Paginated file viewer with scrolling support. 
+- **Usage:** `more [options] <file_path>`
+- **Controls:** 
+  - **Arrows**: Scroll line by line
+  - **Space/PgDn**: Scroll page
+  - **Q**: Quit
+  - **G**: Jump to end
+- **Piping:** Can be used at the end of a pipe (e.g., `ls | more`).
+- **Features:** Supports line wrapping (79 cols) and logical line numbering (`-n`).
 
 ### `rm`
 Deletes files or directories.
@@ -206,10 +218,19 @@ Creates a FAT filesystem on the target drive.
 - **Usage:** `mkfs-fat16 0` (Formats Master as FAT16)
 
 ---
-## 🔄 Redirection
-NewOS shell supports standard output redirection to files.
+## 🔄 Redirection & Piping
+NovumOS shell supports standard output redirection and inter-process piping.
+
+### Output Redirection
+Redirects command output to a file on disk.
 - **Syntax:** 
   - `command > filename`: Overwrites the target file.
   - `command >> filename`: Appends to the target file.
 - **Example:** `ls >> files.txt`
-- **Note:** Requires a mounted disk.
+
+### Piping
+Passes the output of one command as input to another.
+- **Syntax:** `command1 | command2`
+- **Example:** 
+  - `ls | more` - View file list with scrolling
+  - `cat config.txt | echo` - Pass file content to echo

@@ -17,10 +17,11 @@ const BUFFER_SIZE: usize = 128;
 const HISTORY_SIZE: usize = 10;
 
 const NOVA_KEYWORDS = [_][]const u8{
-    "print(", "set string ", "set int ", "exit()", "reboot()", "shutdown()",
-    "input(", "delete(", "rename(", "copy(", "mkdir(", "write_file(", "create_file(",
-    "if ", "else", "while ", "sleep(", "shell(", "read(", "random(",
-    "min(", "max(", "abs(", "sin(", "cos(", "tan(", "atan(",
+    "print(",       "set string ", "set int ", "exit()", "reboot()", "shutdown()",
+    "input(",       "delete(",     "rename(",  "copy(",  "mkdir(",   "write_file(",
+    "create_file(", "if ",         "else",     "while ", "sleep(",   "shell(",
+    "read(",        "random(",     "min(",     "max(",   "abs(",     "sin(",
+    "cos(",         "tan(",        "atan(",
 };
 
 // Interpreter state
@@ -79,16 +80,14 @@ pub fn readInput(buf: []u8) usize {
 pub fn start(script_path: ?[]const u8) void {
     exit_flag = false;
     global_common.seed_random_with_tsc();
-    
+
     if (script_path) |path| {
         runScript(path);
     } else {
         // Welcome message
-        common.printZ(
-            "Nova Language v" ++ versioning.NOVA_VERSION ++ "\n" ++
-            "Commands: print(\"text\"); exit();\n"
-        );
-        
+        common.printZ("Nova Language v" ++ versioning.NOVA_VERSION ++ "\n" ++
+            "Commands: print(\"text\"); exit();\n");
+
         // Main REPL loop (Read-Eval-Print Loop)
         while (!exit_flag) {
             common.printZ("nova> ");
@@ -102,14 +101,14 @@ pub fn start(script_path: ?[]const u8) void {
 pub fn runScript(path: []const u8) void {
     const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
     if (global_common.selected_disk < 0) {
-        common.printZ("Error: No disk mounted. Please use 'mount 0' first.\n");
+        global_common.printError("Error: No disk mounted. Please use 'mount 0' first.\n");
         return;
     }
 
     if (fat.read_bpb(drive)) |bpb| {
         if (fat.find_entry(drive, bpb, global_common.current_dir_cluster, path)) |entry| {
             if ((entry.attr & 0x10) != 0) {
-                common.printZ("Error: Path is a directory\n");
+                global_common.printError("Error: Path is a directory\n");
                 return;
             }
 
@@ -117,28 +116,28 @@ pub fn runScript(path: []const u8) void {
             // For now, use a fixed size. We can improve this later.
             var script_buffer: [4096]u8 = [_]u8{0} ** 4096;
             const bytes_read = fat.read_file(drive, bpb, global_common.current_dir_cluster, path, &script_buffer);
-            
+
             if (bytes_read > 0) {
                 const script = script_buffer[0..@intCast(bytes_read)];
                 runScriptSource(script);
             } else {
-                common.printZ("Error: Empty file or read error\n");
+                global_common.printError("Error: Empty file or read error\n");
             }
         } else {
-            common.printZ("Error: Script not found: ");
-            common.printZ(path);
-            common.printZ("\n");
+            global_common.printError("Error: Script not found: ");
+            global_common.printError(path);
+            global_common.printError("\n");
         }
     }
 }
 
 pub fn runScriptSource(script: []const u8) void {
-     // VALIDATE SYNTAX BEFORE EXECUTION
+    // VALIDATE SYNTAX BEFORE EXECUTION
     if (!validateScript(script)) {
-        common.printZ("Script validation failed. Execution aborted.\n");
+        global_common.printError("Script validation failed. Execution aborted.\n");
         return;
     }
-    
+
     // Reset state before run
     exit_flag = false;
     executeScript(script);
@@ -150,74 +149,74 @@ fn validateScript(script: []const u8) bool {
     var in_quotes: bool = false;
     var line_num: u32 = 1;
     var has_errors: bool = false;
-    
+
     var i: usize = 0;
     while (i < script.len) : (i += 1) {
         const c = script[i];
-        
+
         if (c == '\n') {
             line_num += 1;
             if (in_quotes) {
-                common.printZ("Error: Unclosed quote on line ");
-                common.printNum(@intCast(line_num - 1));
-                common.printZ("\n");
+                global_common.printError("Error: Unclosed quote on line ");
+                global_common.printNum(@intCast(line_num - 1));
+                global_common.printError("\n");
                 has_errors = true;
                 in_quotes = false;
             }
             continue;
         }
-        
+
         if (c == '"') {
             in_quotes = !in_quotes;
             continue;
         }
-        
+
         if (in_quotes) continue;
-        
+
         if (c == '{') brace_depth += 1;
         if (c == '}') {
             brace_depth -= 1;
             if (brace_depth < 0) {
-                common.printZ("Error: Unmatched '}' on line ");
-                common.printNum(@intCast(line_num));
-                common.printZ("\n");
+                global_common.printError("Error: Unmatched '}' on line ");
+                global_common.printNum(@intCast(line_num));
+                global_common.printError("\n");
                 has_errors = true;
                 brace_depth = 0;
             }
         }
-        
+
         if (c == '(') paren_depth += 1;
         if (c == ')') {
             paren_depth -= 1;
             if (paren_depth < 0) {
-                common.printZ("Error: Unmatched ')' on line ");
-                common.printNum(@intCast(line_num));
-                common.printZ("\n");
+                global_common.printError("Error: Unmatched ')' on line ");
+                global_common.printNum(@intCast(line_num));
+                global_common.printError("\n");
                 has_errors = true;
                 paren_depth = 0;
             }
         }
     }
-    
+
     if (brace_depth != 0) {
-        common.printZ("Error: Unclosed '{' - missing ");
-        common.printNum(@intCast(brace_depth));
-        common.printZ(" closing brace(s)\n");
+        global_common.printError("Error: Unclosed '{' - missing ");
+        global_common.printNum(@intCast(brace_depth));
+        global_common.printError(" closing brace(s)\n");
         has_errors = true;
     }
-    
+
     if (paren_depth != 0) {
-        common.printZ("Error: Unclosed '(' - missing ");
-        common.printNum(@intCast(paren_depth));
-        common.printZ(" closing parenthesis\n");
+        global_common.printError("Error: Unclosed '(' - missing ");
+        global_common.printNum(@intCast(paren_depth));
+        global_common.printError(" closing parenthesis\n");
         has_errors = true;
     }
-    
+
     if (in_quotes) {
-        common.printZ("Error: Unclosed quote at end of file\n");
+        global_common.printError("Error: Unclosed quote at end of file\n");
         has_errors = true;
     }
-    
+
     return !has_errors;
 }
 
@@ -234,7 +233,7 @@ fn executeScript(script: []const u8) void {
         if (pos >= script.len) break;
 
         const stmt = parser.parseStatement(script, pos);
-        
+
         if (stmt.cmd_type == .empty) {
             pos = parser.nextStatement(script, pos);
             continue;
@@ -242,18 +241,18 @@ fn executeScript(script: []const u8) void {
 
         if (stmt.cmd_type == .if_stmt) {
             const cond = commands.evaluateCondition(script, stmt);
-            
+
             // Find opening brace {
             var brace_pos = stmt.arg_start + stmt.arg_len;
             while (brace_pos < script.len and script[brace_pos] != '{') : (brace_pos += 1) {}
-            
+
             if (brace_pos >= script.len) {
-                common.printZ("Error: Missing { for if\n");
+                global_common.printError("Error: Missing { for if\n");
                 break;
             }
 
             const end_brace = findMatchingBrace(script, brace_pos + 1);
-            
+
             if (cond) {
                 executeScript(script[brace_pos + 1 .. end_brace]);
                 pos = end_brace + 1;
@@ -278,7 +277,7 @@ fn executeScript(script: []const u8) void {
                         executeScript(script[else_brace_pos + 1 .. else_end_brace]);
                         pos = else_end_brace + 1;
                     } else {
-                       pos = next_pos + 4;
+                        pos = next_pos + 4;
                     }
                 } else {
                     pos = end_brace + 1;
@@ -287,11 +286,13 @@ fn executeScript(script: []const u8) void {
         } else if (stmt.cmd_type == .while_stmt) {
             var brace_pos = stmt.arg_start + stmt.arg_len;
             while (brace_pos < script.len and script[brace_pos] != '{') : (brace_pos += 1) {}
-            if (brace_pos >= script.len) { break; }
-            
+            if (brace_pos >= script.len) {
+                break;
+            }
+
             const end_brace = findMatchingBrace(script, brace_pos + 1);
             const block_content = script[brace_pos + 1 .. end_brace];
-            
+
             while (commands.evaluateCondition(script, stmt) and !exit_flag) {
                 executeScript(block_content);
             }
@@ -317,18 +318,17 @@ fn findMatchingBrace(script: []const u8, start_idx: usize) usize {
     return i;
 }
 
-
 /// Read a single line of input from the keyboard
 fn readLine() void {
     buf_len = 0;
     buf_pos = 0;
     for (&buffer) |*b| b.* = 0;
     history_index = history_count;
-    
+
     prompt_row = vga.zig_get_cursor_row();
     prompt_col = vga.zig_get_cursor_col();
     refreshLine(); // Initial draw of status bar
-    
+
     while (true) {
         const key = keyboard.keyboard_wait_char();
 
@@ -338,7 +338,7 @@ fn readLine() void {
             buf_pos = 0;
             return;
         }
-        
+
         if (key != 9) auto_cycling = false;
 
         if (key == 10 or key == 13) { // Enter
@@ -430,7 +430,7 @@ fn readLine() void {
                 refreshLine();
             }
         } else if (key == 27) { // ESC
-             // Clear line?
+            // Clear line?
         }
     }
 }
@@ -446,8 +446,8 @@ fn loadHistory() void {
 fn saveToHistory() void {
     if (history_count == HISTORY_SIZE) {
         for (0..HISTORY_SIZE - 1) |i| {
-            history[i] = history[i+1];
-            history_lens[i] = history_lens[i+1];
+            history[i] = history[i + 1];
+            history_lens[i] = history_lens[i + 1];
         }
         history_count -= 1;
     }
@@ -493,7 +493,7 @@ fn autocomplete() void {
 
     const match_to_pick = auto_match_index % total_matches;
     var current_match_idx: usize = 0;
-    
+
     for (NOVA_KEYWORDS) |kw| {
         if (global_common.startsWithIgnoreCase(kw, current_prefix)) {
             if (current_match_idx == match_to_pick) {
@@ -514,7 +514,7 @@ fn autocomplete() void {
 
 fn refreshLine() void {
     const saved_pos = buf_pos;
-    
+
     // VGA Update
     vga.zig_set_cursor(prompt_row, prompt_col);
     {
@@ -526,16 +526,19 @@ fn refreshLine() void {
             const idx = @as(usize, row) * 80 + col;
             vga.VIDEO_MEMORY[idx] = vga.DEFAULT_ATTR | ' ';
             col += 1;
-            if (col >= 80) { col = 0; row += 1; }
+            if (col >= 80) {
+                col = 0;
+                row += 1;
+            }
         }
     }
-    
+
     vga.zig_set_cursor(prompt_row, prompt_col);
     const row_before = vga.zig_get_cursor_row();
     for (buffer[0..buf_len]) |c| vga.zig_print_char(c);
     const row_after = vga.zig_get_cursor_row();
     if (row_after < row_before and prompt_row > 0) prompt_row -= 1;
-    
+
     // Serial Update
     serial.serial_hide_cursor();
     serial.serial_set_cursor(prompt_row, prompt_col);
@@ -551,10 +554,10 @@ fn refreshLine() void {
     vga.VIDEO_MEMORY[80 - 13] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'A';
     vga.VIDEO_MEMORY[80 - 12] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'P';
     vga.VIDEO_MEMORY[80 - 11] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'S';
-    
-    vga.VIDEO_MEMORY[80 - 9]  = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'N';
-    vga.VIDEO_MEMORY[80 - 8]  = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'U';
-    vga.VIDEO_MEMORY[80 - 7]  = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'M';
+
+    vga.VIDEO_MEMORY[80 - 9] = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'N';
+    vga.VIDEO_MEMORY[80 - 8] = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'U';
+    vga.VIDEO_MEMORY[80 - 7] = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'M';
 
     const attr = @as(u16, 0x0E00);
     const status = if (insert_mode) " INS " else " OVR ";
@@ -564,7 +567,10 @@ fn refreshLine() void {
 fn moveScreenCursor() void {
     var new_col = @as(u16, prompt_col) + buf_pos;
     var new_row = prompt_row;
-    while (new_col >= 80) { new_col -= 80; new_row += 1; }
+    while (new_col >= 80) {
+        new_col -= 80;
+        new_row += 1;
+    }
     vga.zig_set_cursor(@intCast(new_row), @intCast(new_col));
 }
 

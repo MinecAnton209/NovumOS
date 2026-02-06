@@ -1,4 +1,4 @@
-; NewOS Kernel - 32-bit Protected Mode
+; NovumOS Kernel - 32-bit Protected Mode
 ; Main entry point and module includes
 [bits 32]
 

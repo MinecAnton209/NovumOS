@@ -1,4 +1,4 @@
-; NewOS Bootloader - 16-bit Real Mode (LBA Support)
+; NovumOS Bootloader - 16-bit Real Mode (LBA Support)
 [bits 16]
 [org 0x7c00]
 

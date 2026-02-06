@@ -1,4 +1,4 @@
-// NewOS Kernel - Main Zig Module
+// NovumOS Kernel - Main Zig Module
 // Entry point for the Zig portion of the kernel and panic handler.
 
 const shell_cmds = @import("shell_cmds.zig");

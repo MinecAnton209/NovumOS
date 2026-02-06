@@ -15,7 +15,7 @@ pub fn lsdsk() void {
         if (total_sectors > 0) {
             common.printNum(@intCast(drive_idx));
             common.printZ("   | ");
-            
+
             const size_mb = (total_sectors * 512) / (1024 * 1024);
             common.printNum(@intCast(size_mb));
             common.printZ("       | ");
@@ -38,7 +38,7 @@ pub fn lsdsk() void {
             } else {
                 common.printZ("None               ");
             }
-            
+
             common.printZ("| ");
             if (drive_idx == 0) {
                 common.printZ("System\n");
@@ -65,7 +65,7 @@ pub fn mkfs_fat12(drive_num: u8) void {
         return;
     }
 
-    // FAT12 Limit: ~4084 clusters. With 8 sectors per cluster (4KB), 
+    // FAT12 Limit: ~4084 clusters. With 8 sectors per cluster (4KB),
     // max size is roughly 16MB.
     if (total_sectors > 32768) { // 32768 sectors * 512 bytes = 16MB
         common.printZ("Error: Disk too large for FAT12 (Max 16MB)\n");
@@ -84,16 +84,19 @@ pub fn mkfs_fat12(drive_num: u8) void {
     boot_sector[2] = 0x90;
 
     // OEM Name
-    const oem = "NEWOS   ";
-    for (oem, 0..) |c, i| boot_sector[3+i] = c;
+    const oem = "NOVUMOS ";
+    for (oem, 0..) |c, i| boot_sector[3 + i] = c;
 
     // BPB
-    boot_sector[11] = 0x00; boot_sector[12] = 0x02; // Bytes per sector (512)
+    boot_sector[11] = 0x00;
+    boot_sector[12] = 0x02; // Bytes per sector (512)
     boot_sector[13] = 0x08; // Sectors per cluster (8 -> 4KB)
-    boot_sector[14] = 0x01; boot_sector[15] = 0x00; // Reserved sectors (1)
+    boot_sector[14] = 0x01;
+    boot_sector[15] = 0x00; // Reserved sectors (1)
     boot_sector[16] = 0x02; // Number of FATs (2)
-    boot_sector[17] = 0xE0; boot_sector[18] = 0x00; // Root entry count (224)
-    
+    boot_sector[17] = 0xE0;
+    boot_sector[18] = 0x00; // Root entry count (224)
+
     if (total_sectors < 65536) {
         boot_sector[19] = @intCast(total_sectors & 0xFF);
         boot_sector[20] = @intCast((total_sectors >> 8) & 0xFF);
@@ -107,24 +110,30 @@ pub fn mkfs_fat12(drive_num: u8) void {
     }
 
     boot_sector[21] = 0xF8; // Media descriptor (Hard Disk)
-    
+
     // Sectors per FAT (rough estimate for FAT12)
     // Max FAT12 clusters ~ 4084. 4084 * 1.5 = 6126 bytes = 12 sectors.
-    boot_sector[22] = 0x0C; boot_sector[23] = 0x00; // 12 sectors per FAT
+    boot_sector[22] = 0x0C;
+    boot_sector[23] = 0x00; // 12 sectors per FAT
 
-    boot_sector[24] = 0x20; boot_sector[25] = 0x00; // Sectors per track (32)
-    boot_sector[26] = 0x40; boot_sector[27] = 0x00; // Heads (64)
-    
+    boot_sector[24] = 0x20;
+    boot_sector[25] = 0x00; // Sectors per track (32)
+    boot_sector[26] = 0x40;
+    boot_sector[27] = 0x00; // Heads (64)
+
     // EBPB
     boot_sector[36] = 0x80; // Drive number
     boot_sector[38] = 0x29; // Signature
-    boot_sector[39] = 0x78; boot_sector[40] = 0x56; boot_sector[41] = 0x34; boot_sector[42] = 0x12; // Serial
+    boot_sector[39] = 0x78;
+    boot_sector[40] = 0x56;
+    boot_sector[41] = 0x34;
+    boot_sector[42] = 0x12; // Serial
 
-    const label = "NEWOS FAT12";
-    for (label, 0..) |c, i| boot_sector[43+i] = c;
+    const label = "NOVUMOS FAT12";
+    for (label, 0..) |c, i| boot_sector[43 + i] = c;
 
     const fstype = "FAT12   ";
-    for (fstype, 0..) |c, i| boot_sector[54+i] = c;
+    for (fstype, 0..) |c, i| boot_sector[54 + i] = c;
 
     boot_sector[510] = 0x55;
     boot_sector[511] = 0xAA;
@@ -192,21 +201,26 @@ pub fn mkfs_fat16(drive_num: u8) void {
 
     var boot_sector: [512]u8 = [_]u8{0} ** 512;
 
-    boot_sector[0] = 0xEB; boot_sector[1] = 0x3C; boot_sector[2] = 0x90;
-    const oem = "NEWOS   ";
-    for (oem, 0..) |c, i| boot_sector[3+i] = c;
+    boot_sector[0] = 0xEB;
+    boot_sector[1] = 0x3C;
+    boot_sector[2] = 0x90;
+    const oem = "NOVUMOS ";
+    for (oem, 0..) |c, i| boot_sector[3 + i] = c;
 
-    boot_sector[11] = 0x00; boot_sector[12] = 0x02; // 512 bytes per sector
-    
+    boot_sector[11] = 0x00;
+    boot_sector[12] = 0x02; // 512 bytes per sector
+
     // Choose sectors per cluster based on size
     var spc: u8 = 8; // 4KB
     if (total_sectors > 1048576) spc = 32; // > 512MB, use 16KB clusters
     if (total_sectors > 2097152) spc = 64; // > 1GB, use 32KB clusters
     boot_sector[13] = spc;
 
-    boot_sector[14] = 0x01; boot_sector[15] = 0x00; // 1 reserved sector
+    boot_sector[14] = 0x01;
+    boot_sector[15] = 0x00; // 1 reserved sector
     boot_sector[16] = 0x02; // 2 FATs
-    boot_sector[17] = 0x00; boot_sector[18] = 0x02; // 512 root entries
+    boot_sector[17] = 0x00;
+    boot_sector[18] = 0x02; // 512 root entries
 
     if (total_sectors < 65536) {
         boot_sector[19] = @intCast(total_sectors & 0xFF);
@@ -228,24 +242,32 @@ pub fn mkfs_fat16(drive_num: u8) void {
     boot_sector[22] = @intCast(fat_size & 0xFF);
     boot_sector[23] = @intCast((fat_size >> 8) & 0xFF);
 
-    boot_sector[24] = 0x20; boot_sector[25] = 0x00;
-    boot_sector[26] = 0x40; boot_sector[27] = 0x00;
+    boot_sector[24] = 0x20;
+    boot_sector[25] = 0x00;
+    boot_sector[26] = 0x40;
+    boot_sector[27] = 0x00;
     boot_sector[36] = 0x80;
     boot_sector[38] = 0x29;
-    boot_sector[39] = 0xEF; boot_sector[40] = 0xBE; boot_sector[41] = 0xAD; boot_sector[42] = 0xDE;
+    boot_sector[39] = 0xEF;
+    boot_sector[40] = 0xBE;
+    boot_sector[41] = 0xAD;
+    boot_sector[42] = 0xDE;
 
-    const label = "NEWOS FAT16";
-    for (label, 0..) |c, i| boot_sector[43+i] = c;
+    const label = "NOVUMOS FAT16";
+    for (label, 0..) |c, i| boot_sector[43 + i] = c;
     const fstype = "FAT16   ";
-    for (fstype, 0..) |c, i| boot_sector[54+i] = c;
+    for (fstype, 0..) |c, i| boot_sector[54 + i] = c;
 
-    boot_sector[510] = 0x55; boot_sector[511] = 0xAA;
+    boot_sector[510] = 0x55;
+    boot_sector[511] = 0xAA;
 
     ata.write_sector(drive, 0, &boot_sector);
 
     var fat_start: [512]u8 = [_]u8{0} ** 512;
-    fat_start[0] = 0xF8; fat_start[1] = 0xFF;
-    fat_start[2] = 0xFF; fat_start[3] = 0xFF;
+    fat_start[0] = 0xF8;
+    fat_start[1] = 0xFF;
+    fat_start[2] = 0xFF;
+    fat_start[3] = 0xFF;
 
     common.printZ("Initializing FAT tables...\n");
     var zero_sector: [512]u8 = [_]u8{0} ** 512;

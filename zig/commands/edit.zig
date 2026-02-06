@@ -35,7 +35,7 @@ pub fn execute(name: []const u8) void {
     is_modified = false;
     filename_len = @min(name.len, 31);
     for (0..filename_len) |i| filename[i] = name[i];
-    
+
     // 2. Load from disk
     if (common.selected_disk >= 0) {
         const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
@@ -49,7 +49,7 @@ pub fn execute(name: []const u8) void {
     vga.save_screen_buffer();
     vga.clear_screen();
     serial.serial_clear_screen();
-    
+
     var last_cursor_pos: usize = 9999;
     var last_buf_len: usize = 9999;
     var last_viewport_top: usize = 9999;
@@ -71,14 +71,14 @@ pub fn execute(name: []const u8) void {
         const ctrl = keyboard.keyboard_get_ctrl();
 
         if (char != 0 and char != keyboard.KEY_CAPS and char != keyboard.KEY_NUM) {
-             if (!(ctrl and char == 's')) status_len = 0;
+            if (!(ctrl and char == 's')) status_len = 0;
         }
 
         // Support both hardware Ctrl and ASCII control chars from serial
         const is_save = (ctrl and (char == 's' or char == 'S')) or char == 19; // Ctrl+S
         const is_quit = (ctrl and (char == 'q' or char == 'Q')) or char == 17 or char == 3; // Ctrl+Q or Ctrl+C
-        const is_cut  = (ctrl and (char == 'k' or char == 'K')) or char == 11; // Ctrl+K
-        const is_paste= (ctrl and (char == 'u' or char == 'U')) or char == 21; // Ctrl+U
+        const is_cut = (ctrl and (char == 'k' or char == 'K')) or char == 11; // Ctrl+K
+        const is_paste = (ctrl and (char == 'u' or char == 'U')) or char == 21; // Ctrl+U
 
         if (is_save) {
             save_file();
@@ -95,7 +95,7 @@ pub fn execute(name: []const u8) void {
             }
             break;
         }
-        
+
         if (is_cut) {
             cut_line();
             continue;
@@ -128,7 +128,7 @@ pub fn execute(name: []const u8) void {
         } else if (char == 8 or char == 127) { // Backspace
             if (cursor_pos > 0) {
                 var i = cursor_pos - 1;
-                while (i < buf_len - 1) : (i += 1) buffer[i] = buffer[i+1];
+                while (i < buf_len - 1) : (i += 1) buffer[i] = buffer[i + 1];
                 buffer[buf_len - 1] = 0;
                 buf_len -= 1;
                 cursor_pos -= 1;
@@ -137,7 +137,7 @@ pub fn execute(name: []const u8) void {
         } else if (char == keyboard.KEY_DELETE) {
             if (cursor_pos < buf_len) {
                 var i = cursor_pos;
-                while (i < buf_len - 1) : (i += 1) buffer[i] = buffer[i+1];
+                while (i < buf_len - 1) : (i += 1) buffer[i] = buffer[i + 1];
                 buffer[buf_len - 1] = 0;
                 buf_len -= 1;
                 is_modified = true;
@@ -156,31 +156,31 @@ pub fn execute(name: []const u8) void {
 fn draw_ui() void {
     const attr_bar = 0x7000;
     for (0..80) |i| vga.VIDEO_MEMORY[i] = attr_bar | @as(u16, ' ');
-    draw_text_at(0, 1, "NewOS Editor - ", attr_bar);
+    draw_text_at(0, 1, "NovumOS Editor - ", attr_bar);
     draw_text_at(0, 16, filename[0..filename_len], attr_bar);
     if (is_modified) draw_text_at(0, 16 + filename_len, " [*]", attr_bar);
-    
+
     // Position indicator
     const coords = get_cursor_coords(cursor_pos);
     var pos_buf: [20]u8 = undefined;
-    const pos_str = common.fmt_to_buf(&pos_buf, "L: {d} C: {d}", .{coords.r, coords.c});
+    const pos_str = common.fmt_to_buf(&pos_buf, "L: {d} C: {d}", .{ coords.r, coords.c });
     draw_text_at(0, 45, pos_str, attr_bar);
 
     for (0..80) |i| vga.VIDEO_MEMORY[24 * 80 + i] = attr_bar | @as(u16, ' ');
     draw_text_at(24, 1, "^S Save ^Q Exit ^K Cut ^U Paste", attr_bar);
 
     if (status_len > 0) draw_text_at(24, 40, current_status[0..status_len], 0x7E00);
-    
+
     // Serial UI sync
     serial.serial_set_cursor(0, 0);
     serial.serial_set_color(0); // Black bg
-    serial.serial_print_str("NewOS Editor - ");
+    serial.serial_print_str("NovumOS Editor - ");
     serial.serial_print_str(filename[0..filename_len]);
     if (is_modified) serial.serial_print_str(" [*]");
     serial.serial_print_str("    ");
     serial.serial_print_str(pos_str);
     serial.serial_clear_line();
-    
+
     serial.serial_set_cursor(24, 0);
     serial.serial_print_str("^S Save ^Q Exit ^K Cut ^U Paste");
     if (status_len > 0) {
@@ -215,9 +215,9 @@ fn draw_content() void {
     var r: usize = 1;
     var c: usize = 0;
     var i: usize = 0;
-    
+
     serial.serial_set_color(7); // White fg
-    
+
     var last_draw_r: usize = 999;
     i = 0;
     r = 1;
@@ -228,7 +228,7 @@ fn draw_content() void {
             const draw_r = cur_screen_row - viewport_top + 1;
             if (i < buf_len and buffer[i] != '\n') {
                 vga.VIDEO_MEMORY[draw_r * 80 + c] = 0x0F00 | @as(u16, buffer[i]);
-                
+
                 // Serial draw optimization: only set cursor if we moved to a new line
                 if (draw_r != last_draw_r) {
                     serial.serial_set_cursor(@intCast(draw_r), @intCast(c));
@@ -241,19 +241,21 @@ fn draw_content() void {
 
         if (i == buf_len) break;
         if (buffer[i] == '\n') {
-            r += 1; c = 0;
+            r += 1;
+            c = 0;
         } else {
             c += 1;
             if (c >= COLS) {
                 if (r - 1 >= viewport_top and r - 1 < viewport_top + ROWS) {
                     vga.VIDEO_MEMORY[(r - viewport_top + 1) * 80 + 79] = 0x081A;
                 }
-                c = 0; r += 1;
+                c = 0;
+                r += 1;
             }
         }
         if (r - 1 >= viewport_top + ROWS) break;
     }
-    
+
     const final_r = coords.r - 1 - viewport_top + 1;
     vga.zig_set_cursor(@intCast(final_r), @intCast(coords.c));
     serial.serial_set_cursor(@intCast(final_r), @intCast(coords.c));
@@ -296,10 +298,12 @@ fn insert_char(c: u8) void {
     if (buf_len >= MAX_BUF - 1) return;
     if (insert_mode or cursor_pos == buf_len) {
         var i = buf_len;
-        while (i > cursor_pos) : (i -= 1) buffer[i] = buffer[i-1];
+        while (i > cursor_pos) : (i -= 1) buffer[i] = buffer[i - 1];
         buffer[cursor_pos] = c;
         buf_len += 1;
-    } else { buffer[cursor_pos] = c; }
+    } else {
+        buffer[cursor_pos] = c;
+    }
     cursor_pos += 1;
 }
 
@@ -320,7 +324,8 @@ fn status_msg(msg: []const u8) void {
 
 const ExitChoice = enum { Save, DontSave, Cancel };
 fn show_exit_dialog() ExitChoice {
-    const box_row = 10; const box_col = 15;
+    const box_row = 10;
+    const box_col = 15;
     for (box_row..box_row + 6) |r| {
         for (box_col..box_col + 50) |c| vga.VIDEO_MEMORY[r * 80 + c] = 0x1F00 | @as(u16, ' ');
     }
@@ -328,7 +333,7 @@ fn show_exit_dialog() ExitChoice {
     draw_text_at(box_row + 3, box_col + 2, "^S: Save & Exit", 0x1F00);
     draw_text_at(box_row + 4, box_col + 2, "^X: Discard", 0x1F00);
     draw_text_at(box_row + 4, box_col + 30, "Esc: Cancel", 0x1F00);
-    
+
     // Serial dialog
     serial.serial_set_cursor(box_row, box_col);
     serial.serial_print_str("[ FILE MODIFIED! SAVE CHANGES? ]");
@@ -362,24 +367,45 @@ fn move_end() void {
 }
 
 fn get_cursor_coords(pos: usize) struct { r: usize, c: usize } {
-    var r: usize = 1; var c: usize = 0; var i: usize = 0;
+    var r: usize = 1;
+    var c: usize = 0;
+    var i: usize = 0;
     while (i < pos) : (i += 1) {
-        if (buffer[i] == '\n') { r += 1; c = 0; }
-        else { c += 1; if (c >= COLS) { c = 0; r += 1; } }
+        if (buffer[i] == '\n') {
+            r += 1;
+            c = 0;
+        } else {
+            c += 1;
+            if (c >= COLS) {
+                c = 0;
+                r += 1;
+            }
+        }
     }
     return .{ .r = r, .c = c };
 }
 
 fn get_pos_from_coords(target_r: usize, target_c: usize) usize {
-    var r: usize = 1; var c: usize = 0; var i: usize = 0;
+    var r: usize = 1;
+    var c: usize = 0;
+    var i: usize = 0;
     while (i < buf_len and r < target_r) : (i += 1) {
-        if (buffer[i] == '\n') { r += 1; c = 0; }
-        else { c += 1; if (c >= COLS) { c = 0; r += 1; } }
+        if (buffer[i] == '\n') {
+            r += 1;
+            c = 0;
+        } else {
+            c += 1;
+            if (c >= COLS) {
+                c = 0;
+                r += 1;
+            }
+        }
     }
     if (r < target_r) return i;
     while (i < buf_len and r == target_r and c < target_c) : (i += 1) {
         if (buffer[i] == '\n') break;
-        c += 1; if (c >= COLS) break;
+        c += 1;
+        if (c >= COLS) break;
     }
     return i;
 }

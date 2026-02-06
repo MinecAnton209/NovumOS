@@ -1,4 +1,4 @@
-// Keyboard interrupt handler for NewOS
+// Keyboard interrupt handler for NovumOS
 const std = @import("std");
 
 // Keyboard buffer

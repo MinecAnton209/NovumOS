@@ -1,4 +1,4 @@
-/* Linker script for NewOS kernel */
+/* Linker script for NovumOS kernel */
 OUTPUT_FORMAT(elf32-i386)
 ENTRY(start)
 

@@ -1,8 +1,8 @@
 @echo off
 
 :: Ensure base image exists
-if not exist NewOS.img (
-    echo NewOS.img not found. Running build-img.bat...
+if not exist NovumOS.img (
+    echo NovumOS.img not found. Running build-img.bat...
     call build-img.bat
     if errorlevel 1 exit /b 1
 )
@@ -19,12 +19,12 @@ if not exist tools\mkiso.exe (
 )
 
 :: Run Tool
-echo Creating NewOS.iso...
-tools\mkiso.exe NewOS.img NewOS.iso
+echo Creating NovumOS.iso...
+tools\mkiso.exe NovumOS.img NovumOS.iso
 if %errorlevel% neq 0 (
     echo Error creating ISO!
     pause
     exit /b 1
 )
 
-echo Success! Created NewOS.iso
+echo Success! Created NovumOS.iso

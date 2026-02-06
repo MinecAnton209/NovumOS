@@ -2,10 +2,9 @@
 // Provides shared logic for printing, system control, and file system access.
 
 const fs = @import("../fs.zig");
-const vga = @import("../drivers/vga.zig");
+pub const vga = @import("../drivers/vga.zig");
 const timer = @import("../drivers/timer.zig");
 const acpi = @import("../drivers/acpi.zig");
-
 
 const serial = @import("../drivers/serial.zig");
 
@@ -19,8 +18,20 @@ pub var redirect_active: bool = false;
 pub var redirect_buffer: [32768]u8 = undefined;
 pub var redirect_pos: usize = 0;
 
+pub var pipe_active: bool = false;
+pub var pipe_buffer: [16384]u8 = [_]u8{0} ** 16384;
+pub var pipe_pos: usize = 0;
+pub var pipe_read_active: bool = false;
+
 /// Low-level character output
 pub fn print_char(c: u8) void {
+    if (pipe_active) {
+        if (pipe_pos < pipe_buffer.len) {
+            pipe_buffer[pipe_pos] = c;
+            pipe_pos += 1;
+        }
+        return;
+    }
     if (redirect_active) {
         if (redirect_pos < redirect_buffer.len) {
             redirect_buffer[redirect_pos] = c;
@@ -38,6 +49,13 @@ pub fn printZ(str: []const u8) void {
         if (c == 0) break;
         print_char(c);
     }
+}
+
+/// Print an error message in red
+pub fn printError(str: []const u8) void {
+    vga.set_color(12, 0); // Red
+    printZ(str);
+    vga.reset_color();
 }
 
 /// Print a signed 32-bit integer to the console
@@ -66,15 +84,15 @@ pub fn printHex(val: u32) void {
 
 // --- File System Interface ---
 // Re-export core fs functions for easy access by shell commands
-pub const fs_init    = fs.fs_init;
-pub const fs_create  = fs.fs_create;
-pub const fs_delete  = fs.fs_delete;
-pub const fs_find    = fs.fs_find;
-pub const fs_list    = fs.fs_list;
+pub const fs_init = fs.fs_init;
+pub const fs_create = fs.fs_create;
+pub const fs_delete = fs.fs_delete;
+pub const fs_find = fs.fs_find;
+pub const fs_list = fs.fs_list;
 pub const fs_getname = fs.fs_getname;
-pub const fs_size    = fs.fs_size;
-pub const fs_read    = fs.fs_read;
-pub const fs_write   = fs.fs_write;
+pub const fs_size = fs.fs_size;
+pub const fs_read = fs.fs_read;
+pub const fs_write = fs.fs_write;
 
 // --- System Control (I/O Ports) ---
 
@@ -117,7 +135,7 @@ pub fn reboot() noreturn {
     printZ("Rebooting...\r\n");
     // Pulse CPU reset line (FE code to command port 64h)
     outb(0x64, 0xFE);
-    while(true) {}
+    while (true) {}
 }
 
 /// Shutdown the system using ACPI
@@ -135,8 +153,7 @@ var rnd_state: u32 = 0xACE1;
 pub fn seed_random_with_tsc() void {
     var low: u32 = undefined;
     var high: u32 = undefined;
-    asm volatile (
-        "rdtsc"
+    asm volatile ("rdtsc"
         : [low] "={eax}" (low),
           [high] "={edx}" (high),
     );
@@ -154,9 +171,15 @@ pub fn get_random(min_v: i32, max_v: i32) i32 {
     return @as(i32, @intCast(@mod(rnd_state, range))) + min_v;
 }
 
-pub fn math_abs(n: i32) i32 { return if (n < 0) -n else n; }
-pub fn math_max(a: i32, b: i32) i32 { return if (a > b) a else b; }
-pub fn math_min(a: i32, b: i32) i32 { return if (a < b) a else b; }
+pub fn math_abs(n: i32) i32 {
+    return if (n < 0) -n else n;
+}
+pub fn math_max(a: i32, b: i32) i32 {
+    return if (a > b) a else b;
+}
+pub fn math_min(a: i32, b: i32) i32 {
+    return if (a < b) a else b;
+}
 
 /// Check if two memory slices are equal
 pub fn std_mem_eql(a: []const u8, b: []const u8) bool {
@@ -184,7 +207,7 @@ pub fn startsWith(a: []const u8, b: []const u8) bool {
 
 pub fn endsWith(a: []const u8, b: []const u8) bool {
     if (a.len < b.len) return false;
-    return std_mem_eql(a[a.len - b.len..], b);
+    return std_mem_eql(a[a.len - b.len ..], b);
 }
 
 pub fn lastIndexOf(slice: []const u8, c: u8) ?usize {
@@ -300,13 +323,19 @@ pub fn fmt_to_buf(buf: []u8, comptime fmt: []const u8, args: anytype) []const u8
 fn fmtIntToBuf(buf: []u8, n_in: anytype) usize {
     var n: i32 = @intCast(n_in);
     if (n == 0) {
-        if (buf.len > 0) { buf[0] = '0'; return 1; }
+        if (buf.len > 0) {
+            buf[0] = '0';
+            return 1;
+        }
         return 0;
     }
-    
+
     var len: usize = 0;
     if (n < 0) {
-        if (buf.len > 0) { buf[0] = '-'; len = 1; }
+        if (buf.len > 0) {
+            buf[0] = '-';
+            len = 1;
+        }
         n = -n;
     }
 

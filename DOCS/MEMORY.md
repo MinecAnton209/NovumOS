@@ -1,6 +1,6 @@
-# NewOS Memory Architecture (v0.18)
+# NovumOS Memory Architecture (v0.18)
 
-This document describes the high-performance memory management and paging system implemented in NewOS.
+This document describes the high-performance memory management and paging system implemented in NovumOS.
 
 ---
 
@@ -25,7 +25,7 @@ The kernel uses **BIOS CMOS** registers (`0x30/31` and `0x34/35`) to detect avai
 ## ⚡ Virtual Memory & Paging
 
 ### Huge Pages (PSE)
-NewOS utilizes **Page Size Extensions (PSE)** to enable **4 MB Huge Pages**.
+NovumOS utilizes **Page Size Extensions (PSE)** to enable **4 MB Huge Pages**.
 - **Efficiency:** Drastically reduces the number of Page Table Entries (PTEs) and TLB pressure.
 - **Implementation:** The Page Directory Entries (PDE) for most RAM regions have the **PS (Bit 7)** bit set.
 - **Granularity:** The first 4 MB remain mapped using standard **4 KB pages** to allow for precise **NULL-page protection** (0x0 is marked not-present).

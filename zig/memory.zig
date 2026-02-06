@@ -1,4 +1,4 @@
-// NewOS Memory Management Module - Advanced Edition
+// NovumOS Memory Management Module - Advanced Edition
 const common = @import("commands/common.zig");
 const config = @import("config.zig");
 

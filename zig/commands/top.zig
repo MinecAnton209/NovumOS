@@ -11,7 +11,7 @@ pub fn cmd_top() void {
         // Move cursor to top-left (assuming 0,0 is start of VGA)
         vga.zig_set_cursor(0, 0);
 
-        common.printZ("=== NewOS CPU Monitor (TOP) ===\n");
+        common.printZ("=== NovumOS CPU Monitor (TOP) ===\n");
         common.printZ("Cores Online: ");
         common.printNum(@intCast(smp.detected_cores));
         common.printZ(" | Press 'q' to exit\n\n");

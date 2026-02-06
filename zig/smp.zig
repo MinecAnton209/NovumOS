@@ -203,7 +203,7 @@ pub fn get_cpu_info() CpuInfo {
 }
 
 pub fn init() void {
-    common.printZ("SMP: Initializing Balancing SMP...\n");
+    // common.printZ("SMP: Initializing Balancing SMP...\n");
 
     const tramp_ptr = @as([*]u8, @ptrFromInt(TRAMPOLINE_ADDR));
     @memcpy(tramp_ptr[0..trampoline_bin.len], trampoline_bin);
@@ -219,14 +219,14 @@ pub fn init() void {
     var lapic_base = acpi.lapic_addr;
     if (lapic_base == 0) {
         lapic_base = 0xFEE00000;
-        common.printZ("SMP: MADT not found, using default 0xFEE00000\n");
+        // common.printZ("SMP: MADT not found, using default 0xFEE00000\n");
         detected_cores = 1;
     } else {
         detected_cores = acpi.madt_core_count;
     }
 
     if (!memory.map_page(lapic_base)) {
-        common.printZ("SMP: Failed to map LAPIC memory!\n");
+        // common.printZ("SMP: Failed to map LAPIC memory!\n");
         return;
     }
 
@@ -250,11 +250,11 @@ pub fn init() void {
 
         const last_flag = flag_ptr.*;
 
-        common.printZ("SMP: Booting Core Index ");
-        common.printNum(@intCast(ap_count + 1));
-        common.printZ(" (LAPIC ID ");
-        common.printNum(@intCast(id));
-        common.printZ(")...\n");
+        // common.printZ("SMP: Booting Core Index ");
+        // common.printNum(@intCast(ap_count + 1));
+        // common.printZ(" (LAPIC ID ");
+        // common.printNum(@intCast(id));
+        // common.printZ(")...\n");
 
         lapic[0x310 / 4] = @as(u32, id) << 24;
         lapic[0x300 / 4] = 0x00004608;
@@ -270,8 +270,8 @@ pub fn init() void {
         }
     }
 
-    const online = get_online_cores();
-    common.printZ("SMP: Status: ");
-    common.printNum(@intCast(online));
-    common.printZ(" cores integrated.\n");
+    // const online = get_online_cores();
+    // common.printZ("SMP: Status: ");
+    // common.printNum(@intCast(online));
+    // common.printZ(" cores integrated.\n");
 }

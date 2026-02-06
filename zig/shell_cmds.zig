@@ -22,6 +22,10 @@ const exceptions = @import("exceptions.zig");
 const memory = @import("memory.zig");
 const cpuinfo = @import("commands/cpuinfo.zig");
 const smp = @import("smp.zig");
+const vga = @import("drivers/vga.zig");
+
+var viewer_buffer: [16384]u8 = undefined;
+var viewer_lines: [1024]struct { start: usize, len: usize, original_num: usize } = undefined;
 
 extern fn shell_clear_history() void;
 
@@ -108,7 +112,7 @@ pub export fn cmd_ls(args_ptr: [*]const u8, args_len: u32) void {
                 }
             }
         } else {
-            common.printZ("Error: Disk not formatted\n");
+            common.printError("Error: Disk not formatted\n");
         }
     }
 }
@@ -129,7 +133,7 @@ pub export fn cmd_cat(name_ptr: [*]const u8, name_len: u32) void {
         const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
         if (fat.read_bpb(drive)) |bpb| {
             if (!fat.stream_to_console(drive, bpb, common.current_dir_cluster, name)) {
-                common.printZ("Error: File not found\n");
+                common.printError("Error: File not found\n");
             }
         }
     }
@@ -151,10 +155,10 @@ pub export fn cmd_touch(name_ptr: [*]const u8, name_len: u32) void {
         const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
         if (fat.read_bpb(drive)) |bpb| {
             if (!fat.write_file(drive, bpb, common.current_dir_cluster, name, "")) {
-                common.printZ("Error: Failed to create file on disk\n");
+                common.printError("Error: Failed to create file on disk\n");
             }
         } else {
-            common.printZ("Error: Disk not formatted\n");
+            common.printError("Error: Disk not formatted\n");
         }
     }
 }
@@ -196,7 +200,7 @@ pub export fn cmd_rm(args_ptr: [*]const u8, args_len: u32) void {
     }
 
     if (target.len == 0) {
-        common.printZ("Error: No target specified\n");
+        common.printError("Error: No target specified\n");
         return;
     }
 
@@ -251,12 +255,12 @@ pub export fn cmd_rm(args_ptr: [*]const u8, args_len: u32) void {
                     fat.delete_all_in_directory(drive, bpb, res.cluster, recursive, delete_dirs, prefix);
                     common.printZ("Target contents deleted.\n");
                 } else {
-                    common.printZ("Error: Not a directory: ");
+                    common.printError("Error: Not a directory: ");
                     common.printZ(wildcard_dir_path);
                     common.printZ("\n");
                 }
             } else {
-                common.printZ("Error: Directory not found: ");
+                common.printError("Error: Directory not found: ");
                 common.printZ(wildcard_dir_path);
                 common.printZ("\n");
             }
@@ -269,20 +273,20 @@ pub export fn cmd_rm(args_ptr: [*]const u8, args_len: u32) void {
                 const parent_path = if (idx == 0) "/" else target[0..idx];
                 final_name = target[idx + 1 ..];
                 if (final_name.len == 0) {
-                    common.printZ("Error: Invalid target name\n");
+                    common.printError("Error: Invalid target name\n");
                     return;
                 }
                 if (fat.resolve_full_path(drive, bpb, common.current_dir_cluster, common.current_path[0..common.current_path_len], parent_path)) |res| {
                     if (res.is_dir) {
                         parent_cluster = res.cluster;
                     } else {
-                        common.printZ("Error: Not a directory: ");
+                        common.printError("Error: Not a directory: ");
                         common.printZ(parent_path);
                         common.printZ("\n");
                         return;
                     }
                 } else {
-                    common.printZ("Error: Parent path not found: ");
+                    common.printError("Error: Parent path not found: ");
                     common.printZ(parent_path);
                     common.printZ("\n");
                     return;
@@ -295,13 +299,13 @@ pub export fn cmd_rm(args_ptr: [*]const u8, args_len: u32) void {
                     common.printZ(target);
                     common.printZ("\n");
                 } else {
-                    common.printZ("Error: Failed to delete directory (not empty? use -r)\n");
+                    common.printError("Error: Failed to delete directory (not empty? use -r)\n");
                 }
             } else {
                 // Check if it's a directory before deleting as file
                 if (fat.find_entry(drive, bpb, parent_cluster, final_name)) |entry| {
                     if ((entry.attr & 0x10) != 0) {
-                        common.printZ("Error: Target is a directory (use -d)\n");
+                        common.printError("Error: Target is a directory (use -d)\n");
                         return;
                     }
                 }
@@ -311,7 +315,7 @@ pub export fn cmd_rm(args_ptr: [*]const u8, args_len: u32) void {
                     common.printZ(target);
                     common.printZ("\n");
                 } else {
-                    common.printZ("Error: File not found\n");
+                    common.printError("Error: File not found\n");
                 }
             }
         }
@@ -320,7 +324,12 @@ pub export fn cmd_rm(args_ptr: [*]const u8, args_len: u32) void {
 
 /// Execute 'echo' command to print text
 pub export fn cmd_echo(text_ptr: [*]const u8, text_len: u32) void {
-    echo.execute(text_ptr, @intCast(text_len));
+    if (text_len == 0 and common.pipe_read_active) {
+        common.printZ(common.pipe_buffer[0..common.pipe_pos]);
+        common.printZ("\r\n");
+    } else {
+        echo.execute(text_ptr, @intCast(text_len));
+    }
 }
 
 /// Execute system 'reboot'
@@ -423,13 +432,13 @@ pub export fn cmd_mount(disk_num_ptr: [*]const u8, disk_num_len: u32) void {
 
     const disk_num = disk_num_ptr[0] - '0';
     if (disk_num > 1) {
-        common.printZ("Error: Invalid disk (0 or 1)\n");
+        common.printError("Error: Invalid disk (0 or 1)\n");
         return;
     }
 
     const drive = if (disk_num == 0) ata.Drive.Master else ata.Drive.Slave;
     if (fat.read_bpb(drive) == null) {
-        common.printZ("Error: Disk not formatted\n");
+        common.printError("Error: Disk not formatted\n");
         return;
     }
 
@@ -443,7 +452,7 @@ pub export fn cmd_mount(disk_num_ptr: [*]const u8, disk_num_len: u32) void {
 
 pub export fn cmd_mkdir(name_ptr: [*]const u8, name_len: u32) void {
     if (common.selected_disk < 0) {
-        common.printZ("Error: mkdir only supported on Disk FS\n");
+        common.printError("Error: mkdir only supported on Disk FS\n");
         return;
     }
 
@@ -457,14 +466,14 @@ pub export fn cmd_mkdir(name_ptr: [*]const u8, name_len: u32) void {
     const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
     if (fat.read_bpb(drive)) |bpb| {
         if (!fat.create_directory(drive, bpb, common.current_dir_cluster, argv[0])) {
-            common.printZ("Error: Failed to create directory\n");
+            common.printError("Error: Failed to create directory\n");
         }
     }
 }
 
 pub export fn cmd_cd(args_ptr: [*]const u8, args_len: u32) void {
     if (common.selected_disk < 0) {
-        common.printZ("Error: cd only supported on Disk FS\n");
+        common.printError("Error: cd only supported on Disk FS\n");
         return;
     }
 
@@ -473,7 +482,7 @@ pub export fn cmd_cd(args_ptr: [*]const u8, args_len: u32) void {
 
     const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
     const bpb = fat.read_bpb(drive) orelse {
-        common.printZ("Error: Disk not formatted\n");
+        common.printError("Error: Disk not formatted\n");
         return;
     };
 
@@ -510,7 +519,7 @@ pub export fn cmd_cd(args_ptr: [*]const u8, args_len: u32) void {
 
 pub export fn cmd_tree() void {
     if (common.selected_disk < 0) {
-        common.printZ("Error: tree only supported on Disk FS\n");
+        common.printError("Error: tree only supported on Disk FS\n");
         return;
     }
     const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
@@ -675,12 +684,12 @@ pub export fn cmd_mem(args_ptr: [*]const u8, args_len: u32) void {
             common.printNum(@intCast(end_pf - start_pf));
             common.printZ("\n");
 
-            // In NewOS, we often keep the allocation for testing or free it
+            // In NovumOS, we often keep the allocation for testing or free it
             // Let's at least trigger GC to show it works
             memory.heap.free(ptr);
             memory.heap.garbage_collect();
         } else {
-            common.printZ("Error: Failed to allocate ");
+            common.printError("Error: Failed to allocate ");
             common.printNum(mb_size);
             common.printZ("MB.\n");
         }
@@ -695,6 +704,10 @@ pub export fn cmd_sysinfo() void {
 
 pub export fn cmd_cpuinfo() void {
     cpuinfo.execute();
+}
+
+pub export fn cmd_fetch() void {
+    sysinfo.cmd_fetch();
 }
 
 fn test_task(arg: usize) void {
@@ -779,4 +792,379 @@ pub fn cmd_page_fault() callconv(.c) void {
 
 pub fn cmd_gpf() callconv(.c) void {
     exceptions.crash_gpf();
+}
+
+pub export fn cmd_matrix() void {
+    vga.clear_screen();
+    var row_offsets: [80]u8 = [_]u8{0} ** 80;
+
+    // Randomize initial offsets
+    var seed: u32 = @intCast(timer.get_ticks());
+    for (0..80) |i| {
+        seed = seed *% 1103515245 +% 12345;
+        row_offsets[i] = @intCast(seed % 25);
+    }
+
+    common.printZ("Entering the NovumOS Matrix... (Press Ctrl+C to exit)\n");
+    timer.sleep(1000);
+    vga.clear_screen();
+
+    while (!keyboard_isr.check_ctrl_c()) {
+        for (0..80) |x| {
+            seed = seed *% 1103515245 +% 12345;
+            if (seed % 5 == 0) {
+                const y = row_offsets[x];
+
+                const c: u8 = @intCast(33 + (seed % 94));
+                const idx = @as(usize, y) * 80 + @as(usize, x);
+
+                // Light Green for head
+                vga.VIDEO_MEMORY[idx] = 0x0A00 | @as(u16, c);
+
+                // Dim previous ones if we had a trail, but let's keep it simple:
+                // Clear the one way above to make it feel like a falling line
+                const tail_idx = (@as(usize, (y + 25 - 5) % 25)) * 80 + @as(usize, x);
+                vga.VIDEO_MEMORY[tail_idx] = 0x0000 | ' ';
+
+                row_offsets[x] = (y + 1) % 25;
+            }
+        }
+        timer.sleep(30);
+    }
+    vga.clear_screen();
+}
+fn print_hexdump_line(offset: u32, data: []const u8) void {
+    // Print Offset
+    var i: i8 = 7;
+    while (i >= 0) : (i -= 1) {
+        const nibble = @as(u8, @intCast((offset >> @as(u5, @intCast(i * 4))) & 0xF));
+        const char = if (nibble < 10) '0' + nibble else 'A' + (nibble - 10);
+        common.print_char(char);
+    }
+    common.printZ(": ");
+
+    // Print Hex
+    for (0..16) |j| {
+        if (j < data.len) {
+            const b = data[j];
+            const hex_chars = "0123456789ABCDEF";
+            common.print_char(hex_chars[b >> 4]);
+            common.print_char(hex_chars[b & 0x0F]);
+        } else {
+            common.printZ("  ");
+        }
+        common.print_char(' ');
+    }
+
+    common.printZ("| ");
+    // Print ASCII
+    for (0..16) |j| {
+        if (j < data.len) {
+            const b = data[j];
+            if (b >= 32 and b <= 126) {
+                common.print_char(b);
+            } else {
+                common.print_char('.');
+            }
+        } else {
+            common.print_char(' ');
+        }
+    }
+    common.printZ("\n");
+}
+
+fn pager_wait() bool {
+    if (common.pipe_active or common.redirect_active) return true;
+    const row = vga.zig_get_cursor_row();
+    const col = vga.zig_get_cursor_col();
+    vga.set_color(0, 7); // Black on Light Gray
+    common.printZ("-- More --");
+    vga.reset_color();
+
+    const key = keyboard_isr.keyboard_wait_char();
+
+    // Clear the message
+    vga.zig_set_cursor(row, col);
+    var i: usize = 0;
+    while (i < 10) : (i += 1) common.print_char(' ');
+    vga.zig_set_cursor(row, col);
+
+    if (key == 'q' or key == 'Q' or key == 3) return false;
+    return true;
+}
+
+pub export fn cmd_hexdump(name_ptr: [*]const u8, name_len: u32) void {
+    var argv: [8][]const u8 = undefined;
+    const argc = common.parseArgs(name_ptr[0..name_len], &argv);
+    if (argc == 0) {
+        common.printZ("Usage: hexdump <file>\n");
+        return;
+    }
+    const name = argv[0];
+
+    if (common.selected_disk < 0) {
+        common.printError("hexdump: Not supported on RAM FS yet\n");
+        return;
+    }
+
+    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    const bpb = fat.read_bpb(drive) orelse {
+        common.printError("Error: Disk not formatted\n");
+        return;
+    };
+
+    const entry = fat.find_entry(drive, bpb, common.current_dir_cluster, name) orelse {
+        common.printError("Error: File not found\n");
+        return;
+    };
+
+    var current_cluster = @as(u32, entry.first_cluster_low);
+    var bytes_processed: u32 = 0;
+    const total_size = entry.file_size;
+    const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+
+    var line_count: usize = 0;
+    var line_buf: [16]u8 = undefined;
+    var line_pos: usize = 0;
+
+    while (current_cluster < eof_val and bytes_processed < total_size) {
+        const lba = bpb.first_data_sector + (current_cluster - 2) * bpb.sectors_per_cluster;
+        var s: u32 = 0;
+        while (s < bpb.sectors_per_cluster and bytes_processed < total_size) : (s += 1) {
+            var sector_buf: [512]u8 = undefined;
+            ata.read_sector(drive, lba + s, &sector_buf);
+
+            const to_process = @min(total_size - bytes_processed, 512);
+            for (0..to_process) |j| {
+                line_buf[line_pos] = sector_buf[j];
+                line_pos += 1;
+                bytes_processed += 1;
+
+                if (line_pos == 16) {
+                    print_hexdump_line(bytes_processed - 16, &line_buf);
+                    line_pos = 0;
+                    line_count += 1;
+                    if (line_count >= 24) {
+                        if (!pager_wait()) return;
+                        line_count = 0;
+                    }
+                }
+            }
+        }
+        current_cluster = fat.get_fat_entry(drive, bpb, current_cluster);
+        if (current_cluster == 0) break;
+    }
+
+    if (line_pos > 0) {
+        print_hexdump_line(bytes_processed - @as(u32, @intCast(line_pos)), line_buf[0..line_pos]);
+    }
+}
+
+pub export fn cmd_more(name_ptr: [*]const u8, name_len: u32) void {
+    var argv: [8][]const u8 = undefined;
+    const argc = common.parseArgs(name_ptr[0..name_len], &argv);
+
+    var filename: ?[]const u8 = null;
+    var show_numbers = false;
+    var squeeze_blank = false;
+    var start_line: usize = 0;
+
+    for (0..argc) |i| {
+        const arg = argv[i];
+        if (common.std_mem_eql(arg, "-n")) {
+            show_numbers = true;
+        } else if (common.std_mem_eql(arg, "-s")) {
+            squeeze_blank = true;
+        } else if (arg.len > 1 and arg[0] == '+') {
+            const val = common.parse_int(arg[1..]) orelse 0;
+            if (val > 0) start_line = @as(usize, @intCast(val)) - 1;
+        } else if (filename == null) {
+            filename = arg;
+        }
+    }
+
+    var data_len: usize = 0;
+    var display_name: []const u8 = "pipe";
+
+    if (common.pipe_read_active) {
+        data_len = @min(common.pipe_pos, 16384);
+        common.copy(viewer_buffer[0..data_len], common.pipe_buffer[0..data_len]);
+    } else {
+        if (filename) |name| {
+            display_name = name;
+            if (common.selected_disk < 0) {
+                common.printError("more: Not supported on RAM FS yet\n");
+                return;
+            }
+            const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+            const bpb = fat.read_bpb(drive) orelse {
+                common.printError("Error: Disk not formatted\n");
+                return;
+            };
+            const entry = fat.find_entry(drive, bpb, common.current_dir_cluster, name) orelse {
+                common.printError("Error: File not found\n");
+                return;
+            };
+
+            const to_read = @min(@as(usize, entry.file_size), 16384);
+            data_len = @as(usize, @intCast(fat.read_file_literal(drive, bpb, common.current_dir_cluster, name, &viewer_buffer)));
+            if (data_len > to_read) data_len = to_read;
+        } else {
+            common.printZ("Usage: more [options] <file>\n");
+            return;
+        }
+    }
+
+    // Pre-parse into lines
+    var line_count: usize = 0;
+    var pos_p: usize = 0;
+    var raw_line_num: usize = 1;
+    var last_line_empty = false;
+
+    const wrap_width: usize = if (show_numbers) 70 else 79;
+
+    while (pos_p < data_len and line_count < 1024) {
+        const line_start = pos_p;
+        var current_col: usize = 0;
+
+        while (pos_p < data_len and viewer_buffer[pos_p] != '\n' and current_col < wrap_width) : (pos_p += 1) {
+            current_col += 1;
+        }
+
+        var line_len = pos_p - line_start;
+        const hit_newline = (pos_p < data_len and viewer_buffer[pos_p] == '\n');
+
+        if (hit_newline) pos_p += 1;
+
+        if (line_len > 0 and viewer_buffer[line_start + line_len - 1] == '\r') line_len -= 1;
+
+        const is_empty = (line_len == 0);
+        if (squeeze_blank and is_empty and last_line_empty and hit_newline) {
+            raw_line_num += 1;
+            continue;
+        }
+
+        viewer_lines[line_count] = .{
+            .start = line_start,
+            .len = line_len,
+            .original_num = if (line_start == 0 or viewer_buffer[line_start - 1] == '\n') raw_line_num else 0,
+        };
+        line_count += 1;
+
+        if (hit_newline) {
+            raw_line_num += 1;
+            last_line_empty = is_empty;
+        } else {
+            last_line_empty = false;
+        }
+    }
+
+    if (line_count == 0) {
+        if (data_len > 0) {
+            viewer_lines[0] = .{ .start = 0, .len = data_len, .original_num = 1 };
+            line_count = 1;
+        } else return;
+    }
+
+    var current_line: usize = @min(start_line, line_count - 1);
+    const screen_rows: usize = 24;
+
+    var needs_redraw = true;
+    while (true) {
+        if (needs_redraw) {
+            vga.clear_screen();
+            vga.zig_set_cursor(0, 0);
+
+            const end_line = @min(current_line + screen_rows, line_count);
+            for (current_line..end_line) |i| {
+                const line = viewer_lines[i];
+                if (show_numbers) {
+                    common.vga.set_color(8, 0);
+                    if (line.original_num != 0) {
+                        common.printNum(@intCast(line.original_num));
+                        common.printZ(": ");
+                    } else {
+                        common.printZ("  : ");
+                    }
+                    common.vga.reset_color();
+                }
+                common.printZ(viewer_buffer[line.start .. line.start + line.len]);
+                if (i < end_line - 1) common.print_char('\n');
+            }
+
+            // Draw status bar using direct memory access to avoid auto-scroll on 80th char
+            const status_row: usize = 24;
+            const attr_bar: u16 = 0x7000; // Black on Light Gray
+            for (0..80) |kc| {
+                vga.VIDEO_MEMORY[status_row * 80 + kc] = attr_bar | @as(u16, ' ');
+            }
+
+            // Draw text onto the bar
+            var bar_pos: usize = 1;
+            const write_to_bar = struct {
+                fn call(row: usize, start_col: *usize, text: []const u8, attr: u16) void {
+                    for (text) |c| {
+                        if (start_col.* >= 80) break;
+                        vga.VIDEO_MEMORY[row * 80 + start_col.*] = attr | @as(u16, c);
+                        start_col.* += 1;
+                    }
+                }
+            }.call;
+
+            // Truncate name and draw
+            var name_to_show = display_name;
+            if (name_to_show.len > 20) name_to_show = name_to_show[0..20];
+            write_to_bar(status_row, &bar_pos, name_to_show, attr_bar);
+
+            if (end_line == line_count) {
+                write_to_bar(status_row, &bar_pos, " (END) ", attr_bar);
+            } else {
+                const pct = (end_line * 100) / line_count;
+                write_to_bar(status_row, &bar_pos, " (", attr_bar);
+                var num_buf: [4]u8 = undefined;
+                const num_str = common.fmt_to_buf(&num_buf, "{d}", .{pct});
+                write_to_bar(status_row, &bar_pos, num_str, attr_bar);
+                write_to_bar(status_row, &bar_pos, "%) ", attr_bar);
+            }
+            write_to_bar(status_row, &bar_pos, "[Q]uit [G]oto End [ARROWS] Scroll", attr_bar);
+            vga.reset_color();
+        }
+
+        needs_redraw = false;
+        const key = keyboard_isr.keyboard_wait_char();
+        if (key == 'q' or key == 'Q' or key == 27 or key == 3) break;
+        if (key == keyboard_isr.KEY_DOWN or key == 10) {
+            if (current_line + screen_rows < line_count + 5) {
+                current_line += 1;
+                needs_redraw = true;
+            }
+        } else if (key == keyboard_isr.KEY_UP) {
+            if (current_line > 0) {
+                current_line -= 1;
+                needs_redraw = true;
+            }
+        } else if (key == ' ' or key == keyboard_isr.KEY_PGDN) {
+            var next_line = current_line + screen_rows;
+            const limit = if (line_count > screen_rows) line_count - screen_rows + 5 else 0;
+            if (next_line > limit) next_line = limit;
+
+            if (next_line != current_line) {
+                current_line = next_line;
+                needs_redraw = true;
+            }
+        } else if (key == 'b' or key == 'B' or key == keyboard_isr.KEY_PGUP) {
+            const next_line = if (current_line > screen_rows) current_line - screen_rows else 0;
+            if (next_line != current_line) {
+                current_line = next_line;
+                needs_redraw = true;
+            }
+        } else if (key == 'g' or key == 'G') {
+            const next_line = if (line_count > screen_rows) line_count - screen_rows else 0;
+            if (next_line != current_line) {
+                current_line = next_line;
+                needs_redraw = true;
+            }
+        }
+    }
+    vga.clear_screen();
 }

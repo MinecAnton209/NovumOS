@@ -1,6 +1,6 @@
 # Nova Language - Comprehensive Guide (v0.10.5)
 
-Nova is a statement-based interpreted language for the NewOS kernel. It provides a simple environment for automation, system control, and filesystem management.
+Nova is a statement-based interpreted language for the NovumOS kernel. It provides a simple environment for automation, system control, and filesystem management.
 
 ---
 
@@ -65,7 +65,7 @@ if age > 18 {
 
 ## 📂 3. Filesystem Native Functions
 
-Nova can now manipulate the NewOS filesystem directly using built-in functions.
+Nova can now manipulate the NovumOS filesystem directly using built-in functions.
 
 | Function | Description | Example |
 |----------|-------------|---------|
@@ -114,7 +114,7 @@ while count < 3 {
 You can write Nova scripts in any text editor (like `edit`) and save them with the `.nv` extension.
 
 ### Running a script:
-From the NewOS shell:
+From the NovumOS shell:
 ```bash
 1:/> nova myscript.nv
 ```
@@ -128,4 +128,4 @@ From the NewOS shell:
 - **Max Script Size**: 4096 bytes.
 - **Case Sensitivity**: Commands and keywords are case-sensitive (e.g., `if`, not `IF`).
 
-*Generated for NewOS v0.10*
+*Generated for NovumOS v0.10*

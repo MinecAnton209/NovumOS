@@ -2,8 +2,8 @@
 set -e
 
 # Ensure base image exists
-if [ ! -f NewOS.img ]; then
-    echo "NewOS.img not found. Running './build-img.sh'..."
+if [ ! -f NovumOS.img ]; then
+    echo "NovumOS.img not found. Running './build-img.sh'..."
     ./build-img.sh
 fi
 
@@ -14,7 +14,7 @@ if [ ! -f tools/mkiso ]; then
 fi
 
 # Run Tool
-echo "Creating NewOS.iso..."
-./tools/mkiso NewOS.img NewOS.iso
+echo "Creating NovumOS.iso..."
+./tools/mkiso NovumOS.img NovumOS.iso
 
-echo "Success! Created NewOS.iso"
+echo "Success! Created NovumOS.iso"

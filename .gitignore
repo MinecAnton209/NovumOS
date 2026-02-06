@@ -4,8 +4,8 @@ build/
 *.o
 *.elf
 os.img
-NewOS.img
-NewOS.iso
+NovumOS.img
+NovumOS.iso
 qemu.log
 disk.img
 

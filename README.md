@@ -1,14 +1,14 @@
-# NewOS
+# NovumOS
 
-![GitHub forks](https://img.shields.io/github/forks/NewOC/NewOS?style=social)
-![GitHub last commit](https://img.shields.io/github/last-commit/NewOC/NewOS/main)
-![GitHub Repo stars](https://img.shields.io/github/stars/NewOC/NewOS?style=social)
-![GitHub License](https://img.shields.io/github/license/NewOC/NewOS)
-![GitHub issues](https://img.shields.io/github/issues/NewOC/NewOS)
+![GitHub forks](https://img.shields.io/github/forks/MinecAnton209/NovumOS?style=social)
+![GitHub last commit](https://img.shields.io/github/last-commit/MinecAnton209/NovumOS/main)
+![GitHub Repo stars](https://img.shields.io/github/stars/MinecAnton209/NovumOS?style=social)
+![GitHub License](https://img.shields.io/github/license/MinecAnton209/NovumOS)
+![GitHub issues](https://img.shields.io/github/issues/MinecAnton209/NovumOS)
 
 ## 32-bit Protected Mode OS
 
-NewOS is a simple operating system that successfully boots from 16-bit real mode into 32-bit protected mode with a working console!
+NovumOS is a simple operating system that successfully boots from 16-bit real mode into 32-bit protected mode with a working console!
 
 ### Features
 
@@ -20,6 +20,7 @@ NewOS is a simple operating system that successfully boots from 16-bit real mode
 - ✅ **VGA Text Driver** - Screen output with automatic scrolling and history
 - ✅ **Keyboard Driver** - Full keyboard input support with interrupts (Shift, CAPS, NUM)
 - ✅ **Command Shell** - Interactive console with **Tab Autocomplete**, **Command History** (persisted to disk), and cycling matches
+- ✅ **Piping & Redirection** - Support for pipes (`|`) and output redirection (`>`, `>>`)
 - ✅ **FAT12/16 Support** - Native disk support for ATA drives with **Long File Name (LFN)** and **Hidden Files** support
 - ✅ **Nova Language v0.12** - Integrated custom interpreter with history, autocomplete, math, and script support
 - ✅ **Embedded Scripts** - Built-in commands written in Nova (`syscheck`, `hello`)
@@ -70,7 +71,8 @@ qemu-system-i386 -drive format=raw,file=build\os-image.bin -drive format=raw,fil
 - `mkdir <dir>`    - Create directory (Supports LFN)
 - `cp <src> <dst>` - Copy file or **folder recursively**
 - `mv <src> <dst>` - Move or rename file/folder
-- `cat <file>`     - Show file contents
+- `cat <file>`     - Show file contents (Raw)
+- `more <file>`    - Paginated file viewer with scrolling and wrapping
 - `edit <file>`    - Open built-in text editor
 - `rm <file>`      - Delete file/folder (recursive support)
 - `history`        - Show command history
@@ -78,10 +80,11 @@ qemu-system-i386 -drive format=raw,file=build\os-image.bin -drive format=raw,fil
 - `mkfs-fat16`     - Format disk with FAT16 filesystem
 - `install`        - Install a Nova script as a system command
 - `uninstall`      - Remove an installed Nova command
+- `echo <text>`    - Print text (supports pipes)
 - `mem`            - Test memory allocator
 
 ### Nova Language
-A custom interpreted language built into NewOS. Now featuring **Command History**, **Tab Autocomplete**, and **Embedded Scripts**.
+A custom interpreted language built into NovumOS. Now featuring **Command History**, **Tab Autocomplete**, and **Embedded Scripts**.
 
 **Features:**
 - Variables: `set string name = "Value";`, `set int age = 10 + 20;`
@@ -115,7 +118,7 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Kernel (32-bit) → Z
 
 ### Roadmap
 
-#### Current progress (v0.13)
+#### Current progress (v0.19)
 - [x] IDT (Interrupt Descriptor Table)
 - [x] Timer (PIT) & Precise Sleep
 - [x] RTC Driver (Date/Time)
