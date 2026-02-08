@@ -22,10 +22,11 @@ NovumOS is a simple operating system that successfully boots from 16-bit real mo
 - ✅ **Command Shell** - Interactive console with **Tab Autocomplete**, **Command History** (persisted to disk), and cycling matches
 - ✅ **Piping & Redirection** - Support for pipes (`|`) and output redirection (`>`, `>>`)
 - ✅ **FAT12/16 Support** - Native disk support for ATA drives with **Long File Name (LFN)** and **Hidden Files** support
-- ✅ **Nova Language v0.12** - Integrated custom interpreter with history, autocomplete, math, and script support
+- ✅ **Nova Language v0.21.0** - Integrated custom interpreter with history, autocomplete, **32-bit Float Support**, and high-precision math
+- ✅ **Filesystem Overhaul** - Native implementation of `create_file`, `delete`, `rename`, and `copy` directly in the Nova interpreter
 - ✅ **Embedded Scripts** - Built-in commands written in Nova (`syscheck`, `hello`)
 - ✅ **Native Commands** - Native implementation of `install` and `uninstall` for Nova scripts
-- ✅ **Recursive FS** - `cp` and `delete` now support recursive directory operations
+- ✅ **Recursive FS** - `cp` and `delete` now support recursive directory operations throughout the shell
 - ✅ **Hierarchical Paths** - Full support for **Current Working Directory (CWD)**, absolute/relative paths, and quoted arguments for spaces
 - ✅ **Serial Terminal** - Support for QEMU `-nographic` mode with full bidirectional shell interaction
 
@@ -84,16 +85,17 @@ qemu-system-i386 -drive format=raw,file=build\os-image.bin -drive format=raw,fil
 - `mem`            - Test memory allocator
 
 ### Nova Language
-A custom interpreted language built into NovumOS. Now featuring **Command History**, **Tab Autocomplete**, and **Embedded Scripts**.
+A powerful statement-based interpreted language built into NovumOS. Version 0.21.0 introduces **32-bit Floating Point Support**, **High-Precision Trigonometry**, and informative REPL responses.
 
 **Features:**
-- Variables: `set string name = "Value";`, `set int age = 10 + 20;`
-- Arithmetic: `+`, `-`, `*`, `/`, `^`, `%`, `()` (e.g. `print((10+2)*5);`)
-- Math: `sin()`, `cos()`, `tan()`, `abs()`, `min()`, `max()`, `random()`
-- Filesystem: `create_file`, `write_file`, `mkdir`, `delete`, `copy`, `rename`, `read`
-- Interactive: `input()` for reading user input
-- System: `reboot();`, `shutdown();`, `exit();`
-- Scripting: `argc()`, `args(n)`
+- **Variables**: `set string name = "Value";`, `set float pi = 3.14159;`
+- **Arithmetic**: `+`, `-`, `*`, `/`, `%` with full support for integer and floating point math.
+- **Precision Math**: Built-in high-precision `sin()` and `cos()` using Bhaskara I approximation.
+- **Math Functions**: `abs()`, `min()`, `max()`, `random()`, `rad()`, `deg()`
+- **Filesystem**: `create_file`, `write`, `mkdir`, `delete`, `copy`, `rename`, `read`, `size`, `exists`
+- **Interactive**: `input()` for reading user input, `set_color()` for UI control.
+- **System**: `reboot();`, `shutdown();`, `exit();`
+- **Scripting**: `argc()`, `args(n)` with full argument persistence.
 
 ### Architecture
 
@@ -118,7 +120,13 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Kernel (32-bit) → Z
 
 ### Roadmap
 
-#### Current progress (v0.19)
+#### Current progress (v0.21)
+- [x] **Full Floating Point Engine (v0.21)**
+- [x] **High-Precision Trig (v0.21)** (Bhaskara I formula)
+- [x] **Informative REPL (v0.21)** (Descriptive status strings)
+- [x] **Advanced VM FS Functions (v0.21)** (Native delete, rename, copy)
+- [x] Multicore Support (v0.20)
+- [x] FAT32 Support (v0.20)
 - [x] IDT (Interrupt Descriptor Table)
 - [x] Timer (PIT) & Precise Sleep
 - [x] RTC Driver (Date/Time)
@@ -130,7 +138,7 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Kernel (32-bit) → Z
 - [x] **Hierarchical Path Support & CWD** (Absolute/Relative paths, cd, pwd)
 - [x] Built-in Text Editor (`edit`)
 - [x] Dynamic Shell Commands table
-- [x] Nova Language v0.12 (History, Autocomplete, Sci-Math, Scripts)
+- [x] Nova Language v0.21.0 (History, Autocomplete, Sci-Math, Scripts, Floats)
 - [x] Native script management (install, uninstall)
 - [x] File Management improvements (LFN create/read/delete)
 
