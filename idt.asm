@@ -14,6 +14,7 @@ extern isr_keyboard
 extern isr_timer
 extern handle_exception
 extern handle_double_fault
+extern handle_syscall_zig
 
 section .data
 align 16
@@ -67,6 +68,11 @@ idt_init:
     mov eax, isr_keyboard_wrapper
     mov ebx, 0x21
     call idt_set_gate
+
+    ; 7. Set Syscall Gate (0x80) with DPL 3
+    mov eax, syscall_handler
+    mov ebx, 0x80
+    call idt_set_syscall_gate
     
     ; 7. Load IDT into CPU
     lidt [idt_descriptor]
@@ -119,8 +125,31 @@ idt_set_task_gate:
     pop edi
     ret
 
+; Helper: Set a Syscall Gate (DPL 3)
+; EAX: offset of handler, EBX: gate index
+idt_set_syscall_gate:
+    push edi
+    
+    mov edi, idt_start
+    shl ebx, 3          ; index * 8
+    add edi, ebx
+    
+    mov [edi], ax       ; Offset low 16 bits
+    mov word [edi + 2], 0x08 ; Selector (Kernel Code)
+    mov byte [edi + 4], 0    ; Reserved
+    mov byte [edi + 5], 0xEE ; IDT attributes (Present, DPL 3, 32bit Interrupt Gate)
+    shr eax, 16
+    mov [edi + 6], ax   ; Offset high 16 bits
+    
+    pop edi
+    ret
+
 ; Common exception handler
 common_exception_handler:
+    push gs                 ; Save segment registers
+    push fs
+    push es
+    push ds
     pushad
     
     ; Ensure segment registers are set to kernel data
@@ -137,6 +166,7 @@ common_exception_handler:
     
     pop esp
     popad
+    add esp, 16             ; Clean up segments (4 * 4 bytes)
     add esp, 8              ; Clean up vector and error code
     iret
 
@@ -228,6 +258,32 @@ isr_timer_wrapper:
     out 0x20, al
     popad
     iret
+
+; Syscall Handler
+syscall_handler:
+    push gs                 ; Save segment registers
+    push fs
+    push es
+    push ds
+    pushad
+    
+    ; Set kernel data segments
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    
+    push esp                ; Pass pointer to Registers struct
+    call handle_syscall_zig
+    add esp, 4
+    
+    popad
+    pop ds                  ; Restore segment registers
+    pop es
+    pop fs
+    pop gs
+    iretd
 
 ; Test function to trigger division by zero exception
 test_divide_by_zero:

@@ -82,6 +82,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "mkfs", .help = "Create filesystem on current drive", .handler = cmd_handler_mkfs },
     .{ .name = "install", .help = "install <src> [name] - Install Nova script", .handler = cmd_handler_install },
     .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall },
+    .{ .name = "ring3", .help = "Switch to Ring 3 (User Mode) test", .handler = cmd_handler_ring3 },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
     .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = cmd_handler_panic },
     .{ .name = "abort", .help = "Trigger a manual kernel panic", .handler = cmd_handler_abort },
@@ -1087,6 +1088,11 @@ fn cmd_handler_reboot(_: []const u8) void {
 
 fn cmd_handler_shutdown(_: []const u8) void {
     shell_cmds.cmd_shutdown();
+}
+
+fn cmd_handler_ring3(args: []const u8) void {
+    _ = args;
+    shell_cmds.cmd_ring3();
 }
 
 fn cmd_handler_ls(args: []const u8) void {

@@ -23,6 +23,7 @@ const memory = @import("memory.zig");
 const cpuinfo = @import("commands/cpuinfo.zig");
 const smp = @import("smp.zig");
 const vga = @import("drivers/vga.zig");
+const user = @import("user.zig");
 
 var viewer_buffer: [16384]u8 = undefined;
 var viewer_lines: [1024]struct { start: usize, len: usize, original_num: usize } = undefined;
@@ -795,6 +796,10 @@ pub export fn cmd_smp_test() void {
     _ = smp.push_task(test_task, 202);
     _ = smp.push_task(test_task, 303);
     _ = smp.push_task(test_task, 404);
+}
+
+pub export fn cmd_ring3() void {
+    user.jump_to_user_mode();
 }
 
 fn heavy_task(id: usize) void {

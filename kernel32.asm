@@ -73,13 +73,27 @@ gdt_kernel_start:
     ; DF TSS (0x20)
     dw 0x67, 0x0000, 0x8900, 0x0000
 gdt_kernel_end:
+    ; User Code segment (0x28)
+    dw 0xffff, 0x0000, 0xfa00, 0x00cf
+    ; User Data segment (0x30)
+    dw 0xffff, 0x0000, 0xf200, 0x00cf
+gdt_kernel_real_end:
 gdt_descriptor_kernel:
-    dw gdt_kernel_end - gdt_kernel_start - 1
+    dw gdt_kernel_real_end - gdt_kernel_start - 1
     dd gdt_kernel_start
 
 section .text
 actual_code:
-    ; 4. Clear BSS section (mandatory for Zig)
+    ; 4. Enable SSE (required by modern compilers like Zig/Clang)
+    mov eax, cr0
+    and ax, 0xFFFB      ; Clear EM bit
+    or ax, 0x0002       ; Set MP bit
+    mov cr0, eax
+    mov eax, cr4
+    or ax, 0x0600       ; Set OSFXSR and OSXMMEXCPT bits
+    mov cr4, eax
+
+    ; 5. Clear BSS section (mandatory for Zig)
     mov edi, sbss
     mov ecx, ebss
     sub ecx, edi

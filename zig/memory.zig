@@ -155,7 +155,7 @@ pub fn init_paging() void {
                 if (addr == 0) {
                     pt[j] = 0x0 | 0x2; // NULL protection
                 } else {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // Present, RW
+                    pt[j] = @as(u32, @intCast(addr)) | 0x7; // Present, RW, USER
                 }
             }
         }
@@ -171,7 +171,7 @@ pub fn init_paging() void {
             const addr = i * coverage;
             // 16-64MB present, rest demand
             if (addr < 64 * 1024 * 1024) {
-                page_directory[i] = addr | 0x83; // PS=1, RW=1, P=1
+                page_directory[i] = addr | 0x87; // PS=1, RW=1, P=1, USER
             } else {
                 page_directory[i] = addr | 0x82; // PS=1, RW=1, P=0
             }
@@ -210,7 +210,7 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
     if (pd_idx < 4) {
         const pt = &first_16mb_pts[pd_idx];
         page_tables[pd_idx] = pt;
-        page_directory[pd_idx] = @as(u32, @intCast(@intFromPtr(pt))) | 0x3;
+        page_directory[pd_idx] = @as(u32, @intCast(@intFromPtr(pt))) | 0x7; // P=1, RW=1, USER=1
         return pt;
     }
 
@@ -220,7 +220,7 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
         for (pt) |*entry| entry.* = 0;
 
         page_tables[pd_idx] = pt;
-        page_directory[pd_idx] = @as(u32, @intCast(pt_addr)) | 0x3;
+        page_directory[pd_idx] = @as(u32, @intCast(pt_addr)) | 0x7; // P=1, RW=1, USER=1
         return pt;
     }
     return null;
@@ -241,7 +241,7 @@ pub fn map_page(vaddr: usize) bool {
     const pde = &page_directory[pd_idx];
     if ((pde.* & 0x80) != 0) {
         if ((pde.* & 1) == 0) {
-            pde.* |= 1; // Mark Present
+            pde.* |= 0x5; // Mark Present and User
             asm volatile ("invlpg (%[vaddr])"
                 :
                 : [vaddr] "r" (vaddr),
@@ -271,7 +271,7 @@ pub fn map_page(vaddr: usize) bool {
             set_page_busy(@as(u32, @intCast(paddr / PAGE_SIZE)));
         }
 
-        pte.* = @as(u32, @intCast(paddr)) | 0x3; // P=1, RW=1
+        pte.* = @as(u32, @intCast(paddr)) | 0x7; // P=1, RW=1, USER=1
         asm volatile ("invlpg (%[vaddr])"
             :
             : [vaddr] "r" (vaddr),

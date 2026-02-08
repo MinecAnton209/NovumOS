@@ -4,6 +4,7 @@ const config = @import("config.zig");
 const memory = @import("memory.zig");
 
 pub const ExceptionFrame = extern struct {
+    // Pushed by pushad
     edi: u32,
     esi: u32,
     ebp: u32,
@@ -12,11 +13,20 @@ pub const ExceptionFrame = extern struct {
     edx: u32,
     ecx: u32,
     eax: u32,
+    // Pushed manually in idt.asm
+    ds: u32,
+    es: u32,
+    fs: u32,
+    gs: u32,
+    // Pushed by CPU
     vector: u32,
     error_code: u32,
     eip: u32,
     cs: u32,
     eflags: u32,
+    // Only present if transition from Ring 3 occurred
+    user_esp: u32 = 0,
+    user_ss: u32 = 0,
 };
 
 pub const TSS = extern struct {
@@ -241,8 +251,12 @@ pub fn panic(msg: []const u8) noreturn {
         .edi = edi,
         .ebp = ebp,
         .esp_dummy = esp,
+        .ds = 0x10, // Kernel data segment
+        .es = 0x10,
+        .fs = 0x10,
+        .gs = 0x10,
         .eip = 0,
-        .cs = 0x08,
+        .cs = 0x08, // Kernel code segment
         .eflags = 0,
         .vector = 0xFF,
         .error_code = 0,
@@ -291,11 +305,11 @@ fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]cons
     const cs = if (frame) |f| f.cs else if (saved_tss) |t| t.cs else 0;
     const err = if (frame) |f| f.error_code else 0;
 
-    const ds = get_ds();
-    const es = get_es();
-    const fs = get_fs();
-    const gs = get_gs();
-    const ss = get_ss();
+    const ds = if (frame) |f| f.ds else get_ds();
+    const es = if (frame) |f| f.es else get_es();
+    const fs = if (frame) |f| f.fs else get_fs();
+    const gs = if (frame) |f| f.gs else get_gs();
+    const ss = if (frame) |f| (if (f.cs & 3 == 3) f.user_ss else get_ss()) else get_ss();
     const eflags = if (frame) |f| f.eflags else (if (saved_tss) |t| t.eflags else 0);
 
     // Registers Row 1

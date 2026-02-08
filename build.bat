@@ -43,9 +43,18 @@ if %errorlevel% neq 0 (
 )
 popd
 
-:: Link kernel with Zig modules (strip during link)
+:: Assemble User Mode modules
+echo Assembling User Mode...
+nasm -f elf32 user_mode.asm -o build\user_mode.o
+if %errorlevel% neq 0 (
+    echo Error assembling user_mode!
+    pause
+    exit /b 1
+)
+
+:: Link kernel with Zig modules and User Mode (strip during link)
 echo Linking...
-zig ld.lld -m elf_i386 -T linker.ld --strip-all -o build\kernel32.elf build\kernel32.o zig\build\kernel.o
+zig ld.lld -m elf_i386 -T linker.ld --strip-all -o build\kernel32.elf build\kernel32.o build\user_mode.o zig\build\kernel.o
 if %errorlevel% neq 0 (
     echo Error linking!
     pause

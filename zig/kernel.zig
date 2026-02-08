@@ -25,6 +25,7 @@ comptime {
     _ = memory;
     _ = exceptions;
     _ = smp;
+    _ = @import("user.zig");
     _ = @import("drivers/vga.zig");
 }
 
