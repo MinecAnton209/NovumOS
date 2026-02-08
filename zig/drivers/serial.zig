@@ -4,6 +4,12 @@ const common = @import("../commands/common.zig");
 pub const PORT = 0x3F8;
 
 pub export fn serial_print_char(c: u8) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) != 0) return; // Completely block serial output in Ring 3
+
     while (!is_transmit_empty()) {}
     // Map LF to CRLF for serial terminal consistency
     if (c == 10) {
@@ -70,16 +76,31 @@ pub fn serial_set_color(fg: u8) void {
 }
 
 fn outb(port: u16, val: u8) void {
-    asm volatile ("outb %[val], %[port]"
-        :
-        : [val] "{al}" (val),
-          [port] "{dx}" (port),
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
     );
+    // Carry out the operation ONLY in Ring 0
+    if ((cs & 3) == 0) {
+        asm volatile ("outb %[val], %[port]"
+            :
+            : [val] "{al}" (val),
+              [port] "{dx}" (port),
+        );
+    }
 }
 
 fn inb(port: u16) u8 {
-    return asm volatile ("inb %[port], %[result]"
-        : [result] "={al}" (-> u8),
-        : [port] "{dx}" (port),
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
     );
+    // Return actual value only in Ring 0
+    if ((cs & 3) == 0) {
+        return asm volatile ("inb %[port], %[result]"
+            : [result] "={al}" (-> u8),
+            : [port] "{dx}" (port),
+        );
+    }
+    return 0xFF;
 }

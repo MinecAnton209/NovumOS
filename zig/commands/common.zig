@@ -39,6 +39,24 @@ pub fn print_char(c: u8) void {
         }
         return;
     }
+
+    // Detect User Mode (Ring 3) by checking the low bits of Code Segment (CS)
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+
+    if ((cs & 3) == 3) {
+        // We are in Ring 3! Use syscall 1 (PrintZ logic but for a single char)
+        var buf: [2]u8 = .{ c, 0 };
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 1)),
+              [arg] "{ebx}" (@intFromPtr(&buf)),
+        );
+        return;
+    }
+
     vga.zig_print_char(c);
     serial.serial_print_char(c);
 }

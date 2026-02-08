@@ -298,6 +298,19 @@ pub export fn keyboard_get_ctrl() bool {
 
 // Wait for character (blocking)
 pub export fn keyboard_wait_char() u8 {
+    var cs_val: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs_val),
+    );
+
+    if ((cs_val & 3) != 0) {
+        // We are in Ring 3! Use syscall 2 (GetChar)
+        return asm volatile ("int $0x80"
+            : [ret] "={eax}" (-> u8),
+            : [sys] "{eax}" (@as(u32, 2)),
+        );
+    }
+
     const serial = @import("drivers/serial.zig");
     while (true) {
         if (keyboard_has_data()) return keyboard_getchar();
@@ -308,7 +321,7 @@ pub export fn keyboard_wait_char() u8 {
             if (keyboard_has_data()) return keyboard_getchar();
         }
 
-        // Ensure interrupts are enabled and wait briefly
+        // Wait for interrupt
         asm volatile ("sti");
         asm volatile ("hlt");
     }

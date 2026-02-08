@@ -52,15 +52,52 @@ pub export fn clear_screen() void {
 }
 
 pub export fn zig_set_cursor(row: u8, col: u8) void {
+    // Detect User Mode (Ring 3)
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 3)),
+              [ebx] "{ebx}" (@as(u32, row)),
+              [ecx] "{ecx}" (@as(u32, col)),
+        );
+        return;
+    }
+
     cursor_row = row;
     cursor_col = col;
     update_hardware_cursor();
 }
 
 pub export fn zig_get_cursor_row() u8 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        const res = asm volatile ("int $0x80"
+            : [ret] "={eax}" (-> u32),
+            : [sys] "{eax}" (@as(u32, 4)),
+        );
+        return @intCast(res >> 8);
+    }
     return cursor_row;
 }
 pub export fn zig_get_cursor_col() u8 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        const res = asm volatile ("int $0x80"
+            : [ret] "={eax}" (-> u32),
+            : [sys] "{eax}" (@as(u32, 4)),
+        );
+        return @intCast(res & 0xFF);
+    }
     return cursor_col;
 }
 
@@ -138,9 +175,16 @@ pub export fn update_hardware_cursor() void {
 }
 
 fn outb(port: u16, val: u8) void {
-    asm volatile ("outb %[val], %[port]"
-        :
-        : [val] "{al}" (val),
-          [port] "{dx}" (port),
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
     );
+    // Execute ONLY in Ring 0
+    if ((cs & 3) == 0) {
+        asm volatile ("outb %[val], %[port]"
+            :
+            : [val] "{al}" (val),
+              [port] "{dx}" (port),
+        );
+    }
 }

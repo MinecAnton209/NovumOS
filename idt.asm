@@ -164,11 +164,15 @@ common_exception_handler:
     push esp                ; Pass pointer to ExceptionFrame
     call handle_exception   ; Should not return
     
-    pop esp
+    ; If it ever returns:
+    add esp, 4              ; Clean up argument
     popad
-    add esp, 16             ; Clean up segments (4 * 4 bytes)
+    pop ds
+    pop es
+    pop fs
+    pop gs
     add esp, 8              ; Clean up vector and error code
-    iret
+    iretd
 
 ; Task-based Double Fault Handler
 ; This is the EIP for the DF TSS
@@ -231,6 +235,10 @@ EXCEPTION_NOERR 31
 
 ; ISR Wrapper: Keyboard (IRQ1)
 isr_keyboard_wrapper:
+    push gs                 ; Save segments
+    push fs
+    push es
+    push ds
     pushad
     mov ax, 0x10
     mov ds, ax
@@ -242,10 +250,18 @@ isr_keyboard_wrapper:
     mov al, 0x20
     out 0x20, al
     popad
-    iret
+    pop ds                  ; Restore segments
+    pop es
+    pop fs
+    pop gs
+    iretd
 
 ; ISR Wrapper: Timer (IRQ0)
 isr_timer_wrapper:
+    push gs                 ; Save segments
+    push fs
+    push es
+    push ds
     pushad
     mov ax, 0x10
     mov ds, ax
@@ -257,10 +273,16 @@ isr_timer_wrapper:
     mov al, 0x20
     out 0x20, al
     popad
-    iret
+    pop ds                  ; Restore segments
+    pop es
+    pop fs
+    pop gs
+    iretd
 
 ; Syscall Handler
 syscall_handler:
+    push dword 0            ; Dummy error code
+    push dword 0x80         ; Vector 0x80
     push gs                 ; Save segment registers
     push fs
     push es
@@ -274,6 +296,8 @@ syscall_handler:
     mov fs, ax
     mov gs, ax
     
+    cld                     ; Clear direction flag for Zig string ops
+    
     push esp                ; Pass pointer to Registers struct
     call handle_syscall_zig
     add esp, 4
@@ -283,6 +307,7 @@ syscall_handler:
     pop es
     pop fs
     pop gs
+    add esp, 8              ; Clean up vector and dummy error code
     iretd
 
 ; Test function to trigger division by zero exception
