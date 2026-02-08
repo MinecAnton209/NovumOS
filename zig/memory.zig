@@ -416,3 +416,16 @@ pub const heap = struct {
         }
     }
 };
+
+pub fn get_free_memory() usize {
+    var free: usize = 0;
+    var i: u32 = 0;
+    while (i < TOTAL_PAGES) : (i += 1) {
+        if (!is_page_busy(i)) free += PAGE_SIZE;
+    }
+    return free;
+}
+
+pub fn get_used_memory() usize {
+    return MAX_MEMORY - get_free_memory();
+}

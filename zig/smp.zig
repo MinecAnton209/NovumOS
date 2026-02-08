@@ -199,6 +199,45 @@ pub fn get_cpu_info() CpuInfo {
     if (info.family == 15) info.family += (eax2 >> 20) & 0xFF;
     if (info.family == 6 or info.family == 15) info.model += ((eax2 >> 16) & 0xF) << 4;
 
+    // Processor Brand String
+    var eax_ext: u32 = 0x80000000;
+    var ebx_ext: u32 = undefined;
+    var ecx_ext: u32 = undefined;
+    var edx_ext: u32 = undefined;
+    asm volatile ("cpuid"
+        : [eax_out] "={eax}" (eax_ext),
+          [ebx_ext] "={ebx}" (ebx_ext),
+          [ecx_ext] "={ecx}" (ecx_ext),
+          [edx_ext] "={edx}" (edx_ext),
+        : [eax_in] "{eax}" (eax_ext),
+    );
+
+    if (eax_ext >= 0x80000004) {
+        const brand_ptr = @as([*]u32, @ptrCast(&info.brand));
+        var i: u32 = 0;
+        while (i < 3) : (i += 1) {
+            var a: u32 = 0x80000002 + i;
+            var b: u32 = undefined;
+            var c: u32 = undefined;
+            var d: u32 = undefined;
+            asm volatile ("cpuid"
+                : [eax_out] "={eax}" (a),
+                  [ebx_out] "={ebx}" (b),
+                  [ecx_out] "={ecx}" (c),
+                  [edx_out] "={edx}" (d),
+                : [eax_in] "{eax}" (a),
+            );
+            brand_ptr[i * 4 + 0] = a;
+            brand_ptr[i * 4 + 1] = b;
+            brand_ptr[i * 4 + 2] = c;
+            brand_ptr[i * 4 + 3] = d;
+        }
+        info.brand[48] = 0;
+    } else {
+        common.copy(info.brand[0..], "Unknown Processor");
+        info.brand[17] = 0;
+    }
+
     return info;
 }
 

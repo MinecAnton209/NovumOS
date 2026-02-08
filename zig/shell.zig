@@ -483,7 +483,7 @@ fn autocomplete() void {
             var d_buf: [512]u8 = undefined;
             var lfn: ShellLfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
 
-            if (common.current_dir_cluster == 0) {
+            if (common.current_dir_cluster == 0 and bpb.fat_type != .FAT32) {
                 var sector = bpb.first_root_dir_sector;
                 while (sector < bpb.first_data_sector) : (sector += 1) {
                     ata.read_sector(drive, sector, &d_buf);
@@ -497,8 +497,8 @@ fn autocomplete() void {
                             lfn.active = false;
                             continue;
                         }
-
                         if (d_buf[j + 11] == 0x0F) {
+                            // LFN Parse
                             const seq = d_buf[j];
                             const chk = d_buf[j + 11 + 2]; // offset 13
                             if ((seq & 0x40) != 0) {
@@ -550,7 +550,7 @@ fn autocomplete() void {
                     }
                 }
             } else {
-                var current = common.current_dir_cluster;
+                var current = if (common.current_dir_cluster == 0) bpb.root_cluster else common.current_dir_cluster;
                 const eof_val = switch (bpb.fat_type) {
                     .FAT12 => @as(u32, 0xFF8),
                     .FAT16 => @as(u32, 0xFFF8),
@@ -662,7 +662,7 @@ fn autocomplete() void {
             var d_buf: [512]u8 = undefined;
             var lfn: ShellLfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
 
-            if (common.current_dir_cluster == 0) {
+            if (common.current_dir_cluster == 0 and bpb.fat_type != .FAT32) {
                 var sector = bpb.first_root_dir_sector;
                 outer: while (sector < bpb.first_data_sector) : (sector += 1) {
                     ata.read_sector(drive, sector, &d_buf);
@@ -733,8 +733,13 @@ fn autocomplete() void {
                     }
                 }
             } else {
-                var current = common.current_dir_cluster;
-                const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+                var current = if (common.current_dir_cluster == 0) bpb.root_cluster else common.current_dir_cluster;
+                const eof_val = switch (bpb.fat_type) {
+                    .FAT12 => @as(u32, 0xFF8),
+                    .FAT16 => @as(u32, 0xFFF8),
+                    .FAT32 => @as(u32, 0x0FFFFFF8),
+                    else => @as(u32, 0xFFF8),
+                };
                 outer: while (current < eof_val) {
                     const lba = bpb.first_data_sector + (current - 2) * bpb.sectors_per_cluster;
                     var s: u32 = 0;
@@ -809,7 +814,7 @@ fn autocomplete() void {
                         }
                     }
                     current = fat.get_fat_entry(drive, bpb, current);
-                    if (current == 0) break;
+                    if (current < 2 or current >= eof_val) break;
                 }
             }
         }
@@ -977,7 +982,7 @@ pub fn shell_execute_literal(cmd: []const u8) void {
     for (BUILTIN_SCRIPTS) |script| {
         if (common.std_mem_eql(script.name, cmd_name)) {
             nova_commands.setScriptArgs(argv[1..argc]);
-            nova_interpreter.runScriptSource(script.source);
+            nova_interpreter.runScriptSource(script.source, null, false);
             return;
         }
     }

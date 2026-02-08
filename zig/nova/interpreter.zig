@@ -12,16 +12,22 @@ const global_common = @import("../commands/common.zig");
 const fat = @import("../drivers/fat.zig");
 const ata = @import("../drivers/ata.zig");
 const shell = @import("../shell.zig");
+const lexer = @import("lexer.zig");
+const vm_mod = @import("vm.zig");
+const hash_table = @import("hash_table.zig");
 
 const BUFFER_SIZE: usize = 128;
 const HISTORY_SIZE: usize = 10;
 
 const NOVA_KEYWORDS = [_][]const u8{
-    "print(",       "set string ", "set int ", "exit()", "reboot()", "shutdown()",
-    "input(",       "delete(",     "rename(",  "copy(",  "mkdir(",   "write_file(",
-    "create_file(", "if ",         "else",     "while ", "sleep(",   "shell(",
-    "read(",        "random(",     "min(",     "max(",   "abs(",     "sin(",
-    "cos(",         "tan(",        "atan(",
+    "print(",       "set string ", "set int ",    "exit()",          "reboot()",        "shutdown()",
+    "input(",       "delete(",     "rename(",     "copy(",           "mkdir(",          "write(",
+    "create_file(", "if ",         "else",        "while ",          "delay(",          "shell(",
+    "read(",        "random(",     "min(",        "max(",            "abs(",            "sin(",
+    "cos(",         "import ",     "size(",       "exists(",         "get_mem()",       "get_cpu_temp()",
+    "len(",         "int(",        "str(",        "split(",          "format(",         "convert(",
+    "argc()",       "args(",       "set_angles(", "set_angles(rad)", "set_angles(deg)", "rad(",
+    "deg(",         "set_color(",  "get_key()",   "exec(",
 };
 
 // Interpreter state
@@ -45,6 +51,7 @@ var auto_prefix: [64]u8 = [_]u8{0} ** 64;
 var auto_prefix_len: usize = 0;
 var auto_match_index: usize = 0;
 var auto_start_pos: u16 = 0;
+var global_vm: ?vm_mod.VM = null;
 
 /// Read a simple line of input into the provided buffer
 pub fn readInput(buf: []u8) usize {
@@ -119,7 +126,7 @@ pub fn runScript(path: []const u8) void {
 
             if (bytes_read > 0) {
                 const script = script_buffer[0..@intCast(bytes_read)];
-                runScriptSource(script);
+                runScriptSource(script, path, false);
             } else {
                 global_common.printError("Error: Empty file or read error\n");
             }
@@ -131,16 +138,35 @@ pub fn runScript(path: []const u8) void {
     }
 }
 
-pub fn runScriptSource(script: []const u8) void {
-    // VALIDATE SYNTAX BEFORE EXECUTION
-    if (!validateScript(script)) {
-        global_common.printError("Script validation failed. Execution aborted.\n");
-        return;
-    }
-
+pub fn runScriptSource(script: []const u8, path: ?[]const u8, repl: bool) void {
     // Reset state before run
     exit_flag = false;
-    executeScript(script);
+
+    // Prepare arguments
+    var arg_slices: [8][]const u8 = undefined;
+    for (0..commands.script_argc) |i| {
+        arg_slices[i] = commands.script_args[i][0..commands.script_args_len[i]];
+    }
+    const final_args = arg_slices[0..commands.script_argc];
+
+    const tokens = lexer.tokenize(script);
+    if (global_vm == null) {
+        global_vm = vm_mod.VM.init(tokens, final_args);
+    }
+
+    var vm = &global_vm.?;
+    vm.tokens = tokens;
+    vm.ip = 0;
+    vm.exit_flag = false;
+    vm.script_args = final_args;
+
+    if (path) |p| {
+        vm.current_file = p;
+    }
+
+    vm.repl_mode = repl;
+    vm.run();
+    if (vm.exit_flag) exit_flag = true;
 }
 
 fn validateScript(script: []const u8) bool {
@@ -577,5 +603,5 @@ fn moveScreenCursor() void {
 /// Parse and execute the buffered command line
 fn executeLine() void {
     if (buf_len == 0) return;
-    executeScript(buffer[0..buf_len]);
+    runScriptSource(buffer[0..buf_len], null, true);
 }

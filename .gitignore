@@ -16,6 +16,8 @@ tools/mkiso.o
 tools/mkiso.pdb
 
 # Zig
+.zig-cache/
+zig-out/
 zig/.zig-cache/
 zig/build/
 zig/zig-out/

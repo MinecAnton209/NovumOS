@@ -32,9 +32,9 @@ var global_result_buffer: [512]u8 = [_]u8{0} ** 512;
 // Script arguments storage
 const MAX_SCRIPT_ARGS = 8;
 const MAX_ARG_LEN = 64;
-var script_args: [MAX_SCRIPT_ARGS][MAX_ARG_LEN]u8 = [_][MAX_ARG_LEN]u8{[_]u8{0} ** MAX_ARG_LEN} ** MAX_SCRIPT_ARGS;
-var script_args_len: [MAX_SCRIPT_ARGS]usize = [_]usize{0} ** MAX_SCRIPT_ARGS;
-var script_argc: usize = 0;
+pub var script_args: [MAX_SCRIPT_ARGS][MAX_ARG_LEN]u8 = [_][MAX_ARG_LEN]u8{[_]u8{0} ** MAX_ARG_LEN} ** MAX_SCRIPT_ARGS;
+pub var script_args_len: [MAX_SCRIPT_ARGS]usize = [_]usize{0} ** MAX_SCRIPT_ARGS;
+pub var script_argc: usize = 0;
 
 pub fn setScriptArgs(args: []const []const u8) void {
     script_argc = @min(args.len, MAX_SCRIPT_ARGS);
