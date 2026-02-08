@@ -12,6 +12,12 @@ pub const shutdown = common.shutdown;
 pub const fat = @import("../drivers/fat.zig");
 pub const ata = @import("../drivers/ata.zig");
 pub const global_common = @import("../commands/common.zig");
+
+pub const AngleMode = enum {
+    DEG,
+    RAD,
+};
+
 pub fn toLower(c: u8) u8 {
     if (c >= 'A' and c <= 'Z') return c - 'A' + 'a';
     return c;

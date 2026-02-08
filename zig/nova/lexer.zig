@@ -31,6 +31,7 @@ pub const TokenType = enum {
     GREATER,
     BREAK,
     CONTINUE,
+    DOT,
     EOF,
     UNKNOWN,
 };
@@ -149,6 +150,11 @@ pub fn tokenize(source: []const u8) TokenList {
         }
         if (c == ';') {
             list.append(.{ .ttype = .SEMICOLON, .value = source[i .. i + 1], .line = line_num });
+            i += 1;
+            continue;
+        }
+        if (c == '.') {
+            list.append(.{ .ttype = .DOT, .value = source[i .. i + 1], .line = line_num });
             i += 1;
             continue;
         }

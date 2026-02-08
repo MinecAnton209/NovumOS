@@ -10,6 +10,8 @@ const ata = @import("../drivers/ata.zig");
 const global_common = @import("../commands/common.zig");
 const keyboard = @import("../keyboard_isr.zig");
 const vga = @import("../drivers/vga.zig");
+const math_mod = @import("modules/math.zig");
+const sys_mod = @import("modules/sys.zig");
 
 pub const VM = struct {
     tokens: lexer.TokenList,
@@ -18,22 +20,20 @@ pub const VM = struct {
     functions: hash_table.HashTable,
     current_scope: *Scope,
     exit_flag: bool = false,
+    has_error: bool = false,
     break_flag: bool = false,
     continue_flag: bool = false,
     cache: module.ModuleCache,
-    angle_mode: AngleMode = .DEG,
+    angle_mode: common.AngleMode = .DEG,
     current_file: []const u8 = "main.nv",
     script_args: []const []const u8 = &[_][]const u8{},
+    is_math_loaded: bool = false,
+    is_sys_loaded: bool = false,
     repl_mode: bool = false,
 
     pub const Scope = struct {
         table: hash_table.HashTable,
         parent: ?*Scope,
-    };
-
-    pub const AngleMode = enum {
-        DEG,
-        RAD,
     };
 
     pub fn reportError(self: *VM, msg: []const u8) void {
@@ -47,6 +47,7 @@ pub const VM = struct {
         common.printZ(msg);
         common.printZ("\n");
         self.exit_flag = true;
+        self.has_error = true;
     }
 
     pub fn init(tokens: lexer.TokenList, args: []const []const u8) VM {
@@ -273,8 +274,31 @@ pub const VM = struct {
     }
 
     fn handleAssignmentOrCall(self: *VM) void {
-        const name = self.tokens.tokens[self.ip].value;
+        var name = self.tokens.tokens[self.ip].value;
         self.ip += 1;
+
+        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .DOT) {
+            self.ip += 1; // skip .
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .IDENTIFIER) {
+                const member = self.tokens.tokens[self.ip].value;
+                self.ip += 1;
+
+                // Construct "name.member"
+                const combined_len = name.len + 1 + member.len;
+                const buf_ptr = memory.heap.alloc(combined_len) orelse {
+                    self.reportError("Out of memory for namespaced call");
+                    return;
+                };
+                const buf = buf_ptr[0..combined_len];
+                common.copy(buf[0..name.len], name);
+                buf[name.len] = '.';
+                common.copy(buf[name.len + 1 ..], member);
+                name = buf;
+            } else {
+                self.reportError("Expected member name after '.'");
+                return;
+            }
+        }
 
         if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .EQUALS) {
             self.ip += 1; // skip =
@@ -319,104 +343,35 @@ pub const VM = struct {
                 common.printZ(common.intToString(val.int_val, &buf));
             }
             common.printZ("\n");
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ')' in print");
+            }
             return .{ .vtype = .string, .str_val = "" };
-        } else if (common.streq(name, "set_angles")) {
-            const mode = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            if (mode.vtype == .string) {
-                if (common.streq_ignore_case(mode.str_val, "rad")) {
-                    self.angle_mode = .RAD;
-                    return .{ .vtype = .string, .str_val = "Angle mode: RAD" };
-                } else {
-                    self.angle_mode = .DEG;
-                    return .{ .vtype = .string, .str_val = "Angle mode: DEG" };
-                }
+        } else if (common.startsWith(name, "math.")) {
+            if (!self.is_math_loaded) {
+                self.reportError("Module 'math' not imported");
+                return .{ .vtype = .int, .int_val = 0 };
             }
-            return .{ .vtype = .string, .str_val = "Error: Invalid mode" };
-        } else if (common.streq(name, "rad")) {
-            const val = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            const deg_v: f32 = if (val.vtype == .float) val.float_val else @floatFromInt(val.int_val);
-            return .{ .vtype = .float, .float_val = deg_v * 3.14159 / 180.0 };
-        } else if (common.streq(name, "deg")) {
-            const val = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            const rad_v: f32 = if (val.vtype == .float) val.float_val else @floatFromInt(val.int_val);
-            return .{ .vtype = .float, .float_val = rad_v * 180.0 / 3.14159 };
-        } else if (common.streq(name, "random")) {
-            const min_v = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
-            const max_v = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            return .{ .vtype = .int, .int_val = global_common.get_random(min_v.int_val, max_v.int_val) };
-        } else if (common.streq(name, "abs")) {
-            const val = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            if (val.vtype == .int) {
-                return .{ .vtype = .int, .int_val = if (val.int_val < 0) -val.int_val else val.int_val };
+            if (math_mod.handleMath(self, name)) |res| return res;
+            self.reportError("Unknown math function");
+            return .{ .vtype = .int, .int_val = 0 };
+        } else if (common.startsWith(name, "sys.")) {
+            if (!self.is_sys_loaded) {
+                self.reportError("Module 'sys' not imported");
+                return .{ .vtype = .int, .int_val = 0 };
             }
-            return val;
-        } else if (common.streq(name, "min")) {
-            const a = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
-            const b = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            if (a.vtype == .int and b.vtype == .int) {
-                return .{ .vtype = .int, .int_val = if (a.int_val < b.int_val) a.int_val else b.int_val };
-            }
-            return a;
-        } else if (common.streq(name, "max")) {
-            const a = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
-            const b = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            if (a.vtype == .int and b.vtype == .int) {
-                return .{ .vtype = .int, .int_val = if (a.int_val > b.int_val) a.int_val else b.int_val };
-            }
-            return a;
-        } else if (common.streq(name, "sin")) {
-            const val_v = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            var d: f32 = if (val_v.vtype == .float) val_v.float_val else @floatFromInt(val_v.int_val);
-            if (self.angle_mode == .RAD) {
-                d = d * 180.0 / 3.14159;
-            }
-            while (d < 0) d += 360.0;
-            while (d >= 360.0) d -= 360.0;
-
-            var res: f32 = 0;
-            if (d < 180.0) {
-                const x = d;
-                res = (4.0 * x * (180.0 - x)) / (40500.0 - x * (180.0 - x));
-            } else {
-                const x = d - 180.0;
-                res = -((4.0 * x * (180.0 - x)) / (40500.0 - x * (180.0 - x)));
-            }
-            return .{ .vtype = .float, .float_val = res };
-        } else if (common.streq(name, "cos")) {
-            const val_v = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            var d: f32 = if (val_v.vtype == .float) val_v.float_val else @floatFromInt(val_v.int_val);
-            if (self.angle_mode == .RAD) {
-                d = d * 180.0 / 3.14159;
-            }
-            while (d < 0) d += 360.0;
-            var dc = d + 90.0;
-            while (dc >= 360.0) dc -= 360.0;
-
-            var res: f32 = 0;
-            if (dc < 180.0) {
-                const x = dc;
-                res = (4.0 * x * (180.0 - x)) / (40500.0 - x * (180.0 - x));
-            } else {
-                const x = dc - 180.0;
-                res = -((4.0 * x * (180.0 - x)) / (40500.0 - x * (180.0 - x)));
-            }
-            return .{ .vtype = .float, .float_val = res };
+            if (sys_mod.handleSys(self, name)) |res| return res;
+            self.reportError("Unknown sys function");
+            return .{ .vtype = .int, .int_val = 0 };
         } else if (common.streq(name, "create_file")) {
             const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ')' in create_file");
+            }
             if (path.vtype == .string) {
                 const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
                 if (fat.read_bpb(drive)) |bpb| {
@@ -428,7 +383,11 @@ pub const VM = struct {
             return .{ .vtype = .string, .str_val = "Error: Could not create file" };
         } else if (common.streq(name, "delete") or common.streq(name, "remove") or common.streq(name, "rm")) {
             const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ')' in delete");
+            }
             if (path.vtype == .string) {
                 const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
                 if (fat.read_bpb(drive)) |bpb| {
@@ -440,9 +399,18 @@ pub const VM = struct {
             return .{ .vtype = .string, .str_val = "Error: Could not remove" };
         } else if (common.streq(name, "rename") or common.streq(name, "mv")) {
             const old_path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ',' in rename");
+                return .{ .vtype = .string, .str_val = "Error" };
+            }
             const new_path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ')' in rename");
+            }
             if (old_path.vtype == .string and new_path.vtype == .string) {
                 const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
                 if (fat.read_bpb(drive)) |bpb| {
@@ -454,9 +422,18 @@ pub const VM = struct {
             return .{ .vtype = .string, .str_val = "Error: Could not rename" };
         } else if (common.streq(name, "copy") or common.streq(name, "cp")) {
             const src = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ',' in copy");
+                return .{ .vtype = .string, .str_val = "Error" };
+            }
             const dst = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ')' in copy");
+            }
             if (src.vtype == .string and dst.vtype == .string) {
                 const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
                 if (fat.read_bpb(drive)) |bpb| {
@@ -468,7 +445,11 @@ pub const VM = struct {
             return .{ .vtype = .string, .str_val = "Error: Could not copy" };
         } else if (common.streq(name, "read")) {
             const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ')' in read");
+            }
             if (path.vtype == .string) {
                 const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
                 if (fat.read_bpb(drive)) |bpb| {
@@ -483,9 +464,18 @@ pub const VM = struct {
             return .{ .vtype = .string, .str_val = "" };
         } else if (common.streq(name, "write")) {
             const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ',' in write");
+                return .{ .vtype = .string, .str_val = "Error" };
+            }
             const data = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ')' in write");
+            }
 
             if (path.vtype == .string and data.vtype == .string) {
                 const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
@@ -498,7 +488,11 @@ pub const VM = struct {
             return .{ .vtype = .string, .str_val = "Error: Write failed" };
         } else if (common.streq(name, "exists")) {
             const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ')' in exists");
+            }
             var res: i32 = 0;
             if (path.vtype == .string) {
                 const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
@@ -511,7 +505,11 @@ pub const VM = struct {
             return .{ .vtype = .int, .int_val = res };
         } else if (common.streq(name, "mkdir")) {
             const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ')' in mkdir");
+            }
             if (path.vtype == .string) {
                 const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
                 if (fat.read_bpb(drive)) |bpb| {
@@ -523,7 +521,11 @@ pub const VM = struct {
             return .{ .vtype = .string, .str_val = "Error: Could not create directory" };
         } else if (common.streq(name, "size")) {
             const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ')' in size");
+            }
             var res: i32 = -1;
             if (path.vtype == .string) {
                 const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
@@ -534,73 +536,37 @@ pub const VM = struct {
                 }
             }
             return .{ .vtype = .int, .int_val = res };
-        } else if (common.streq(name, "get_mem")) {
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            return .{ .vtype = .int, .int_val = @intCast(memory.get_free_memory()) };
-        } else if (common.streq(name, "get_cpu_temp")) {
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            // Simple rdmsr for temperature (IA32_THERM_STATUS)
-            var eax_val: u32 = 0;
-            var edx_val: u32 = 0;
-            const msr: u32 = 0x19C;
-            asm volatile ("rdmsr"
-                : [eax] "={eax}" (eax_val),
-                  [edx] "={edx}" (edx_val),
-                : [ecx] "{ecx}" (msr),
-            );
-            const readout = (eax_val >> 16) & 0x7F;
-            // Note: This is usually (Tcc - readout). Default Tcc is ~100.
-            return .{ .vtype = .int, .int_val = @intCast(100 - readout) };
-        } else if (common.streq(name, "delay") or common.streq(name, "sleep")) {
-            const val = self.evaluateExpression();
-            if (val.vtype == .int) {
-                global_common.sleep(@intCast(val.int_val));
-            }
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            return .{ .vtype = .string, .str_val = "" };
-        } else if (common.streq(name, "exec")) {
-            const val = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            if (val.vtype == .string) {
-                shell.shell_execute_literal(val.str_val);
-            }
-            return .{ .vtype = .string, .str_val = "" };
         } else if (common.streq(name, "len")) {
             const val = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ')' in len");
+            }
             if (val.vtype == .string) return .{ .vtype = .int, .int_val = @intCast(val.str_val.len) };
             return .{ .vtype = .int, .int_val = 0 };
         } else if (common.streq(name, "int")) {
             const val = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ')' in int");
+            }
             if (val.vtype == .string) return .{ .vtype = .int, .int_val = common.parseInt(val.str_val) };
             return val;
         } else if (common.streq(name, "str")) {
             const val = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
+            } else {
+                self.reportError("Expected ')' in str");
+            }
             if (val.vtype == .int) {
                 var buf_ptr = memory.heap.alloc(16) orelse return .{ .vtype = .string, .str_val = "0" };
                 const s = common.intToString(val.int_val, buf_ptr[0..16]);
                 return .{ .vtype = .string, .str_val = s };
             }
             return val;
-        } else if (common.streq(name, "set_color")) {
-            const fg = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
-            const bg = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            vga.set_color(@intCast(fg.int_val), @intCast(bg.int_val));
-            return .{ .vtype = .string, .str_val = "Colors updated" };
-        } else if (common.streq(name, "get_key")) {
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            return .{ .vtype = .int, .int_val = @intCast(keyboard.keyboard_getchar()) };
-        } else if (common.streq(name, "shell")) {
-            const val = self.evaluateExpression();
-            if (val.vtype == .string) {
-                shell.shell_execute_literal(val.str_val);
-            }
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            return .{ .vtype = .string, .str_val = "" };
         } else if (common.streq(name, "argc")) {
             if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
             return .{ .vtype = .int, .int_val = @intCast(self.script_args.len) };
@@ -790,9 +756,18 @@ pub const VM = struct {
                 return .{ .vtype = .int, .int_val = @intCast(v) };
             }
             return val_v;
-        } else if (common.streq(name, "exit")) {
+        } else if (common.streq(name, "sys.exit") or common.streq(name, "exit")) {
             self.exit_flag = true;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
             return .{ .vtype = .string, .str_val = "Goodbye!" };
+        } else if (common.streq(name, "sys.reboot")) {
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            shell.shell_execute_literal("reboot");
+            return .{ .vtype = .string, .str_val = "" };
+        } else if (common.streq(name, "sys.shutdown")) {
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+            shell.shell_execute_literal("shutdown");
+            return .{ .vtype = .string, .str_val = "" };
         } else if (self.functions.get(name)) |func| {
             // Save state
             const old_ip = self.ip;
@@ -825,6 +800,14 @@ pub const VM = struct {
 
             return .{ .vtype = .int, .int_val = 0 };
         } else {
+            var err_buf: [64]u8 = undefined;
+            const start_s = "Undefined function: ";
+            common.copy(err_buf[0..start_s.len], start_s);
+            const name_len = if (name.len > 40) 40 else name.len;
+            common.copy(err_buf[start_s.len..], name[0..name_len]);
+            const final_err = err_buf[0 .. start_s.len + name_len];
+            self.reportError(final_err);
+
             // Skip call
             while (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .R_PAREN) : (self.ip += 1) {}
             if (self.ip < self.tokens.len) self.ip += 1;
@@ -837,6 +820,18 @@ pub const VM = struct {
         if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .STRING) {
             var raw_path = self.tokens.tokens[self.ip].value;
             if (raw_path.len >= 2) raw_path = raw_path[1 .. raw_path.len - 1];
+
+            // Built-in modules
+            if (common.streq(raw_path, "math")) {
+                self.is_math_loaded = true;
+                self.ip += 1;
+                return;
+            }
+            if (common.streq(raw_path, "sys")) {
+                self.is_sys_loaded = true;
+                self.ip += 1;
+                return;
+            }
 
             var path_buf: [128]u8 = undefined;
             const resolved_local = module.ModuleCache.resolvePath(self.current_file, raw_path, &path_buf);
@@ -863,8 +858,8 @@ pub const VM = struct {
                 if (fat.find_entry(drive, bpb, current_dir_cluster_val, resolved)) |_| {
                     found = true;
                 } else {
-                    // Try /.SYSTEM/NOVA/MODULES/
-                    if (fat.resolve_full_path(drive, bpb, 0, "/", ".SYSTEM/NOVA/MODULES")) |sys_mod_res| {
+                    // Try /.SYSTEM/NOVA/MOD/
+                    if (fat.resolve_full_path(drive, bpb, 0, "/", ".SYSTEM/NOVA/MOD")) |sys_mod_res| {
                         if (sys_mod_res.is_dir) {
                             if (fat.find_entry(drive, bpb, sys_mod_res.cluster, resolved)) |_| {
                                 found = true;
@@ -911,11 +906,11 @@ pub const VM = struct {
         }
     }
 
-    fn evaluateExpression(self: *VM) hash_table.VariableValue {
+    pub fn evaluateExpression(self: *VM) hash_table.VariableValue {
         return self.parseComparison();
     }
 
-    fn parseComparison(self: *VM) hash_table.VariableValue {
+    pub fn parseComparison(self: *VM) hash_table.VariableValue {
         var left = self.parseTerm();
 
         while (self.ip < self.tokens.len) {
@@ -964,6 +959,30 @@ pub const VM = struct {
                     common.copy(buf[0..s_num.len], s_num);
                     common.copy(buf[s_num.len..], right.str_val);
                     left = .{ .vtype = .string, .str_val = buf };
+                } else if (left.vtype == .string and right.vtype == .float and op.ttype == .PLUS) {
+                    var num_buf: [32]u8 = undefined;
+                    const s_num = common.floatToString(right.float_val, &num_buf);
+                    const total_len = left.str_val.len + s_num.len;
+                    const buf_ptr = memory.heap.alloc(total_len) orelse {
+                        self.reportError("Out of memory for string concat");
+                        return left;
+                    };
+                    const buf = buf_ptr[0..total_len];
+                    common.copy(buf[0..left.str_val.len], left.str_val);
+                    common.copy(buf[left.str_val.len..], s_num);
+                    left = .{ .vtype = .string, .str_val = buf };
+                } else if (left.vtype == .float and right.vtype == .string and op.ttype == .PLUS) {
+                    var num_buf: [32]u8 = undefined;
+                    const s_num = common.floatToString(left.float_val, &num_buf);
+                    const total_len = s_num.len + right.str_val.len;
+                    const buf_ptr = memory.heap.alloc(total_len) orelse {
+                        self.reportError("Out of memory for string concat");
+                        return left;
+                    };
+                    const buf = buf_ptr[0..total_len];
+                    common.copy(buf[0..s_num.len], s_num);
+                    common.copy(buf[s_num.len..], right.str_val);
+                    left = .{ .vtype = .string, .str_val = buf };
                 }
             } else if (op.ttype == .EQUALS_EQUALS or op.ttype == .BANG_EQUALS or op.ttype == .LESS or op.ttype == .GREATER) {
                 self.ip += 1;
@@ -1002,7 +1021,7 @@ pub const VM = struct {
         return left;
     }
 
-    fn parseTerm(self: *VM) hash_table.VariableValue {
+    pub fn parseTerm(self: *VM) hash_table.VariableValue {
         var left = self.parseFactor();
 
         while (self.ip < self.tokens.len) {
@@ -1033,7 +1052,7 @@ pub const VM = struct {
         return left;
     }
 
-    fn parseFactor(self: *VM) hash_table.VariableValue {
+    pub fn parseFactor(self: *VM) hash_table.VariableValue {
         if (self.ip >= self.tokens.len) return .{ .vtype = .int, .int_val = 0 };
         const t = self.tokens.tokens[self.ip];
         self.ip += 1;
@@ -1048,18 +1067,35 @@ pub const VM = struct {
             if (val.len >= 2) val = val[1 .. val.len - 1];
             return .{ .vtype = .string, .str_val = val };
         } else if (t.ttype == .IDENTIFIER) {
+            var name = t.value;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .DOT) {
+                self.ip += 1; // skip .
+                if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .IDENTIFIER) {
+                    const member = self.tokens.tokens[self.ip].value;
+                    self.ip += 1;
+
+                    const combined_len = name.len + 1 + member.len;
+                    const buf_ptr = memory.heap.alloc(combined_len) orelse return .{ .vtype = .int, .int_val = 0 };
+                    const buf = buf_ptr[0..combined_len];
+                    common.copy(buf[0..name.len], name);
+                    buf[name.len] = '.';
+                    common.copy(buf[name.len + 1 ..], member);
+                    name = buf;
+                }
+            }
+
             // Check for call
             if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .L_PAREN) {
-                return self.handleCall(t.value);
+                return self.handleCall(name);
             }
 
             // Lookup variable
             var s: ?*Scope = self.current_scope;
             while (s) |scope| {
-                if (scope.table.get(t.value)) |v| return v;
+                if (scope.table.get(name)) |v| return v;
                 s = scope.parent;
             }
-            if (self.globals.get(t.value)) |v| return v;
+            if (self.globals.get(name)) |v| return v;
             return .{ .vtype = .int, .int_val = 0 };
         } else if (t.ttype == .L_PAREN) {
             const res = self.evaluateExpression();
@@ -1072,7 +1108,7 @@ pub const VM = struct {
             if (val.vtype == .int) return .{ .vtype = .int, .int_val = -val.int_val };
             return val;
         }
-
+        self.reportError("Unexpected token in expression");
         return .{ .vtype = .int, .int_val = 0 };
     }
 };

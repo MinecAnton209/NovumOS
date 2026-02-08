@@ -1,8 +1,13 @@
-# Nova Language - Comprehensive Guide (v0.21.0)
+# Nova Language Guide
 
-Nova is a statement-based interpreted language for the NovumOS kernel. It provides a simple environment for automation, system control, and filesystem management, now featuring full floating-point support.
+Nova is a statement-based interpreted language for the NovumOS kernel. It provides a simple environment for automation, system control, and filesystem management, featuring floating-point support, modular sub-systems, and a robust REPL.
 
 ---
+
+## ⚡ Quick Rules (v0.22+)
+- **Semicolons are Mandatory**: Every statement must end with a `;` (e.g., `print("hi");`).
+- **Modular Access**: Standard functions like `sin` or `delay` are now in modules (`math`, `sys`) and require an `import`.
+- **Case Sensitivity**: Keywords (`if`, `while`, `set`) are lowercase.
 
 ## 🚀 1. Variable Management
 
@@ -35,17 +40,21 @@ print("Precise: " + ftemp);           // "Precise: 36.600"
 
 ## 🔧 2. Built-in Functions
 
-### System & Hardware
+### System & Hardware (Module `sys`)
+*Requires `import "sys"`*
+
 | Function | Description | Example |
 |----------|-------------|---------|
-| `get_mem()` | Returns current free memory (bytes) | `set m = get_mem();` |
-| `get_cpu_temp()` | Returns CPU temp in Celsius | `print(get_cpu_temp());` |
-| `delay(ms)` | Wait for N milliseconds | `delay(1000);` |
-| `shell(cmd)` | Execute kernel shell command | `shell("ls /bin");` |
-| `set_color(f, b)`| Set VGA colors (0-15) | `set_color(12, 0);` |
-| `get_key()` | Returns raw keyboard scancode | `set k = get_key();` |
-| `exec(cmd)` | Alias for shell command | `exec("reboot");` |
-| `exit()` | Terminate script or REPL | `exit();` |
+| `sys.get_mem()` | Returns current free memory (bytes) | `set m = sys.get_mem();` |
+| `sys.get_temp()` | Returns CPU temp in Celsius | `print(sys.get_temp());` |
+| `sys.delay(ms)` | Wait for N milliseconds | `sys.delay(1000);` |
+| `sys.shell(cmd)` | Execute kernel shell command | `sys.shell("ls /bin");` |
+| `sys.color(f, b)`| Set VGA colors (0-15) | `sys.color(12, 0);` |
+| `sys.key()` | Returns raw keyboard scancode | `set k = sys.key();` |
+| `sys.exec(cmd)` | Alias for shell command | `sys.exec("reboot");` |
+| `sys.reboot()` | Reboots the system | `sys.reboot();` |
+| `sys.shutdown()` | Shuts down the system | `sys.shutdown();` |
+| `exit()` | Terminate script or REPL (Global) | `exit();` |
 
 ### Filesystem
 | Function | Description | Example |
@@ -60,18 +69,20 @@ print("Precise: " + ftemp);           // "Precise: 36.600"
 | `rename(o, n)` | Rename or move file | `rename("a.txt", "b.txt");`|
 | `copy(s, d)` | Copy file to destination | `copy("a.txt", "b.txt");` |
 
-### Math & Trigonometry (v0.21.0+)
+### Math & Trigonometry (Module `math`)
+*Requires `import "math"`*
+
 | Function | Description | Example / Note |
 |----------|-------------|----------------|
-| `abs(n)` | Absolute value | `abs(-5); // 5` |
-| `min(a, b)`| Minimum of two values | `min(10, 20); // 10` |
-| `max(a, b)`| Maximum of two values | `max(-1, 5); // 5` |
-| `random(l, h)`| Pseudo-random integer | `random(1, 100);` |
-| `sin(v)` | Sine (Float) | Precision: Bhaskara I |
-| `cos(v)` | Cosine (Float) | Respects `set_angles` |
-| `set_angles(m)`| Set mode: `rad` or `deg` | `set_angles(rad);` |
-| `rad(deg)` | Degrees to Radians | `rad(180); // 3.141...` |
-| `deg(rad)` | Radians to Degrees | `deg(3.141); // 180.0` |
+| `math.abs(n)` | Absolute value | `math.abs(-5); // 5` |
+| `math.min(a, b)`| Minimum of two values | `math.min(10, 20); // 10` |
+| `math.max(a, b)`| Maximum of two values | `math.max(-1, 5); // 5` |
+| `math.random(l, h)`| Pseudo-random integer | `math.random(1, 100);` |
+| `math.sin(v)` | Sine (Float) | Precision: Bhaskara I |
+| `math.cos(v)` | Cosine (Float) | Respects `math.set_angles` |
+| `math.set_angles(m)`| Set mode: `rad` or `deg` | `math.set_angles("rad");` |
+| `math.rad(deg)` | Degrees to Radians | `math.rad(180); // 3.141...` |
+| `math.deg(rad)` | Radians to Degrees | `math.deg(3.141); // 180.0` |
 
 ### String & Data Processing
 | Function | Description | Example |
@@ -98,12 +109,14 @@ Nova supports loading external modules using the `import` keyword.
 
 ### Resolution Order:
 1. Search local directory of the script.
-2. Search system directory: `/.SYSTEM/NOVA/MODULES/`.
+2. Search system directory: `/.SYSTEM/NOVA/MOD/`.
 
 ```nova
-import "math"
-import "/lib/utils.nv"
+import "math";
+import "/lib/utils.nv";
 ```
+
+*Note: Autocompletion (Tab) for module functions only becomes active after the module is successfully imported.*
 
 ---
 
@@ -131,14 +144,47 @@ while i < 10 {
 
 ---
 
-## 📝 5. Comments
+## 📝 5. Comments & Formatting
 Nova supports single-line (`//`) and multi-line (`/* ... */`) comments.
+
+### ⌨️ Multi-line REPL
+The Nova REPL supports multi-line input. If a statement is not terminated with a `;` or a closing brace `}`, the REPL will switch to continuation mode (`...` prompt):
+```nova
+nova> print("Hello " +
+ ...  "World");
+Hello World
+```
 
 ---
 
-## 💻 6. Technical Specifications
+---
+
+## 🎨 6. VGA Color Guide
+
+The `sys.color(fg, bg)` function uses standard 16-color VGA palette indices (0-15).
+
+| ID | Color | ID | Color |
+|----|-------|----|-------|
+| **0** | Black | **8** | Dark Gray |
+| **1** | Blue | **9** | Light Blue |
+| **2** | Green | **10** | Light Green |
+| **3** | Cyan | **11** | Light Cyan |
+| **4** | Red | **12** | Light Red |
+| **5** | Magenta | **13** | Light Magenta (Pink) |
+| **6** | Brown | **14** | Yellow |
+| **7** | Light Gray | **15** | White |
+
+### Example: Yellow on Blue
+```nova
+import "sys"
+sys.color(14, 1);
+print("Warning: System Overload");
+```
+
+---
+
+## 💻 7. Technical Specifications
 - **Execution**: Recursive block-based interpreter with dynamic heap allocation.
 - **Math Engine**: High-speed fixed-approximation trigonometry optimized for x86 kernel space.
-- **FS Support**: Full integration with NovumOS FAT driver (v0.21.0).
-
-*Documentation generated for NovumOS v0.21.0*
+- **FS Support**: Full integration with NovumOS FAT driver (v0.22.0).
+- **Interface**: Enhanced REPL with module-aware tab completion and history (20 entries).

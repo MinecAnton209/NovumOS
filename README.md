@@ -22,7 +22,7 @@ NovumOS is a simple operating system that successfully boots from 16-bit real mo
 - ✅ **Command Shell** - Interactive console with **Tab Autocomplete**, **Command History** (persisted to disk), and cycling matches
 - ✅ **Piping & Redirection** - Support for pipes (`|`) and output redirection (`>`, `>>`)
 - ✅ **FAT12/16 Support** - Native disk support for ATA drives with **Long File Name (LFN)** and **Hidden Files** support
-- ✅ **Nova Language v0.21.0** - Integrated custom interpreter with history, autocomplete, **32-bit Float Support**, and high-precision math
+- ✅ **Nova Language v0.22.0** - Integrated custom interpreter with multi-line REPL, mandatory semicolons, modular system, and context-aware tab completion
 - ✅ **Filesystem Overhaul** - Native implementation of `create_file`, `delete`, `rename`, and `copy` directly in the Nova interpreter
 - ✅ **Embedded Scripts** - Built-in commands written in Nova (`syscheck`, `hello`)
 - ✅ **Native Commands** - Native implementation of `install` and `uninstall` for Nova scripts
@@ -85,7 +85,7 @@ qemu-system-i386 -drive format=raw,file=build\os-image.bin -drive format=raw,fil
 - `mem`            - Test memory allocator
 
 ### Nova Language
-A powerful statement-based interpreted language built into NovumOS. Version 0.21.0 introduces **32-bit Floating Point Support**, **High-Precision Trigonometry**, and informative REPL responses.
+A powerful statement-based interpreted language built into NovumOS. Version 0.22.0 introduces **Modular Sub-systems**, **Multi-line REPL**, **Mandatory Semicolons**, and **Context-aware Tab Completion**.
 
 **Features:**
 - **Variables**: `set string name = "Value";`, `set float pi = 3.14159;`
@@ -120,7 +120,12 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Kernel (32-bit) → Z
 
 ### Roadmap
 
-#### Current progress (v0.21)
+#### Current progress (v0.22)
+- [x] **Modular Sub-systems (v0.22)** (sys, math mod)
+- [x] **Multi-line REPL (v0.22)** (Accumulator buffer, continuation prompt)
+- [x] **Mandatory Semicolons (v0.22)** (Complete statement tracking)
+- [x] **Context-aware Tab Completion (v0.22)** (Import detection)
+- [x] **Enhanced Error Handling (v0.22)** (Soft errors in REPL)
 - [x] **Full Floating Point Engine (v0.21)**
 - [x] **High-Precision Trig (v0.21)** (Bhaskara I formula)
 - [x] **Informative REPL (v0.21)** (Descriptive status strings)
@@ -138,7 +143,7 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Kernel (32-bit) → Z
 - [x] **Hierarchical Path Support & CWD** (Absolute/Relative paths, cd, pwd)
 - [x] Built-in Text Editor (`edit`)
 - [x] Dynamic Shell Commands table
-- [x] Nova Language v0.21.0 (History, Autocomplete, Sci-Math, Scripts, Floats)
+- [x] Nova Language v0.22.0 (Multi-line REPL, Modules, Mandatory Semicolons, Context-aware Tab)
 - [x] Native script management (install, uninstall)
 - [x] File Management improvements (LFN create/read/delete)
 

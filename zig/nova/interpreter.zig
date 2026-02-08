@@ -16,18 +16,20 @@ const lexer = @import("lexer.zig");
 const vm_mod = @import("vm.zig");
 const hash_table = @import("hash_table.zig");
 
-const BUFFER_SIZE: usize = 128;
-const HISTORY_SIZE: usize = 10;
+const BUFFER_SIZE: usize = 512;
+const REPL_BUFFER_SIZE: usize = 4096;
+const HISTORY_SIZE: usize = 20;
 
 const NOVA_KEYWORDS = [_][]const u8{
-    "print(",       "set string ", "set int ",    "exit()",          "reboot()",        "shutdown()",
-    "input(",       "delete(",     "rename(",     "copy(",           "mkdir(",          "write(",
-    "create_file(", "if ",         "else",        "while ",          "delay(",          "shell(",
-    "read(",        "random(",     "min(",        "max(",            "abs(",            "sin(",
-    "cos(",         "import ",     "size(",       "exists(",         "get_mem()",       "get_cpu_temp()",
-    "len(",         "int(",        "str(",        "split(",          "format(",         "convert(",
-    "argc()",       "args(",       "set_angles(", "set_angles(rad)", "set_angles(deg)", "rad(",
-    "deg(",         "set_color(",  "get_key()",   "exec(",
+    "print(",       "set ",             "exit();",         "import \"",      "if (",          "else {",
+    "while (",      "import \"math\";", "import \"sys\";", "math.",          "sys.",          "math.sin(",
+    "math.cos(",    "math.abs(",        "math.min(",       "math.max(",      "math.rad(",     "math.deg(",
+    "math.random(", "math.set_angles(", "sys.get_mem()",   "sys.get_temp()", "sys.delay(",    "sys.sleep(",
+    "sys.exec(",    "sys.shell(",       "sys.color(",      "sys.key()",      "sys.reboot();", "sys.shutdown();",
+    "len(",         "int(",             "str(",            "split(",         "format(",       "convert(",
+    "input(",       "read(",            "write(",          "delete(",        "rename(",       "copy(",
+    "exists(",      "size(",            "mkdir(",          "argc()",         "args(",         "break;",
+    "continue;",
 };
 
 // Interpreter state
@@ -52,6 +54,10 @@ var auto_prefix_len: usize = 0;
 var auto_match_index: usize = 0;
 var auto_start_pos: u16 = 0;
 var global_vm: ?vm_mod.VM = null;
+
+// Multi-line REPL buffer
+var repl_buffer: [REPL_BUFFER_SIZE]u8 = [_]u8{0} ** REPL_BUFFER_SIZE;
+var repl_len: usize = 0;
 
 /// Read a simple line of input into the provided buffer
 pub fn readInput(buf: []u8) usize {
@@ -97,7 +103,11 @@ pub fn start(script_path: ?[]const u8) void {
 
         // Main REPL loop (Read-Eval-Print Loop)
         while (!exit_flag) {
-            common.printZ("nova> ");
+            if (repl_len == 0) {
+                common.printZ("nova> ");
+            } else {
+                common.printZ(" ...  ");
+            }
             readLine();
             if (exit_flag) break;
             executeLine();
@@ -158,6 +168,7 @@ pub fn runScriptSource(script: []const u8, path: ?[]const u8, repl: bool) void {
     vm.tokens = tokens;
     vm.ip = 0;
     vm.exit_flag = false;
+    vm.has_error = false;
     vm.script_args = final_args;
 
     if (path) |p| {
@@ -166,7 +177,7 @@ pub fn runScriptSource(script: []const u8, path: ?[]const u8, repl: bool) void {
 
     vm.repl_mode = repl;
     vm.run();
-    if (vm.exit_flag) exit_flag = true;
+    if (vm.exit_flag and !vm.has_error) exit_flag = true;
 }
 
 fn validateScript(script: []const u8) bool {
@@ -362,6 +373,7 @@ fn readLine() void {
             common.printZ("^C\n");
             buf_len = 0;
             buf_pos = 0;
+            repl_len = 0; // Clear multi-line buffer on Ctrl+C
             return;
         }
 
@@ -490,7 +502,8 @@ fn autocomplete() void {
         var idx: usize = buf_pos;
         while (idx > 0) {
             idx -= 1;
-            if (buffer[idx] == ' ' or buffer[idx] == ';') {
+            const c = buffer[idx];
+            if (c == ' ' or c == ';' or c == '(' or c == ',' or c == '+' or c == '"') {
                 s_idx = idx + 1;
                 break;
             }
@@ -509,7 +522,9 @@ fn autocomplete() void {
     var total_matches: usize = 0;
 
     for (NOVA_KEYWORDS) |kw| {
-        if (global_common.startsWithIgnoreCase(kw, current_prefix)) total_matches += 1;
+        if (global_common.startsWithIgnoreCase(kw, current_prefix)) {
+            if (isKeywordVisible(kw)) total_matches += 1;
+        }
     }
 
     if (total_matches == 0) {
@@ -522,6 +537,7 @@ fn autocomplete() void {
 
     for (NOVA_KEYWORDS) |kw| {
         if (global_common.startsWithIgnoreCase(kw, current_prefix)) {
+            if (!isKeywordVisible(kw)) continue;
             if (current_match_idx == match_to_pick) {
                 buf_len = auto_start_pos;
                 for (kw) |c| {
@@ -536,6 +552,18 @@ fn autocomplete() void {
             current_match_idx += 1;
         }
     }
+}
+
+fn isKeywordVisible(kw: []const u8) bool {
+    if (common.startsWith(kw, "math.")) {
+        if (global_vm) |vm| return vm.is_math_loaded;
+        return false;
+    }
+    if (common.startsWith(kw, "sys.")) {
+        if (global_vm) |vm| return vm.is_sys_loaded;
+        return false;
+    }
+    return true;
 }
 
 fn refreshLine() void {
@@ -600,8 +628,70 @@ fn moveScreenCursor() void {
     vga.zig_set_cursor(@intCast(new_row), @intCast(new_col));
 }
 
+/// Check if a statement is complete (balanced brackets and ends with ; or })
+fn isComplete(source: []const u8) bool {
+    var paren_depth: i32 = 0;
+    var brace_depth: i32 = 0;
+    var in_string: bool = false;
+    var last_char: u8 = 0;
+    var i: usize = 0;
+
+    while (i < source.len) : (i += 1) {
+        const c = source[i];
+        if (in_string) {
+            if (c == '"') {
+                if (i > 0 and source[i - 1] == '\\') {
+                    // Escaped
+                } else {
+                    in_string = false;
+                }
+            }
+        } else {
+            if (c == '"') {
+                in_string = true;
+            } else if (c == '(') {
+                paren_depth += 1;
+            } else if (c == ')') {
+                paren_depth -= 1;
+            } else if (c == '{') {
+                brace_depth += 1;
+            } else if (c == '}') {
+                brace_depth -= 1;
+            }
+        }
+        if (c != ' ' and c != '\n' and c != '\r' and c != '\t') {
+            last_char = c;
+        }
+    }
+
+    if (in_string or paren_depth > 0 or brace_depth > 0) return false;
+    if (last_char == ';' or last_char == '}') return true;
+
+    return false;
+}
+
 /// Parse and execute the buffered command line
 fn executeLine() void {
-    if (buf_len == 0) return;
-    runScriptSource(buffer[0..buf_len], null, true);
+    if (buf_len == 0) {
+        // Empty line might mean the user wants to force execution if multi-line is active?
+        // Or just do nothing.
+        return;
+    }
+
+    // Append current buffer to REPL accumulator
+    if (repl_len + buf_len + 2 >= REPL_BUFFER_SIZE) {
+        common.printZ("Error: REPL buffer overflow\n");
+        repl_len = 0;
+        return;
+    }
+
+    common.copy(repl_buffer[repl_len..], buffer[0..buf_len]);
+    repl_len += buf_len;
+    repl_buffer[repl_len] = '\n';
+    repl_len += 1;
+
+    if (isComplete(repl_buffer[0..repl_len])) {
+        runScriptSource(repl_buffer[0..repl_len], null, true);
+        repl_len = 0;
+    }
 }
