@@ -24,6 +24,64 @@ const cpuinfo = @import("commands/cpuinfo.zig");
 const smp = @import("smp.zig");
 const vga = @import("drivers/vga.zig");
 const user = @import("user.zig");
+const elf = @import("elf.zig");
+
+pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
+    var argv: [8][]const u8 = undefined;
+    const argc = common.parseArgs(args_ptr[0..args_len], &argv);
+    if (argc == 0) {
+        common.printZ("Usage: run <elf_file>\n");
+        return;
+    }
+    const name = argv[0];
+
+    if (common.selected_disk < 0) {
+        common.printError("Error: ELF loading from RAM FS not implemented yet\n");
+        return;
+    }
+
+    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    const bpb = fat.read_bpb(drive) orelse {
+        common.printError("Error: Could not read BPB\n");
+        return;
+    };
+
+    const entry = fat.find_entry(drive, bpb, common.current_dir_cluster, name) orelse {
+        common.printError("Error: File not found\n");
+        return;
+    };
+
+    if ((entry.attr & 0x10) != 0) {
+        common.printError("Error: Is a directory\n");
+        return;
+    }
+
+    // Allocate memory for the ELF file
+    const size = entry.file_size;
+    const buf_ptr = memory.heap.alloc(size) orelse {
+        common.printError("Error: Out of memory for ELF\n");
+        return;
+    };
+    const buffer = buf_ptr[0..size];
+
+    // Read the file
+    const read_len = fat.read_file(drive, bpb, common.current_dir_cluster, name, buf_ptr);
+    if (read_len != size) {
+        common.printError("Error: Could not read ELF file\n");
+        memory.heap.free(buf_ptr);
+        return;
+    }
+
+    // Try to load and run
+    elf.load_and_run(buffer) catch |err| {
+        common.printZ("Error loading ELF: ");
+        common.printZ(@errorName(err));
+        common.printZ("\n");
+    };
+
+    // Clean up if it fails (unreachable if success)
+    memory.heap.free(buf_ptr);
+}
 
 var viewer_buffer: [16384]u8 = undefined;
 var viewer_lines: [1024]struct { start: usize, len: usize, original_num: usize } = undefined;

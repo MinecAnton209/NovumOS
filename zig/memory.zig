@@ -134,7 +134,7 @@ var first_16mb_pts: [4]PageTable align(4096) = [_]PageTable{[_]u32{0} ** 1024} *
 pub var pf_count: usize = 0;
 
 pub fn init_paging() void {
-    // 1. Disable Interrupts during this critical transition
+    // 1. Disable Interrupts during this transition
     asm volatile ("cli");
 
     // 2. Enable PSE (Page Size Extension) in CR4
@@ -145,7 +145,7 @@ pub fn init_paging() void {
         ::: "eax");
 
     // 3. Setup Page Directory Index 0-3 (0-16MB) using 4KB pages
-    // This is the CRITICAL zone: Kernel (1MB), Stack (5MB), IDT, early buffers.
+    // Kernel (1MB), Stack (5MB), IDT, early buffers.
     // Using 4KB pages here is safer for these sensitive regions.
     var pd_idx: u32 = 0;
     while (pd_idx < 4) : (pd_idx += 1) {

@@ -12,6 +12,7 @@ const acpi = @import("drivers/acpi.zig");
 const memory = @import("memory.zig");
 const exceptions = @import("exceptions.zig");
 const smp = @import("smp.zig");
+const libc_stubs = @import("libc_stubs.zig");
 
 // Ensure all modules are included in the compilation
 comptime {
@@ -27,6 +28,7 @@ comptime {
     _ = smp;
     _ = @import("user.zig");
     _ = @import("drivers/vga.zig");
+    _ = libc_stubs;
 }
 
 // External shell functions (exported by shell.zig)
@@ -63,7 +65,13 @@ export fn kmain() void {
     // Initialize Dumb SMP (Kick Core 1)
     smp.init();
 
-    // Main Shell loop
+    kernel_loop();
+}
+
+/// Main Kernel Loop - Exported for re-entry from User Mode
+pub export fn kernel_loop() noreturn {
+    // Reset any potentially corrupted state here if needed
+    // For now, just enter the shell loop
     while (true) {
         read_command();
         execute_command();

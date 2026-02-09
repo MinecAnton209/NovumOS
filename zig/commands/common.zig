@@ -391,3 +391,59 @@ pub fn parse_int(s: []const u8) ?i32 {
     }
     return res * sign;
 }
+
+pub fn intToHex(val: u32, buf: []u8) []const u8 {
+    const chars = "0123456789ABCDEF";
+    var idx: usize = 0;
+    buf[idx] = '0';
+    idx += 1;
+    buf[idx] = 'x';
+    idx += 1;
+
+    // Simple 8-digit hex for u32
+    var i: i32 = 7;
+    while (i >= 0) : (i -= 1) {
+        const nibble = (val >> @as(u5, @intCast(i * 4))) & 0xF;
+        buf[idx] = chars[nibble];
+        idx += 1;
+    }
+    return buf[0..idx];
+}
+
+pub fn intToString(val: i32, buf: []u8) []const u8 {
+    if (val == 0) {
+        buf[0] = '0';
+        return buf[0..1];
+    }
+
+    var n = val;
+    var i: usize = 0;
+    var is_neg = false;
+
+    if (n < 0) {
+        is_neg = true;
+        n = -n;
+    }
+
+    var temp: [16]u8 = undefined;
+    var t: usize = 0;
+
+    while (n > 0) {
+        temp[t] = @intCast(@mod(n, 10));
+        temp[t] += '0';
+        n = @divTrunc(n, 10);
+        t += 1;
+    }
+
+    if (is_neg) {
+        buf[i] = '-';
+        i += 1;
+    }
+
+    while (t > 0) {
+        t -= 1;
+        buf[i] = temp[t];
+        i += 1;
+    }
+    return buf[0..i];
+}

@@ -8,6 +8,7 @@ NovumOS.img
 NovumOS.iso
 qemu.log
 disk.img
+iso_root/
 
 # Tools
 tools/mkiso
@@ -30,3 +31,7 @@ zig/zig-out/
 # OS specific
 .DS_Store
 Thumbs.db
+
+# SDK
+sdk/**/*.elf
+sdk/**/*.o

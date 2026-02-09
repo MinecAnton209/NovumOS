@@ -84,6 +84,26 @@ qemu-system-i386 -drive format=raw,file=build\os-image.bin -drive format=raw,fil
 - `echo <text>`    - Print text (supports pipes)
 - `mem`            - Test memory allocator
 
+### SDK (Software Development Kit)
+
+NovumOS includes a complete SDK for developing user-mode applications in C or Zig.
+
+**Quick Start:**
+```bash
+cd sdk/examples/hello_world
+../../build-app.bat main.c hello.elf  # Windows
+../../build-app.sh main.c hello.elf   # Linux
+```
+
+**Available APIs:**
+- `nv_print()` - Print text to console
+- `nv_getchar()` - Read keyboard input
+- `nv_set_cursor()` - Position cursor
+- `nv_clear_screen()` - Clear display
+- `nv_exit()` - Exit program
+
+See `sdk/README.md` for full documentation and examples.
+
 ### Nova Language
 A powerful statement-based interpreted language built into NovumOS. Version 0.22.0 introduces **Modular Sub-systems**, **Multi-line REPL**, **Mandatory Semicolons**, and **Context-aware Tab Completion**.
 

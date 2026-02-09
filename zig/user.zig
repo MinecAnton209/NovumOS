@@ -3,6 +3,9 @@ const exceptions = @import("exceptions.zig");
 const keyboard = @import("keyboard_isr.zig");
 const vga = @import("drivers/vga.zig");
 
+// External jump target to return to kernel shell
+extern fn kernel_loop() noreturn;
+
 // Register state passed from assembly (matches stack layout)
 pub const Registers = extern struct {
     edi: u32,
@@ -33,10 +36,17 @@ export fn strlen(s: [*]const u8) usize {
 export fn handle_syscall_zig(regs: *Registers) void {
     switch (regs.eax) {
         0 => { // Exit
-            common.printZ("[Kernel] User mode process exited.\n");
-            // For now, we don't have a real scheduler, so we just hang or reboot?
-            // Safer to just hang or try to return to shell (complex without process state)
-            while (true) {}
+            common.printZ("[Kernel] User mode process exited. Returning to Shell...\n");
+
+            // Reset Kernel Stack and jump back to main loop
+            // We assume safe stack is at 0x500000 (defined in kernel32.asm)
+            asm volatile (
+                \\ cli
+                \\ movl $0x500000, %%esp
+                \\ movl %%esp, %%ebp
+                \\ jmp kernel_loop
+            );
+            unreachable;
         },
         1 => { // PrintZ(EBX = string_ptr)
             const ptr = @as([*]const u8, @ptrFromInt(regs.ebx));
