@@ -179,12 +179,20 @@ fn outb(port: u16, val: u8) void {
     asm volatile ("mov %%cs, %[cs]"
         : [cs] "=r" (cs),
     );
-    // Execute ONLY in Ring 0
-    if ((cs & 3) == 0) {
-        asm volatile ("outb %[val], %[port]"
+
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
             :
-            : [val] "{al}" (val),
-              [port] "{dx}" (port),
+            : [sys] "{eax}" (@as(u32, 7)),
+              [p] "{ebx}" (@as(u32, port)),
+              [v] "{ecx}" (@as(u32, val)),
         );
+        return;
     }
+
+    asm volatile ("outb %[val], %[port]"
+        :
+        : [val] "{al}" (val),
+          [port] "{dx}" (port),
+    );
 }

@@ -116,6 +116,20 @@ pub const fs_write = fs.fs_write;
 
 /// Send a byte to an I/O port
 pub fn outb(port: u16, value: u8) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 7)),
+              [p] "{ebx}" (@as(u32, port)),
+              [v] "{ecx}" (@as(u32, value)),
+        );
+        return;
+    }
+
     asm volatile ("outb %[value], %[port]"
         :
         : [value] "{al}" (value),
@@ -125,6 +139,20 @@ pub fn outb(port: u16, value: u8) void {
 
 /// Send a word (16-bit) to an I/O port
 pub fn outw(port: u16, value: u16) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 9)),
+              [p] "{ebx}" (@as(u32, port)),
+              [v] "{ecx}" (@as(u32, value)),
+        );
+        return;
+    }
+
     asm volatile ("outw %[value], %[port]"
         :
         : [value] "{ax}" (value),
@@ -134,6 +162,18 @@ pub fn outw(port: u16, value: u16) void {
 
 /// Read a byte from an I/O port
 pub fn inb(port: u16) u8 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        return asm volatile ("int $0x80"
+            : [ret] "={eax}" (-> u8),
+            : [sys] "{eax}" (@as(u32, 6)),
+              [p] "{ebx}" (@as(u32, port)),
+        );
+    }
+
     return asm volatile ("inb %[port], %[ret]"
         : [ret] "={al}" (-> u8),
         : [port] "{dx}" (port),
@@ -142,6 +182,18 @@ pub fn inb(port: u16) u8 {
 
 /// Read a word (16-bit) from an I/O port
 pub fn inw(port: u16) u16 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        return asm volatile ("int $0x80"
+            : [ret] "={eax}" (-> u16),
+            : [sys] "{eax}" (@as(u32, 8)),
+              [p] "{ebx}" (@as(u32, port)),
+        );
+    }
+
     return asm volatile ("inw %[port], %[ret]"
         : [ret] "={ax}" (-> u16),
         : [port] "{dx}" (port),
@@ -150,6 +202,18 @@ pub fn inw(port: u16) u16 {
 
 /// Reset the computer via the keyboard controller pulse
 pub fn reboot() noreturn {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 14)),
+        );
+        while (true) {}
+    }
+
     printZ("Rebooting...\r\n");
     // Pulse CPU reset line (FE code to command port 64h)
     outb(0x64, 0xFE);
@@ -158,12 +222,36 @@ pub fn reboot() noreturn {
 
 /// Shutdown the system using ACPI
 pub fn shutdown() noreturn {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 13)),
+        );
+        while (true) {}
+    }
+
     printZ("Shutting down...\r\n");
     acpi.shutdown();
 }
 
 /// Precise sleep in milliseconds
 pub fn sleep(ms: usize) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 10)),
+              [val] "{ebx}" (@as(u32, @intCast(ms))),
+        );
+        return;
+    }
     timer.sleep(ms);
 }
 

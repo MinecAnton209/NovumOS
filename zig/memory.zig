@@ -206,7 +206,7 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
     if (pd_idx >= 1024) return null;
     if (page_tables[pd_idx]) |pt| return pt;
 
-    // Use static tables for the critical first 16MB (Indices 0-3)
+    // Use static tables for the first 16MB (Indices 0-3)
     if (pd_idx < 4) {
         const pt = &first_16mb_pts[pd_idx];
         page_tables[pd_idx] = pt;
@@ -242,10 +242,16 @@ pub fn map_page(vaddr: usize) bool {
     if ((pde.* & 0x80) != 0) {
         if ((pde.* & 1) == 0) {
             pde.* |= 0x5; // Mark Present and User
-            asm volatile ("invlpg (%[vaddr])"
-                :
-                : [vaddr] "r" (vaddr),
-                : "memory");
+            var cs: u16 = 0;
+            asm volatile ("mov %%cs, %[cs]"
+                : [cs] "=r" (cs),
+            );
+            if ((cs & 3) == 0) {
+                asm volatile ("invlpg (%[vaddr])"
+                    :
+                    : [vaddr] "r" (vaddr),
+                    : "memory");
+            }
             pf_count += 1;
         }
         return true;
@@ -272,10 +278,16 @@ pub fn map_page(vaddr: usize) bool {
         }
 
         pte.* = @as(u32, @intCast(paddr)) | 0x7; // P=1, RW=1, USER=1
-        asm volatile ("invlpg (%[vaddr])"
-            :
-            : [vaddr] "r" (vaddr),
-            : "memory");
+        var cs: u16 = 0;
+        asm volatile ("mov %%cs, %[cs]"
+            : [cs] "=r" (cs),
+        );
+        if ((cs & 3) == 0) {
+            asm volatile ("invlpg (%[vaddr])"
+                :
+                : [vaddr] "r" (vaddr),
+                : "memory");
+        }
 
         pf_count += 1;
         return true;
@@ -284,6 +296,20 @@ pub fn map_page(vaddr: usize) bool {
 }
 
 pub fn map_range(vaddr: usize, size: usize) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 15)),
+              [v] "{ebx}" (vaddr),
+              [s] "{ecx}" (size),
+        );
+        return;
+    }
+
     var addr = vaddr & 0xFFFFF000;
     const end = vaddr + size;
     while (addr < end) {

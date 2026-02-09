@@ -52,6 +52,19 @@ pub fn get_ticks() usize {
 
 /// Precise sleep for a number of milliseconds
 pub fn sleep(ms: usize) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 10)),
+              [val] "{ebx}" (@as(u32, @intCast(ms))),
+        );
+        return;
+    }
+
     const ptr = @as(*volatile usize, &ticks);
     const start_ticks = ptr.*;
     while (ptr.* - start_ticks < ms) {
@@ -63,9 +76,5 @@ pub fn sleep(ms: usize) void {
 
 // I/O port functions
 fn outb(port: u16, val: u8) void {
-    asm volatile ("outb %[val], %[port]"
-        :
-        : [val] "{al}" (val),
-          [port] "{dx}" (port),
-    );
+    common.outb(port, val);
 }

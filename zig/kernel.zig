@@ -44,6 +44,7 @@ export fn kernel_panic(msg_ptr: [*]const u8, msg_len: usize) noreturn {
 pub fn panic(msg: []const u8) noreturn {
     exceptions.panic(msg);
 }
+const user = @import("user.zig");
 
 // --- Kernel Entry Point ---
 export fn kmain() void {
@@ -65,7 +66,8 @@ export fn kmain() void {
     // Initialize Dumb SMP (Kick Core 1)
     smp.init();
 
-    kernel_loop();
+    // Jump to Shell in Ring 3 (User Mode)
+    user.jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop));
 }
 
 /// Main Kernel Loop - Exported for re-entry from User Mode

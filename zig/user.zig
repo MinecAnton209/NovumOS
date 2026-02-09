@@ -2,6 +2,8 @@ const common = @import("commands/common.zig");
 const exceptions = @import("exceptions.zig");
 const keyboard = @import("keyboard_isr.zig");
 const vga = @import("drivers/vga.zig");
+const timer = @import("drivers/timer.zig");
+const memory = @import("memory.zig");
 
 // External jump target to return to kernel shell
 extern fn kernel_loop() noreturn;
@@ -37,16 +39,7 @@ export fn handle_syscall_zig(regs: *Registers) void {
     switch (regs.eax) {
         0 => { // Exit
             common.printZ("[Kernel] User mode process exited. Returning to Shell...\n");
-
-            // Reset Kernel Stack and jump back to main loop
-            // We assume safe stack is at 0x500000 (defined in kernel32.asm)
-            asm volatile (
-                \\ cli
-                \\ movl $0x500000, %%esp
-                \\ movl %%esp, %%ebp
-                \\ jmp kernel_loop
-            );
-            unreachable;
+            jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop));
         },
         1 => { // PrintZ(EBX = string_ptr)
             const ptr = @as([*]const u8, @ptrFromInt(regs.ebx));
@@ -67,6 +60,36 @@ export fn handle_syscall_zig(regs: *Registers) void {
         5 => { // ClearScreen()
             vga.clear_screen();
         },
+        6 => { // InB(EBX = port) -> EAX
+            regs.eax = common.inb(@intCast(regs.ebx));
+        },
+        7 => { // OutB(EBX = port, ECX = val)
+            common.outb(@intCast(regs.ebx), @intCast(regs.ecx));
+        },
+        8 => { // InW(EBX = port) -> EAX
+            regs.eax = common.inw(@intCast(regs.ebx));
+        },
+        9 => { // OutW(EBX = port, ECX = val)
+            common.outw(@intCast(regs.ebx), @intCast(regs.ecx));
+        },
+        10 => { // Sleep(EBX = ms)
+            common.sleep(@intCast(regs.ebx));
+        },
+        11 => { // GetTicks() -> EAX
+            regs.eax = @intCast(timer.get_ticks());
+        },
+        12 => { // JumpToUser(EBX = entry)
+            jump_to_ring3_entry(regs.ebx);
+        },
+        13 => { // Shutdown
+            common.shutdown();
+        },
+        14 => { // Reboot
+            common.reboot();
+        },
+        15 => { // MemoryMapRange(EBX=addr, ECX=size)
+            memory.map_range(regs.ebx, regs.ecx);
+        },
         else => {
             common.printZ("Unknown syscall from user mode\n");
         },
@@ -81,6 +104,24 @@ pub fn jump_to_user_mode() noreturn {
     is_user_mode = true;
     exceptions.main_tss.ss0 = 0x10;
     exceptions.main_tss.esp0 = 0x500000;
+
+    // Detect if we are already in Ring 3
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        // Already in Ring 3, just return to loop via syscall or jump
+        // For jump_to_user_mode (no entry), we can't easily jump to "nothing".
+        // Let's jump back to kernel_loop via syscall 12.
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 12)),
+              [ent] "{ebx}" (@intFromPtr(&kernel_loop)),
+        );
+        unreachable;
+    }
+
     jump_to_ring3();
 }
 
@@ -90,6 +131,21 @@ pub fn jump_to_user_mode_with_entry(entry: usize) noreturn {
     // Ensure TSS is ready for interrupts coming from Ring 3
     exceptions.main_tss.ss0 = 0x10;
     exceptions.main_tss.esp0 = 0x500000;
+
+    // Detect if we are already in Ring 3
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        // We are in Ring 3! Use syscall 12 to jump to a new entry point
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 12)),
+              [ent] "{ebx}" (entry),
+        );
+        unreachable;
+    }
 
     // Call the stable assembly transition
     jump_to_ring3_entry(entry);

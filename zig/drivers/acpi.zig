@@ -154,27 +154,28 @@ fn parse_s5(dsdt_addr: usize) bool {
 
 pub fn shutdown() noreturn {
     if (pm1a_control_block != 0) {
-        outw(pm1a_control_block, slp_typa | slp_en);
-        if (pm1b_control_block != 0) outw(pm1b_control_block, slp_typb | slp_en);
+        common.outw(pm1a_control_block, slp_typa | slp_en);
+        if (pm1b_control_block != 0) common.outw(pm1b_control_block, slp_typb | slp_en);
         common.sleep(100);
         // Fallback Force
-        outw(pm1a_control_block, slp_en);
+        common.outw(pm1a_control_block, slp_en);
     }
-    while (true) asm volatile ("hlt");
+
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) {
+        while (true) asm volatile ("hlt");
+    } else {
+        while (true) {}
+    }
 }
 
 fn outw(port: u16, value: u16) void {
-    asm volatile ("outw %[value], %[port]"
-        :
-        : [value] "{ax}" (value),
-          [port] "{dx}" (port),
-    );
+    common.outw(port, value);
 }
 
 fn outb(port: u16, value: u8) void {
-    asm volatile ("outb %[value], %[port]"
-        :
-        : [value] "{al}" (value),
-          [port] "{dx}" (port),
-    );
+    common.outb(port, value);
 }
