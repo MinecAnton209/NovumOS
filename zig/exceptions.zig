@@ -268,6 +268,17 @@ pub fn panic(msg: []const u8) noreturn {
 fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]const u8) noreturn {
     asm volatile ("cli");
 
+    // Disable Write Protect to allow kernel to write to protected pages (like VGA)
+    var cr0: u32 = undefined;
+    asm volatile ("mov %%cr0, %[cr0]"
+        : [cr0] "=r" (cr0),
+    );
+    cr0 &= ~@as(u32, 0x10000); // Clear WP bit
+    asm volatile ("mov %[cr0], %%cr0"
+        :
+        : [cr0] "r" (cr0),
+    );
+
     const bg_red = 0x4f; // Red background, White text
 
     // Clear screen with red

@@ -40,6 +40,28 @@ extern main_tss
 extern df_tss
 extern init_exception_handling
 
+section .data
+; Kernel GDT Structure
+align 16
+gdt_kernel_start:
+    dq 0                        ; Null descriptor (0x00)
+    dw 0xffff, 0x0000, 0x9a00, 0x00cf ; Code segment (0x08)
+    dw 0xffff, 0x0000, 0x9200, 0x00cf ; Data segment (0x10)
+    ; Main TSS (0x18)
+    dw 0x67, 0x0000, 0x8900, 0x0000
+    ; DF TSS (0x20)
+    dw 0x67, 0x0000, 0x8900, 0x0000
+gdt_kernel_end:
+    ; User Code segment (0x28)
+    dw 0xffff, 0x0000, 0xfa00, 0x00cf
+    ; User Data segment (0x30)
+    dw 0xffff, 0x0000, 0xf200, 0x00cf
+gdt_kernel_real_end:
+gdt_descriptor_kernel:
+    dw gdt_kernel_real_end - gdt_kernel_start - 1
+    dd gdt_kernel_start
+
+section .text.start
 start:
     cli                         ; Disable interrupts during setup
     
@@ -61,26 +83,6 @@ start:
     jmp 0x08:.reload_cs
 .reload_cs:
     jmp actual_code
-
-; Kernel GDT Structure
-align 16
-gdt_kernel_start:
-    dq 0                        ; Null descriptor (0x00)
-    dw 0xffff, 0x0000, 0x9a00, 0x00cf ; Code segment (0x08)
-    dw 0xffff, 0x0000, 0x9200, 0x00cf ; Data segment (0x10)
-    ; Main TSS (0x18)
-    dw 0x67, 0x0000, 0x8900, 0x0000
-    ; DF TSS (0x20)
-    dw 0x67, 0x0000, 0x8900, 0x0000
-gdt_kernel_end:
-    ; User Code segment (0x28)
-    dw 0xffff, 0x0000, 0xfa00, 0x00cf
-    ; User Data segment (0x30)
-    dw 0xffff, 0x0000, 0xf200, 0x00cf
-gdt_kernel_real_end:
-gdt_descriptor_kernel:
-    dw gdt_kernel_real_end - gdt_kernel_start - 1
-    dd gdt_kernel_start
 
 section .text
 actual_code:

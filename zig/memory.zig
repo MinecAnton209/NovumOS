@@ -9,6 +9,11 @@ pub var TOTAL_PAGES: usize = 0;
 pub var BITMAP_SIZE: usize = 0;
 
 extern const ebss: anyopaque;
+extern const _code_start: anyopaque;
+extern const _code_end: anyopaque;
+extern const _data_start: anyopaque;
+extern const _data_end: anyopaque;
+extern const idt_start: anyopaque;
 
 // We'll allocate a fixed-size bitmap for up to 4GB (128KB bitmap)
 var bitmap: [131072]u8 = [_]u8{0} ** 131072;
@@ -144,18 +149,49 @@ pub fn init_paging() void {
         \\mov %%eax, %%cr4
         ::: "eax");
 
+    const code_start = @intFromPtr(&_code_start);
+    const code_end = @intFromPtr(&_code_end);
+    const data_start = @intFromPtr(&_data_start);
+    const idt_addr = @intFromPtr(&idt_start);
+
     // 3. Setup Page Directory Index 0-3 (0-16MB) using 4KB pages
-    // Kernel (1MB), Stack (5MB), IDT, early buffers.
-    // Using 4KB pages here is safer for these sensitive regions.
     var pd_idx: u32 = 0;
     while (pd_idx < 4) : (pd_idx += 1) {
         if (create_page_table(pd_idx)) |pt| {
             for (0..1024) |j| {
                 const addr = (pd_idx * 1024 * PAGE_SIZE) + (j * PAGE_SIZE);
+
                 if (addr == 0) {
-                    pt[j] = 0x0 | 0x2; // NULL protection
+                    pt[j] = 0x0 | 0x2; // NULL protection (P=0)
+                }
+                // VGA Text Mode Buffer - Temporarily allow User access
+                // TODO: Migrate all VGA writes to use syscalls, then make this Supervisor-only
+                else if (addr == 0xB8000) {
+                    pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
+                }
+                // Kernel/Shell Code Section - User Read-Only
+                else if (addr >= code_start and addr < code_end) {
+                    pt[j] = @as(u32, @intCast(addr)) | 0x5; // P=1, RW=0, USER=1
+                }
+                // IDT Protection - Supervisor Only
+                else if (addr >= (idt_addr & 0xFFFFF000) and addr < (idt_addr & 0xFFFFF000) + 4096) {
+                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
+                }
+                // Kernel/Shell Data Section & User Stack (Generous 256KB+ area)
+                // We allow Read-Write access from the start of data up to the end of the first 4MB
+                else if (addr >= data_start and addr < 0x400000) {
+                    pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
+                }
+                // Kernel Stack Area (around 0x500000) - Supervisor Only
+                else if (addr >= 0x500000 and addr < 0x501000) {
+                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
+                }
+                // Reserved for System / Supervisor
+                else if (addr < 0x100000) {
+                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
                 } else {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x7; // Present, RW, USER
+                    // Default to Supervisor for other unknown regions in the first 16MB
+                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
                 }
             }
         }
@@ -187,7 +223,7 @@ pub fn init_paging() void {
         \\wbinvd
         \\mov %[pd], %%cr3
         \\mov %%cr0, %[cr0_val]
-        \\or $0x80000000, %[cr0_val]
+        \\or $0x80010000, %[cr0_val]
         \\mov %[cr0_val], %%cr0
         \\jmp 1f
         \\1:

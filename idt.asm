@@ -19,6 +19,7 @@ extern handle_syscall_zig
 section .data
 align 16
 ; Space for 256 gates (8 bytes each)
+global idt_start
 idt_start:
     times 256 * 8 db 0
 idt_end:

@@ -5,13 +5,16 @@ ENTRY(start)
 SECTIONS {
     /* Kernel loads at 0x10000 */
     . = 0x10000;
+    _code_start = .;
     
     /* Code section first - start symbol must be at 0x10000 */
     .text : {
         *(.text.start)
         *(.text*)
     }
+    _code_end = .;
     
+    _data_start = .;
     .rodata : {
         *(.rodata*)
     }
@@ -25,6 +28,7 @@ SECTIONS {
         *(.bss*)
         *(COMMON)
     }
+    _data_end = .;
     ebss = .;
     
     /* Discard all debug and exception handling sections */
