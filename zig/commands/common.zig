@@ -160,6 +160,29 @@ pub fn outw(port: u16, value: u16) void {
     );
 }
 
+/// Send a double word (32-bit) to an I/O port
+pub fn outl(port: u16, value: u32) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 17)),
+              [p] "{ebx}" (@as(u32, port)),
+              [v] "{ecx}" (value),
+        );
+        return;
+    }
+
+    asm volatile ("outl %[value], %[port]"
+        :
+        : [value] "{eax}" (value),
+          [port] "{dx}" (port),
+    );
+}
+
 /// Read a byte from an I/O port
 pub fn inb(port: u16) u8 {
     var cs: u16 = 0;
@@ -196,6 +219,26 @@ pub fn inw(port: u16) u16 {
 
     return asm volatile ("inw %[port], %[ret]"
         : [ret] "={ax}" (-> u16),
+        : [port] "{dx}" (port),
+    );
+}
+
+/// Read a double word (32-bit) from an I/O port
+pub fn inl(port: u16) u32 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        return asm volatile ("int $0x80"
+            : [ret] "={eax}" (-> u32),
+            : [sys] "{eax}" (@as(u32, 16)),
+              [p] "{ebx}" (@as(u32, port)),
+        );
+    }
+
+    return asm volatile ("inl %[port], %[ret]"
+        : [ret] "={eax}" (-> u32),
         : [port] "{dx}" (port),
     );
 }

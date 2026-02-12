@@ -22,7 +22,8 @@ NovumOS is a simple operating system that successfully boots from 16-bit real mo
 - ✅ **Command Shell** - Interactive console with **Tab Autocomplete**, **Command History** (persisted to disk), and cycling matches
 - ✅ **Piping & Redirection** - Support for pipes (`|`) and output redirection (`>`, `>>`)
 - ✅ **FAT12/16 Support** - Native disk support for ATA drives with **Long File Name (LFN)** and **Hidden Files** support
-- ✅ **Nova Language v0.22.0** - Integrated custom interpreter with multi-line REPL, mandatory semicolons, modular system, and context-aware tab completion
+- ✅ **PCI Bus Enumeration** - Support for scanning and identifying hardware devices on the PCI bus
+- ✅ **Nova Language v0.23-beta.6** - Integrated custom interpreter with multi-line REPL, mandatory semicolons, modular system, and context-aware tab completion
 - ✅ **Filesystem Overhaul** - Native implementation of `create_file`, `delete`, `rename`, and `copy` directly in the Nova interpreter
 - ✅ **Embedded Scripts** - Built-in commands written in Nova (`syscheck`, `hello`)
 - ✅ **Native Commands** - Native implementation of `install` and `uninstall` for Nova scripts
@@ -65,6 +66,7 @@ qemu-system-i386 -drive format=raw,file=build\os-image.bin -drive format=raw,fil
 - `shutdown`       - Shutdown system (ACPI support)
 - `ls`, `la`        - List files (la shows hidden files)
 - `pwd`             - Print current working directory
+- `lspci`           - List PCI devices and hardware bridges
 - `cd <path>`       - Change directory (supports `..`, `/`, and relative paths)
 - `lsdsk`          - List storage devices and partitions
 - `mount <d>`      - Select active disk (0/1 or ram)
@@ -105,7 +107,7 @@ cd sdk/examples/hello_world
 See `sdk/README.md` for full documentation and examples.
 
 ### Nova Language
-A powerful statement-based interpreted language built into NovumOS. Version 0.22.0 introduces **Modular Sub-systems**, **Multi-line REPL**, **Mandatory Semicolons**, and **Context-aware Tab Completion**.
+A powerful statement-based interpreted language built into NovumOS. Version 0.23-beta.6 introduces **Modular Sub-systems**, **Multi-line REPL**, **Mandatory Semicolons**, and **Context-aware Tab Completion**.
 
 **Features:**
 - **Variables**: `set string name = "Value";`, `set float pi = 3.14159;`
@@ -140,7 +142,8 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Kernel (32-bit) → Z
 
 ### Roadmap
 
-#### Current progress (v0.22)
+#### Current progress (v0.23-beta.6)
+- [x] **PCI Bus Enumeration (v0.23-beta.6)** (Config space access, device ID database)
 - [x] **Modular Sub-systems (v0.22)** (sys, math mod)
 - [x] **Multi-line REPL (v0.22)** (Accumulator buffer, continuation prompt)
 - [x] **Mandatory Semicolons (v0.22)** (Complete statement tracking)
@@ -166,6 +169,7 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Kernel (32-bit) → Z
 - [x] Nova Language v0.22.0 (Multi-line REPL, Modules, Mandatory Semicolons, Context-aware Tab)
 - [x] Native script management (install, uninstall)
 - [x] File Management improvements (LFN create/read/delete)
+- [x] PCI Bus Enumeration
 
 #### Future improvements
 - [x] Heap Memory Allocator (kmalloc/kfree) - *Basic implementation done*
@@ -174,7 +178,6 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Kernel (32-bit) → Z
 - [ ] User Mode (Ring 3) & System Calls
 - [ ] Graphic mode support (VBE/LFB)
 - [ ] PS/2 Mouse Support
-- [ ] PCI Bus Enumeration
 - [ ] Simple Sound Driver (PC Speaker)
 
 ### Author

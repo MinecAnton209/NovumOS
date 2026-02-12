@@ -90,6 +90,12 @@ export fn handle_syscall_zig(regs: *Registers) void {
         15 => { // MemoryMapRange(EBX=addr, ECX=size)
             memory.map_range(regs.ebx, regs.ecx);
         },
+        16 => { // InL(EBX = port) -> EAX
+            regs.eax = common.inl(@intCast(regs.ebx));
+        },
+        17 => { // OutL(EBX = port, ECX = val)
+            common.outl(@intCast(regs.ebx), regs.ecx);
+        },
         else => {
             common.printZ("Unknown syscall from user mode\n");
         },

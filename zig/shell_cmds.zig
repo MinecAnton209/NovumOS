@@ -25,6 +25,7 @@ const smp = @import("smp.zig");
 const vga = @import("drivers/vga.zig");
 const user = @import("user.zig");
 const elf = @import("elf.zig");
+const pci_cmds = @import("commands/pci_cmds.zig");
 
 pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
     var argv: [8][]const u8 = undefined;
@@ -107,6 +108,10 @@ pub export fn cmd_pwd() void {
         common.printZ(common.current_path[0..common.current_path_len]);
     }
     common.printZ("\n");
+}
+
+pub export fn cmd_lspci() void {
+    pci_cmds.execute();
 }
 
 pub export fn cmd_cp(args_ptr: [*]const u8, args_len: u32) void {

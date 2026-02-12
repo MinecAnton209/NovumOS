@@ -52,6 +52,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "more", .help = "more <f> - Display file content with paging", .handler = cmd_handler_more },
     .{ .name = "la", .help = "List all files (including hidden)", .handler = cmd_handler_la },
     .{ .name = "lsdsk", .help = "List storage devices and partitions", .handler = cmd_handler_lsdsk },
+    .{ .name = "lspci", .help = "List PCI devices and hardware bridges", .handler = cmd_handler_lspci },
     .{ .name = "mount", .help = "mount <0|1> - Select active drive", .handler = cmd_handler_mount },
     .{ .name = "mkdir", .help = "mkdir <name> - Create a new directory", .handler = cmd_handler_mkdir },
     .{ .name = "md", .help = "Alias for mkdir", .handler = cmd_handler_mkdir },
@@ -1124,6 +1125,10 @@ fn cmd_handler_la(args: []const u8) void {
 
 fn cmd_handler_lsdsk(_: []const u8) void {
     shell_cmds.cmd_lsdsk();
+}
+
+fn cmd_handler_lspci(_: []const u8) void {
+    shell_cmds.cmd_lspci();
 }
 
 fn cmd_handler_mount(args: []const u8) void {
