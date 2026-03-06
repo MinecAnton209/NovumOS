@@ -407,12 +407,17 @@ pub fn copy(dest: []u8, src: []const u8) void {
 }
 
 /// Parse command line arguments with support for quoted strings
-pub fn parseArgs(input: []const u8, argv: *[8][]const u8) usize {
+pub fn parseArgs(input: []const u8, argv: anytype) usize {
+    const T = @TypeOf(argv);
+    const P = @typeInfo(T).pointer;
+    const A = @typeInfo(P.child).array;
+    const max_args = A.len;
+
     var count: usize = 0;
     var i: usize = 0;
-    while (i < input.len and count < 8) {
+    while (i < input.len and count < max_args) {
         // Skip leading spaces
-        while (i < input.len and input[i] == ' ') : (i += 1) {}
+        while (i < input.len and (input[i] == ' ' or input[i] == '\t')) : (i += 1) {}
         if (i >= input.len) break;
 
         if (input[i] == '"') {
@@ -424,7 +429,7 @@ pub fn parseArgs(input: []const u8, argv: *[8][]const u8) usize {
             if (i < input.len) i += 1; // Skip closing quote
         } else {
             const start = i;
-            while (i < input.len and input[i] != ' ') : (i += 1) {}
+            while (i < input.len and input[i] != ' ' and input[i] != '\t') : (i += 1) {}
             argv[count] = input[start..i];
             count += 1;
         }

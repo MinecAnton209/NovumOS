@@ -5,6 +5,7 @@ const versioning = @import("../versioning.zig");
 const config = @import("../config.zig");
 const build_config = @import("build_config");
 const memory = @import("../memory.zig");
+const lfb = @import("../drivers/lfb.zig");
 
 const ata = @import("../drivers/ata.zig");
 
@@ -77,7 +78,19 @@ pub fn execute() void {
     vga.set_color(COLOR_SECTION, COLOR_BG);
     common.printZ(" [ Config ]\n");
 
-    print_entry("Resolution", "80x25 VGA Text", COLOR_LABEL, COLOR_VALUE, COLOR_BG);
+    vga.set_color(COLOR_LABEL, COLOR_BG);
+    common.printZ("  Resolution  : ");
+    vga.set_color(COLOR_VALUE, COLOR_BG);
+    if (lfb.initialized) {
+        common.printNum(@intCast(lfb.width));
+        common.print_char('x');
+        common.printNum(@intCast(lfb.height));
+        common.print_char('@');
+        common.printNum(@intCast(lfb.bpp));
+        common.printZ("bpp (LFB)\n");
+    } else {
+        common.printZ("80x25 VGA Text\n");
+    }
 
     vga.set_color(COLOR_LABEL, COLOR_BG);
     common.printZ("  Heap Size   : ");
@@ -107,6 +120,7 @@ pub fn cmd_fetch() void {
         "  | . ` | | | |_| | |\\/| |",
         "  | |\\  | |_| | |_| |  | |",
         "  |_| \\_\\___/\\___/|_|  |_|",
+        "                         ",
     };
 
     var vendor_buf: [13]u8 = [_]u8{0} ** 13;
@@ -151,6 +165,15 @@ pub fn cmd_fetch() void {
                     common.printZ(" MB");
                 } else {
                     common.printZ("None");
+                }
+            },
+            5 => {
+                if (lfb.initialized) {
+                    common.printZ("Res:  ");
+                    vga.set_color(COLOR_VALUE, COLOR_BG);
+                    common.printNum(@intCast(lfb.width));
+                    common.print_char('x');
+                    common.printNum(@intCast(lfb.height));
                 }
             },
             else => {},

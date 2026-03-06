@@ -14,6 +14,7 @@ const nova_interpreter = @import("nova/interpreter.zig");
 const nova_commands = @import("nova/commands.zig");
 const top_cmd = @import("commands/top.zig");
 const lfb = @import("drivers/lfb.zig");
+const rtc = @import("drivers/rtc.zig");
 
 // Embedded Nova Scripts
 const EmbeddedScript = struct {
@@ -712,6 +713,7 @@ fn autocomplete() void {
     var picked_name_buf: [256]u8 = [_]u8{0} ** 256; // Buffer to hold the picked name
     var picked_len: usize = 0;
     var is_cmd = false;
+    var picked_is_dir = false;
 
     if (auto_start_pos == 0) {
         for (SHELL_COMMANDS) |cmd| {
@@ -795,6 +797,7 @@ fn autocomplete() void {
                             if (current_match_idx == auto_match_index) {
                                 picked_len = @min(picked_name_buf.len, name_str.len);
                                 for (0..picked_len) |p| picked_name_buf[p] = name_str[p];
+                                picked_is_dir = (d_buf[j + 11] & 0x10) != 0;
                                 break :outer;
                             }
                             current_match_idx += 1;
@@ -876,6 +879,7 @@ fn autocomplete() void {
                                 if (current_match_idx == auto_match_index) {
                                     picked_len = @min(picked_name_buf.len, name_str.len);
                                     for (0..picked_len) |p| picked_name_buf[p] = name_str[p];
+                                    picked_is_dir = (d_buf[j + 11] & 0x10) != 0;
                                     break :outer;
                                 }
                                 current_match_idx += 1;
@@ -903,6 +907,11 @@ fn autocomplete() void {
         if (needs_quotes) {
             cmd_buffer[cmd_len] = '"';
             cmd_len += 1;
+        }
+
+        if (picked_is_dir and picked_len < picked_name_buf.len) {
+            picked_name_buf[picked_len] = '/';
+            picked_len += 1;
         }
 
         for (0..picked_len) |p| {
@@ -1623,22 +1632,38 @@ fn cmd_handler_tree(_: []const u8) void {
 }
 
 fn display_prompt() void {
-    if (vga.zig_get_cursor_col() > 0) common.printZ("\n");
+    if (vga.zig_get_cursor_col() > 0) common.print_char('\n');
 
-    vga.set_color(10, 0); // Light Green
+    // 1. Clock [HH:MM:SS]
+    const now = rtc.get_datetime();
+    vga.set_color(8, 0); // Dark Gray
+    common.print_char('[');
+    vga.set_color(7, 0); // Gray
+    if (now.hour < 10) common.print_char('0');
+    common.printNum(now.hour);
+    common.print_char(':');
+    if (now.minute < 10) common.print_char('0');
+    common.printNum(now.minute);
+    common.print_char(':');
+    if (now.second < 10) common.print_char('0');
+    common.printNum(now.second);
+    vga.set_color(8, 0);
+    common.printZ("] ");
+
+    vga.set_color(10, 0); // Light Green for Drive
     if (common.selected_disk >= 0) {
         common.print_char(@intCast(@as(u8, @intCast(common.selected_disk)) + '0'));
-        common.print_char(':');
+        common.printZ(":");
     }
 
-    vga.set_color(11, 0); // Light Yellow/Cyan for path
+    vga.set_color(11, 0); // Light Cyan for path
     if (common.current_path_len == 0) {
         common.printZ("/");
     } else {
         common.printZ(common.current_path[0..common.current_path_len]);
     }
 
-    vga.set_color(15, 0); // White for bracket
+    vga.set_color(15, 0); // White for prompt
     common.printZ("> ");
     vga.reset_color();
 }

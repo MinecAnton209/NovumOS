@@ -83,6 +83,11 @@ pub export fn restore_screen_buffer() void {
 pub export fn clear_screen() void {
     if (!lfb.initialized) return;
     lfb.fill_screen(0x000000); // Black
+
+    for (0..internal_char_buffer.len) |i| {
+        internal_char_buffer[i] = DEFAULT_ATTR | ' ';
+    }
+
     cursor_row = 0;
     cursor_col = 0;
 }
@@ -286,6 +291,19 @@ pub export fn clear_prompt_area(start_row: u8, start_col: u8) void {
             col = 0;
             row += 1;
         }
+    }
+}
+
+pub export fn zig_draw_char_at(row: u8, col: u8, c: u8) void {
+    if (row >= MAX_ROWS or col >= MAX_COLS) return;
+    const attr = current_color;
+    const idx = @as(usize, row) * MAX_COLS + col;
+    VIDEO_MEMORY[idx] = attr | @as(u16, c);
+
+    if (lfb.initialized) {
+        const bx = @as(u32, col) * 8;
+        const by = @as(u32, row) * 14;
+        lfb.draw_char(c, bx, by, vga_attr_to_rgb(attr), 1);
     }
 }
 

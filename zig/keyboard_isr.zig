@@ -330,11 +330,14 @@ pub export fn keyboard_wait_char() u8 {
 }
 
 pub fn check_ctrl_c() bool {
-    if (keyboard_has_data()) {
-        if (keyboard_buffer[buffer_tail] == 3) {
-            _ = keyboard_getchar();
+    var i = buffer_tail;
+    while (i != buffer_head) {
+        if (keyboard_buffer[i] == 3) {
+            // Found it! Clear buffer to avoid getting stuck
+            buffer_tail = buffer_head;
             return true;
         }
+        i = (i + 1) % BUFFER_SIZE;
     }
     return false;
 }
