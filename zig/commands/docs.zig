@@ -46,7 +46,8 @@ pub fn execute(args: []const u8) void {
         vga.set_color(COLOR_TEXT, COLOR_BG);
         print_doc("CMOS Detection", "Low-level BIOS detection for up to 4GB RAM.");
         print_doc("PMM Bitmap", "Handles all 1,048,576 pages (128KB bitmap).");
-        print_doc("Kernel Guard", "First 8MB reserved for Code, Stack, and IDT.");
+        print_doc("1MB Relocation", "Kernel moves above 1MB (0x100000) for safety.");
+        print_doc("Kernel Guard", "Protected areas for CODE, STACK (5MB), and IDT.");
 
         vga.set_color(COLOR_HEADER, COLOR_BG);
         common.printZ("\n[ Paging & PSE ]\n");
@@ -66,6 +67,28 @@ pub fn execute(args: []const u8) void {
         return;
     }
 
+    if (common.std_mem_eql(args, "graphics")) {
+        vga.set_color(COLOR_HEADER, COLOR_BG);
+        common.printZ("=== NovumOS Graphics (VBE / BGA) ===\n\n");
+
+        vga.set_color(COLOR_HEADER, COLOR_BG);
+        common.printZ("[ High Resolution ]\n");
+        vga.set_color(COLOR_TEXT, COLOR_BG);
+        print_doc("VBE 2.0+", "Universal VESA Bios Extension for LFB (32-bit).");
+        print_doc("BGA Support", "Bochs Graphic Adapter for arbitrary resolutions.");
+        print_doc("res <w> <h>", "Command to switch resolution dynamically.");
+
+        vga.set_color(COLOR_HEADER, COLOR_BG);
+        common.printZ("\n[ Features ]\n");
+        vga.set_color(COLOR_TEXT, COLOR_BG);
+        print_doc("Linear FB", "Direct 32-bit pixel access in RAM (not 0xB8000).");
+        print_doc("Screen Buffers", "Double-buffered text plane for zero-flicker.");
+        print_doc("Matrix Effect", "Resolution-aware screensaver (matrix command).");
+
+        vga.reset_color();
+        return;
+    }
+
     const is_page1 = args.len == 0 or common.std_mem_eql(args, "1");
     const is_page2 = common.std_mem_eql(args, "2");
 
@@ -78,6 +101,7 @@ pub fn execute(args: []const u8) void {
         vga.set_color(COLOR_TEXT, COLOR_BG);
         print_doc("ls", "List files in the current folder.");
         print_doc("mount <id>", "Select active disk (0/1).");
+        print_doc("res <w> <h>", "Change screen resolution (BGA).");
         print_doc("cp <src> <dst>", "Copy file or directory.");
         print_doc("rm <file>", "Delete file permanently.");
 
@@ -88,7 +112,7 @@ pub fn execute(args: []const u8) void {
         print_doc("nova", "Nova Scripting Interpreter.");
         print_doc("mem --test [M]", "Memory stress test tool.");
 
-        common.printZ("\nUse 'docs 1' to return. Tip: 'docs memory' for deep dive.\n");
+        common.printZ("\nUse 'docs 1' to return. Tip: 'docs graphics' for resolutions.\n");
         vga.reset_color();
         return;
     }
@@ -109,8 +133,8 @@ pub fn execute(args: []const u8) void {
     vga.set_color(COLOR_TEXT, COLOR_BG);
     print_doc("help", "Displays a brief list of all commands.");
     print_doc("docs [n]", "Show this detailed documentation.");
-    print_doc("docs <topic>", "Specific help (nova, memory).");
-    print_doc("sysinfo", "Hardware, CPU, and RAM detection.");
+    print_doc("docs <topic>", "Help for: nova, memory, graphics.");
+    print_doc("sysinfo/top", "Resource and Task Monitoring.");
     print_doc("uptime", "System runtime and RTC stats.");
     print_doc("reboot/shutdown", "Power management commands.");
 
