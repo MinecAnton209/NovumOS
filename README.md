@@ -12,12 +12,15 @@ NovumOS is a simple operating system that successfully boots from 16-bit real mo
 
 ### Features
 
-- ✅ **Bootloader** - Loads from disk and switches to protected mode
-- ✅ **32-bit Kernel** - Runs in x86 protected mode (Assembly + Zig)
+- ✅ **32-bit Graphics** - High-resolution Linear Framebuffer (LFB) support via **VBE** and **BGA**
+- ✅ **Dynamic Resolution** - Change screen resolution on-the-fly with the `res` command
+- ✅ **Relocated Kernel** - Loaded at **1MB (0x100000)** for maximum stability and compatibility
+- ✅ **A20 Line Support** - Full access to high memory via BIOS & Fast A20 activation
+- ✅ **LBA Disk Support** - Robust disk loading using Logic Block Addressing for larger kernels
+- ✅ **VGA Emulation Layer** - High-speed text console with wrapping and scrolling over 32-bit graphics
 - ✅ **IDT Support** - Interrupt Descriptor Table with exception handling
 - ✅ **PIT Timer** - System timer (1kHz) for precise timing and uptime
 - ✅ **RTC Driver** - Real-time clock support for date and time
-- ✅ **VGA Text Driver** - Screen output with automatic scrolling and history
 - ✅ **Keyboard Driver** - Full keyboard input support with interrupts (Shift, CAPS, NUM)
 - ✅ **Command Shell** - Interactive console with **Tab Autocomplete**, **Command History** (persisted to disk), and cycling matches
 - ✅ **Piping & Redirection** - Support for pipes (`|`) and output redirection (`>`, `>>`)
@@ -45,10 +48,10 @@ NovumOS is a simple operating system that successfully boots from 16-bit real mo
 
 **Run:**
 ```bash
-qemu-system-i386 -drive format=raw,file=build\os-image.bin -drive format=raw,file=disk.img
+qemu-system-i386 -drive format=raw,file=build\os-image.bin -serial stdio
 ```
 
-**Run (No Graphics/Serial):**
+**Run with Custom Res (BGA):**
 ```bash
 qemu-system-i386 -drive format=raw,file=build\os-image.bin -drive format=raw,file=disk.img -nographic
 ```
@@ -56,7 +59,9 @@ qemu-system-i386 -drive format=raw,file=build\os-image.bin -drive format=raw,fil
 ### Available Commands
 
 - `help`           - Show available commands (auto-synced)
+- `res <w> <h>`    - **Change resolution** dynamically (e.g., `res 800 600`)
 - `clear`          - Clear screen
+- `matrix`         - Enterprise-grade Matrix screensaver (resolution-aware)
 - `about`          - Show OS information (Version, Architecture)
 - `nova`           - Start Nova Language Interpreter
 - `syscheck`       - Run system health check (Embedded Nova Script)
@@ -84,6 +89,7 @@ qemu-system-i386 -drive format=raw,file=build\os-image.bin -drive format=raw,fil
 - `install`        - Install a Nova script as a system command
 - `uninstall`      - Remove an installed Nova command
 - `echo <text>`    - Print text (supports pipes)
+- `top`            - Real-time CPU and Task Monitor
 - `mem`            - Test memory allocator
 
 ### SDK (Software Development Kit)
@@ -122,20 +128,21 @@ A powerful statement-based interpreted language built into NovumOS. Version 0.23
 ### Architecture
 
 ```
-BIOS → Bootloader (16-bit) → Protected Mode Switch → Kernel (32-bit) → Zig Modules
+BIOS → Bootloader (16-bit) → Protected Mode Switch → Copy (0x10k to 1MB) → Kernel (32-bit) → Zig Modules
 ```
 
 **Bootloader:**
-- Loads kernel from disk
-- Sets up GDT (Global Descriptor Table)
+- Loads kernel via **LBA** (Logical Block Addressing)
+- Activates **A20 Line** (BIOS + Port 0x92)
+- Performs VBE mode detection and validation
 - Switches CPU to protected mode
-- Jumps to kernel
+- **Relocates kernel to 1MB** in 32-bit mode for EBDA safety
 
 **Kernel:**
 - Written in x86 Assembly and Zig
 - Interrupt management (IDT & PIC remapping)
 - System timer (PIT) and Real-Time Clock (RTC)
-- VGA text mode driver (0xb8000)
+- **32-bit Linear Framebuffer (LFB)** drawing logic
 - Keyboard driver (IRQ1 based)
 - Command shell with persistent history (hidden `.HISTORY`) and LFN autocomplete
 - Integrated Nova Interpreter
@@ -143,6 +150,8 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Kernel (32-bit) → Z
 ### Roadmap
 
 #### Current progress (v0.23-beta.6)
+- [x] **Graphic mode support (VBE/BGA)** (32-bit LFB, dynamic resolution)
+- [x] **Kernel Relocation to 1MB** (EBDA safety, A20 activation)
 - [x] **PCI Bus Enumeration (v0.23-beta.6)** (Config space access, device ID database)
 - [x] **Modular Sub-systems (v0.22)** (sys, math mod)
 - [x] **Multi-line REPL (v0.22)** (Accumulator buffer, continuation prompt)
@@ -176,7 +185,6 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Kernel (32-bit) → Z
 - [ ] Paging & Virtual Memory Management
 - [ ] Multi-tasking (Kernel & User threads)
 - [ ] User Mode (Ring 3) & System Calls
-- [ ] Graphic mode support (VBE/LFB)
 - [ ] PS/2 Mouse Support
 - [ ] Simple Sound Driver (PC Speaker)
 

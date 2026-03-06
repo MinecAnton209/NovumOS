@@ -1,4 +1,4 @@
-# NovumOS Memory Architecture (v0.18)
+# NovumOS Memory Architecture (v0.23-beta.6)
 
 This document describes the high-performance memory management and paging system implemented in NovumOS.
 
@@ -14,11 +14,15 @@ The kernel uses **BIOS CMOS** registers (`0x30/31` and `0x34/35`) to detect avai
 
 ### Tracking
 - **Bitmap Allocator:** Uses a 128 KB bitmap (located in BSS) to track the status of all 1,048,576 pages.
-- **Reserved Zone:** The first **8 MB** of RAM are strictly reserved for:
-  - Kernel Code & Data
-  - GDT/IDT
-  - Kernel Stack (5 MB)
-  - PMM Bitmap & Early Page Tables
+- **Relocated Kernel Area (1MB):** The kernel is loaded above the 1MB mark (`0x100000`) to avoid conflicts with **EBDA** and other BIOS-reserved memory regions.
+- **Reserved Zones:**
+  - **First 1 MB**: BIOS, Video Memory, EBDA, and Real Mode IVT.
+  - **0x100000 - 0x200000**: Kernel Code & Data (128 KB - 1 MB).
+  - **0x500000**: Kernel Stack (5 MB).
+  - **0x10000 - 0x1FFFF**: Temporary load buffer during boot.
+
+### A20 Line
+NovumOS explicitly activates the **A20 Line** (using BIOS Int 15h and the Fast A20 port 0x92) during boot to ensure full access to the 4GB address space and prevent memory wrap-around.
 
 ---
 
