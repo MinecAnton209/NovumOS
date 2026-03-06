@@ -96,6 +96,12 @@ export fn handle_syscall_zig(regs: *Registers) void {
         17 => { // OutL(EBX = port, ECX = val)
             common.outl(@intCast(regs.ebx), regs.ecx);
         },
+        18 => { // DrawCharAt(EBX=row, ECX=col, EDX=char, ESI=attr)
+            const old_color = vga.current_color;
+            vga.current_color = @intCast(regs.esi);
+            vga.zig_draw_char_at(@intCast(regs.ebx), @intCast(regs.ecx), @intCast(regs.edx));
+            vga.current_color = old_color;
+        },
         else => {
             common.printZ("Unknown syscall from user mode\n");
         },
@@ -119,7 +125,6 @@ pub fn jump_to_user_mode() noreturn {
     if ((cs & 3) == 3) {
         // Already in Ring 3, just return to loop via syscall or jump
         // For jump_to_user_mode (no entry), we can't easily jump to "nothing".
-        // Let's jump back to kernel_loop via syscall 12.
         asm volatile ("int $0x80"
             :
             : [sys] "{eax}" (@as(u32, 12)),
@@ -144,7 +149,7 @@ pub fn jump_to_user_mode_with_entry(entry: usize) noreturn {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        // We are in Ring 3! Use syscall 12 to jump to a new entry point
+        // We are in Ring 3. Use syscall 12 to jump to a new entry point
         asm volatile ("int $0x80"
             :
             : [sys] "{eax}" (@as(u32, 12)),

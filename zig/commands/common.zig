@@ -61,6 +61,112 @@ pub fn print_char(c: u8) void {
     serial.serial_print_char(c);
 }
 
+pub fn draw_char_at(row: u8, col: u8, c: u8, attr: u16) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+
+    if ((cs & 3) == 3) {
+        // Syscall 18: DrawCharAt
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 18)),
+              [r] "{ebx}" (@as(u32, row)),
+              [c] "{ecx}" (@as(u32, col)),
+              [chr] "{edx}" (@as(u32, c)),
+              [atr] "{esi}" (@as(u32, attr)),
+        );
+        return;
+    }
+
+    const old = vga.current_color;
+    vga.current_color = attr;
+    vga.zig_draw_char_at(row, col, c);
+    vga.current_color = old;
+}
+
+pub fn get_char() u8 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        var res: u32 = 0;
+        asm volatile ("int $0x80"
+            : [ret] "={eax}" (res),
+            : [sys] "{eax}" (@as(u32, 2)),
+        );
+        return @intCast(res);
+    }
+    const keyboard = @import("../keyboard_isr.zig");
+    return keyboard.keyboard_wait_char();
+}
+
+pub fn set_cursor(row: u8, col: u8) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 3)),
+              [r] "{ebx}" (@as(u32, row)),
+              [c] "{ecx}" (@as(u32, col)),
+        );
+        return;
+    }
+    vga.zig_set_cursor(row, col);
+}
+
+pub fn get_cursor_row() u8 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        var res: u32 = 0;
+        asm volatile ("int $0x80"
+            : [ret] "={eax}" (res),
+            : [sys] "{eax}" (@as(u32, 4)),
+        );
+        return @intCast(res >> 8);
+    }
+    return vga.zig_get_cursor_row();
+}
+
+pub fn get_cursor_col() u8 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        var res: u32 = 0;
+        asm volatile ("int $0x80"
+            : [ret] "={eax}" (res),
+            : [sys] "{eax}" (@as(u32, 4)),
+        );
+        return @intCast(res & 0xFF);
+    }
+    return vga.zig_get_cursor_col();
+}
+
+pub fn clear_screen() void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 5)),
+        );
+        return;
+    }
+    vga.clear_screen();
+}
+
 /// Print a string slice to the console
 pub fn printZ(str: []const u8) void {
     for (str) |c| {

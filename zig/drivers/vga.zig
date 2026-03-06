@@ -74,6 +74,14 @@ pub export fn restore_screen_buffer() void {
     while (i < MAX_COLS * MAX_ROWS) : (i += 1) {
         if (i >= screen_buffer.len) break;
         VIDEO_MEMORY[i] = screen_buffer[i];
+
+        if (lfb.initialized) {
+            const attr = screen_buffer[i];
+            const c = @as(u8, @intCast(attr & 0xFF));
+            const row = @as(u32, @intCast(i / MAX_COLS));
+            const col = @as(u32, @intCast(i % MAX_COLS));
+            lfb.draw_char(c, col * 8, row * 14, vga_attr_to_rgb(attr), vga_attr_to_rgb(attr >> 4), 1);
+        }
     }
     cursor_row = @intCast(saved_cursor_row);
     cursor_col = @intCast(saved_cursor_col);
@@ -238,7 +246,7 @@ pub export fn zig_print_char(c: u8) void {
         if (lfb.initialized) {
             const char_x = @as(u32, @intCast(cursor_col)) * 8;
             const char_y = @as(u32, @intCast(cursor_row)) * 14;
-            lfb.draw_char(c, char_x, char_y, vga_attr_to_rgb(attr), 1);
+            lfb.draw_char(c, char_x, char_y, vga_attr_to_rgb(attr), vga_attr_to_rgb(attr >> 4), 1);
         }
 
         cursor_col += 1;
@@ -303,7 +311,7 @@ pub export fn zig_draw_char_at(row: u8, col: u8, c: u8) void {
     if (lfb.initialized) {
         const bx = @as(u32, col) * 8;
         const by = @as(u32, row) * 14;
-        lfb.draw_char(c, bx, by, vga_attr_to_rgb(attr), 1);
+        lfb.draw_char(c, bx, by, vga_attr_to_rgb(attr), vga_attr_to_rgb(attr >> 4), 1);
     }
 }
 
@@ -317,7 +325,7 @@ pub export fn draw_indicator(col: u8, attr: u16, c: u8) void {
     if (lfb.initialized) {
         const bx = @as(u32, col) * 8;
         const by = @as(u32, row) * 14;
-        lfb.draw_char(c, bx, by, vga_attr_to_rgb(attr), 1);
+        lfb.draw_char(c, bx, by, vga_attr_to_rgb(attr), vga_attr_to_rgb(attr >> 4), 1);
     }
 }
 

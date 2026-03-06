@@ -19,8 +19,6 @@ var status_len: usize = 0;
 
 // Scrolling state
 var viewport_top: usize = 0; // Which screen-line is at the top of the content area
-const COLS = 79;
-const ROWS = 23; // Content area height
 
 // Clipboard
 var clipboard: [1024]u8 = [_]u8{0} ** 1024;
@@ -47,7 +45,7 @@ pub fn execute(name: []const u8) void {
 
     // 3. Editor loop
     vga.save_screen_buffer();
-    vga.clear_screen();
+    common.clear_screen();
     serial.serial_clear_screen();
 
     var last_cursor_pos: usize = 9999;
@@ -119,10 +117,10 @@ pub fn execute(name: []const u8) void {
             if (ctrl) cursor_pos = buf_len else move_end();
         } else if (char == keyboard.KEY_PGUP) {
             var l: usize = 0;
-            while (l < ROWS) : (l += 1) move_up();
+            while (l < vga.MAX_ROWS - 2) : (l += 1) move_up();
         } else if (char == keyboard.KEY_PGDN) {
             var l: usize = 0;
-            while (l < ROWS) : (l += 1) move_down();
+            while (l < vga.MAX_ROWS - 2) : (l += 1) move_down();
         } else if (char == keyboard.KEY_INSERT) {
             insert_mode = !insert_mode;
         } else if (char == 8 or char == 127) { // Backspace
@@ -155,7 +153,10 @@ pub fn execute(name: []const u8) void {
 
 fn draw_ui() void {
     const attr_bar = 0x7000;
-    for (0..80) |i| vga.VIDEO_MEMORY[i] = attr_bar | @as(u16, ' ');
+    const last_row = vga.MAX_ROWS - 1;
+    const max_cols = vga.MAX_COLS;
+
+    for (0..max_cols) |i| common.draw_char_at(0, @intCast(i), ' ', attr_bar);
     draw_text_at(0, 1, "NovumOS Editor - ", attr_bar);
     draw_text_at(0, 16, filename[0..filename_len], attr_bar);
     if (is_modified) draw_text_at(0, 16 + filename_len, " [*]", attr_bar);
@@ -164,12 +165,16 @@ fn draw_ui() void {
     const coords = get_cursor_coords(cursor_pos);
     var pos_buf: [20]u8 = undefined;
     const pos_str = common.fmt_to_buf(&pos_buf, "L: {d} C: {d}", .{ coords.r, coords.c });
-    draw_text_at(0, 45, pos_str, attr_bar);
+    const pos_x = if (max_cols > 20) max_cols - 20 else 0;
+    draw_text_at(0, pos_x, pos_str, attr_bar);
 
-    for (0..80) |i| vga.VIDEO_MEMORY[24 * 80 + i] = attr_bar | @as(u16, ' ');
-    draw_text_at(24, 1, "^S Save ^Q Exit ^K Cut ^U Paste", attr_bar);
+    for (0..max_cols) |i| common.draw_char_at(@intCast(last_row), @intCast(i), ' ', attr_bar);
+    draw_text_at(last_row, 1, "^S Save ^Q Exit ^K Cut ^U Paste", attr_bar);
 
-    if (status_len > 0) draw_text_at(24, 40, current_status[0..status_len], 0x7E00);
+    if (status_len > 0) {
+        const stat_x = if (max_cols > 40) max_cols - 40 else 35;
+        draw_text_at(last_row, stat_x, current_status[0..status_len], 0x7E00);
+    }
 
     // Serial UI sync
     serial.serial_set_cursor(0, 0);
@@ -181,7 +186,7 @@ fn draw_ui() void {
     serial.serial_print_str(pos_str);
     serial.serial_clear_line();
 
-    serial.serial_set_cursor(24, 0);
+    serial.serial_set_cursor(@intCast(last_row), 0);
     serial.serial_print_str("^S Save ^Q Exit ^K Cut ^U Paste");
     if (status_len > 0) {
         serial.serial_print_str("  ");
@@ -194,13 +199,17 @@ fn draw_ui() void {
 
 fn draw_text_at(row: usize, col: usize, text: []const u8, attr: u16) void {
     for (text, 0..) |c, i| {
-        if (col + i >= 80) break;
-        vga.VIDEO_MEMORY[row * 80 + col + i] = attr | @as(u16, c);
+        if (col + i >= vga.MAX_COLS) break;
+        common.draw_char_at(@intCast(row), @intCast(col + i), c, attr);
     }
 }
 
 fn draw_content() void {
     const coords = get_cursor_coords(cursor_pos);
+    const ROWS = vga.MAX_ROWS - 2;
+    const COLS = vga.MAX_COLS;
+    const max_cols = vga.MAX_COLS;
+
     // Auto-scroll logic
     if (coords.r - 1 < viewport_top) {
         viewport_top = coords.r - 1;
@@ -208,8 +217,8 @@ fn draw_content() void {
         viewport_top = coords.r - ROWS;
     }
 
-    for (1..24) |r| {
-        for (0..80) |c| vga.VIDEO_MEMORY[r * 80 + c] = 0x0F00 | @as(u16, ' ');
+    for (1..vga.MAX_ROWS - 1) |r| {
+        for (0..max_cols) |c| common.draw_char_at(@intCast(r), @intCast(c), ' ', 0x0F00);
     }
 
     var r: usize = 1;
@@ -227,7 +236,7 @@ fn draw_content() void {
         if (cur_screen_row >= viewport_top and cur_screen_row < viewport_top + ROWS) {
             const draw_r = cur_screen_row - viewport_top + 1;
             if (i < buf_len and buffer[i] != '\n') {
-                vga.VIDEO_MEMORY[draw_r * 80 + c] = 0x0F00 | @as(u16, buffer[i]);
+                common.draw_char_at(@intCast(draw_r), @intCast(c), buffer[i], 0x0F00);
 
                 // Serial draw optimization: only set cursor if we moved to a new line
                 if (draw_r != last_draw_r) {
@@ -247,7 +256,7 @@ fn draw_content() void {
             c += 1;
             if (c >= COLS) {
                 if (r - 1 >= viewport_top and r - 1 < viewport_top + ROWS) {
-                    vga.VIDEO_MEMORY[(r - viewport_top + 1) * 80 + 79] = 0x081A;
+                    common.draw_char_at(@intCast(r - viewport_top + 1), @intCast(COLS - 1), 0x1A, 0x0800);
                 }
                 c = 0;
                 r += 1;
@@ -324,20 +333,23 @@ fn status_msg(msg: []const u8) void {
 
 const ExitChoice = enum { Save, DontSave, Cancel };
 fn show_exit_dialog() ExitChoice {
-    const box_row = 10;
-    const box_col = 15;
-    for (box_row..box_row + 6) |r| {
-        for (box_col..box_col + 50) |c| vga.VIDEO_MEMORY[r * 80 + c] = 0x1F00 | @as(u16, ' ');
+    const box_row = (vga.MAX_ROWS / 2) - 3;
+    const box_col = (vga.MAX_COLS / 2) - 25;
+
+    // Draw blue box background
+    for (0..6) |r| {
+        for (0..50) |c| common.draw_char_at(@intCast(box_row + r), @intCast(box_col + c), ' ', 0x1F00);
     }
+
     draw_text_at(box_row + 1, box_col + 2, "File modified! Save changes?", 0x1F00);
     draw_text_at(box_row + 3, box_col + 2, "^S: Save & Exit", 0x1F00);
     draw_text_at(box_row + 4, box_col + 2, "^X: Discard", 0x1F00);
     draw_text_at(box_row + 4, box_col + 30, "Esc: Cancel", 0x1F00);
 
     // Serial dialog
-    serial.serial_set_cursor(box_row, box_col);
+    serial.serial_set_cursor(@intCast(box_row), @intCast(box_col));
     serial.serial_print_str("[ FILE MODIFIED! SAVE CHANGES? ]");
-    serial.serial_set_cursor(box_row + 1, box_col);
+    serial.serial_set_cursor(@intCast(box_row + 1), @intCast(box_col));
     serial.serial_print_str("^S: Save, ^X: Discard, Esc: Cancel");
 
     while (true) {
@@ -363,7 +375,7 @@ fn move_home() void {
 }
 fn move_end() void {
     const curr = get_cursor_coords(cursor_pos);
-    cursor_pos = get_pos_from_coords(curr.r, COLS - 1);
+    cursor_pos = get_pos_from_coords(curr.r, vga.MAX_COLS - 1);
 }
 
 fn get_cursor_coords(pos: usize) struct { r: usize, c: usize } {
@@ -376,7 +388,7 @@ fn get_cursor_coords(pos: usize) struct { r: usize, c: usize } {
             c = 0;
         } else {
             c += 1;
-            if (c >= COLS) {
+            if (c >= vga.MAX_COLS) {
                 c = 0;
                 r += 1;
             }
@@ -395,7 +407,7 @@ fn get_pos_from_coords(target_r: usize, target_c: usize) usize {
             c = 0;
         } else {
             c += 1;
-            if (c >= COLS) {
+            if (c >= vga.MAX_COLS) {
                 c = 0;
                 r += 1;
             }
@@ -405,7 +417,7 @@ fn get_pos_from_coords(target_r: usize, target_c: usize) usize {
     while (i < buf_len and r == target_r and c < target_c) : (i += 1) {
         if (buffer[i] == '\n') break;
         c += 1;
-        if (c >= COLS) break;
+        if (c >= vga.MAX_COLS) break;
     }
     return i;
 }

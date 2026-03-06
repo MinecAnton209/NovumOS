@@ -276,7 +276,8 @@ pub fn map_page(vaddr: usize) bool {
     // Check for HUGE PAGE (Bit 7)
     const pde = &page_directory[pd_idx];
     if ((pde.* & 0x80) != 0) {
-        if ((pde.* & 1) == 0) {
+        // If not present or not user
+        if ((pde.* & 1) == 0 or (pde.* & 4) == 0) {
             pde.* |= 0x5; // Mark Present and User
             var cs: u16 = 0;
             asm volatile ("mov %%cs, %[cs]"
@@ -296,11 +297,14 @@ pub fn map_page(vaddr: usize) bool {
     const pt = create_page_table(@as(u32, @intCast(pd_idx))) orelse return false;
     const pte = &pt[pt_idx];
 
-    // If not present
-    if ((pte.* & 1) == 0) {
+    // If not present or not user
+    if ((pte.* & 1) == 0 or (pte.* & 4) == 0) {
         var paddr: usize = 0;
 
-        if ((pte.* & 0xFFFFF000) != 0) {
+        if ((pte.* & 1) != 0) {
+            // Protection violation (e.g. USER bit missing)
+            paddr = pte.* & 0xFFFFF000;
+        } else if ((pte.* & 0xFFFFF000) != 0) {
             // Use pre-assigned physical address (for 32MB - RAM range)
             paddr = pte.* & 0xFFFFF000;
         } else {

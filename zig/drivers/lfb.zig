@@ -127,7 +127,7 @@ pub fn fill_screen(color: u32) void {
     }
 }
 
-pub fn draw_char(c: u8, x: u32, y: u32, color: u32, scale: u32) void {
+pub fn draw_char(c: u8, x: u32, y: u32, fg: u32, bg: u32, scale: u32) void {
     if (!initialized) return;
     if (c < 32 or c > 126) return;
     const char_idx = @as(usize, c) * font.FONT_HEIGHT;
@@ -138,7 +138,7 @@ pub fn draw_char(c: u8, x: u32, y: u32, color: u32, scale: u32) void {
         var col: u32 = 0;
         while (col < font.FONT_WIDTH) : (col += 1) {
             const is_set = (row_data & (@as(u8, 0x80) >> @as(u3, @intCast(col)))) != 0;
-            const pcolor = if (is_set) color else 0x000000;
+            const pcolor = if (is_set) fg else bg;
 
             // Draw a 'scale x scale' pixel block
             var dy: u32 = 0;

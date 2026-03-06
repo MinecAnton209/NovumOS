@@ -5,6 +5,8 @@ const memory = @import("../../memory.zig");
 const keyboard = @import("../../keyboard_isr.zig");
 const vga = @import("../../drivers/vga.zig");
 const shell = @import("../../shell.zig");
+const lfb = @import("../../drivers/lfb.zig");
+const timer = @import("../../drivers/timer.zig");
 
 pub fn handleSys(vm: anytype, name: []const u8) ?hash_table.VariableValue {
     if (common.streq(name, "sys.get_mem")) {
@@ -101,6 +103,25 @@ pub fn handleSys(vm: anytype, name: []const u8) ?hash_table.VariableValue {
             vm.reportError("Expected ')' in sys.shutdown");
         }
         shell.shell_execute_literal("shutdown");
+        return .{ .vtype = .string, .str_val = "" };
+    } else if (common.streq(name, "sys.whoami")) {
+        if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) vm.ip += 1;
+        return .{ .vtype = .string, .str_val = "admin" };
+    } else if (common.streq(name, "sys.uname")) {
+        if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) vm.ip += 1;
+        return .{ .vtype = .string, .str_val = "NovumOS x86_32" };
+    } else if (common.streq(name, "sys.uptime")) {
+        if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) vm.ip += 1;
+        return .{ .vtype = .int, .int_val = @intCast(timer.get_ticks() / 100) };
+    } else if (common.streq(name, "sys.get_res_x")) {
+        if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) vm.ip += 1;
+        return .{ .vtype = .int, .int_val = @intCast(lfb.width) };
+    } else if (common.streq(name, "sys.get_res_y")) {
+        if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) vm.ip += 1;
+        return .{ .vtype = .int, .int_val = @intCast(lfb.height) };
+    } else if (common.streq(name, "sys.cls")) {
+        if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) vm.ip += 1;
+        common.clear_screen();
         return .{ .vtype = .string, .str_val = "" };
     }
     return null;

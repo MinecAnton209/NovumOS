@@ -226,3 +226,9 @@ pub fn floatToString(val: f32, buf: []u8) []const u8 {
 
     return buf[0..total_i];
 }
+pub const get_char = common.get_char;
+pub const set_cursor = common.set_cursor;
+pub const get_cursor_row = common.get_cursor_row;
+pub const get_cursor_col = common.get_cursor_col;
+pub const clear_screen = common.clear_screen;
+pub const draw_char_at = common.draw_char_at;
