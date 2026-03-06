@@ -186,9 +186,9 @@ pub fn init_paging() void {
                 else if (addr >= 0x500000 and addr < 0x501000) {
                     pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
                 }
-                // Reserved for System / Supervisor
+                // Reserved for System / User Read-Write (For VBE Info at 0x8000)
                 else if (addr < 0x100000) {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
+                    pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
                 } else {
                     // Default to Supervisor for other unknown regions in the first 16MB
                     pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor

@@ -10,6 +10,7 @@ const messages = @import("messages.zig");
 const timer = @import("drivers/timer.zig");
 const acpi = @import("drivers/acpi.zig");
 const memory = @import("memory.zig");
+const lfb = @import("drivers/lfb.zig");
 const exceptions = @import("exceptions.zig");
 const smp = @import("smp.zig");
 const libc_stubs = @import("libc_stubs.zig");
@@ -62,6 +63,19 @@ export fn kmain() void {
 
     // Initialize ACPI (for proper shutdown)
     _ = acpi.init();
+
+    // Initialize LFB
+    lfb.init();
+    lfb.fill_screen(0x003366); // Dark Blue
+
+    // Draw a small test square
+    var y: u32 = 200;
+    while (y < 300) : (y += 1) {
+        var x: u32 = 200;
+        while (x < 300) : (x += 1) {
+            lfb.put_pixel(x, y, 0xFFFFFF); // White
+        }
+    }
 
     // Initialize Dumb SMP (Kick Core 1)
     smp.init();

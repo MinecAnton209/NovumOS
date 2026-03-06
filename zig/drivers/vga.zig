@@ -1,4 +1,5 @@
-// VGA Text Mode Driver - Safe Version
+// VGA Compatibility Layer for LFB
+const lfb = @import("lfb.zig");
 
 pub const VIDEO_MEMORY: [*]volatile u16 = @ptrFromInt(0xb8000);
 pub const MAX_COLS: usize = 80;
@@ -42,13 +43,10 @@ pub export fn restore_screen_buffer() void {
 }
 
 pub export fn clear_screen() void {
-    var i: usize = 0;
-    while (i < MAX_COLS * MAX_ROWS) : (i += 1) {
-        VIDEO_MEMORY[i] = DEFAULT_ATTR | ' ';
-    }
+    if (!lfb.initialized) return;
+    lfb.fill_screen(0x000000); // Black
     cursor_row = 0;
     cursor_col = 0;
-    update_hardware_cursor();
 }
 
 pub export fn zig_set_cursor(row: u8, col: u8) void {
@@ -102,14 +100,9 @@ pub export fn zig_get_cursor_col() u8 {
 }
 
 fn scroll() void {
-    var i: usize = 0;
-    while (i < (MAX_ROWS - 1) * MAX_COLS) : (i += 1) {
-        VIDEO_MEMORY[i] = VIDEO_MEMORY[i + MAX_COLS];
-    }
-    i = (MAX_ROWS - 1) * MAX_COLS;
-    while (i < MAX_ROWS * MAX_COLS) : (i += 1) {
-        VIDEO_MEMORY[i] = current_color | ' ';
-    }
+    lfb.fill_screen(0x000000); // Simple clear for now
+    cursor_row = 0;
+    cursor_col = 0;
 }
 
 fn internal_newline() void {
@@ -117,7 +110,6 @@ fn internal_newline() void {
     cursor_row += 1;
     if (cursor_row >= MAX_ROWS) {
         scroll();
-        cursor_row = MAX_ROWS - 1;
     }
 }
 
@@ -133,41 +125,50 @@ pub export fn zig_print_char(c: u8) void {
             cursor_row -= 1;
             cursor_col = MAX_COLS - 1;
         }
-        const idx = @as(usize, cursor_row) * MAX_COLS + cursor_col;
-        VIDEO_MEMORY[idx] = current_color | ' ';
+
+        if (lfb.initialized) {
+            const bx = @as(u32, cursor_col) * 8;
+            const by = @as(u32, cursor_row) * 12;
+            var r: u32 = 0;
+            while (r < 8) : (r += 1) {
+                var cl: u32 = 0;
+                while (cl < 8) : (cl += 1) {
+                    lfb.put_pixel(bx + cl, by + r, 0x000000);
+                }
+            }
+        }
     } else if (c >= 32 and c <= 126) {
         if (cursor_row >= MAX_ROWS) {
             scroll();
-            cursor_row = MAX_ROWS - 1;
         }
 
-        const idx = @as(usize, cursor_row) * MAX_COLS + cursor_col;
-        VIDEO_MEMORY[idx] = current_color | @as(u16, c);
+        if (lfb.initialized) {
+            const char_x = @as(u32, cursor_col) * 8;
+            const char_y = @as(u32, cursor_row) * 12;
+            lfb.draw_char(c, char_x, char_y, 0xFFFFFF); // White
+        }
 
         cursor_col += 1;
         if (cursor_col >= MAX_COLS) {
             internal_newline();
         }
     }
-
-    update_vga_cursor();
 }
 
 pub export fn zig_clear_line(row: u8) void {
     if (row >= MAX_ROWS) return;
-    const offset = @as(usize, row) * MAX_COLS;
-    var i: usize = 0;
-    while (i < MAX_COLS) : (i += 1) {
-        VIDEO_MEMORY[offset + i] = current_color | ' ';
+    const py = @as(u32, row) * 12;
+    var y: u32 = py;
+    while (y < py + 8) : (y += 1) {
+        var x: u32 = 0;
+        while (x < @as(u32, MAX_COLS) * 8) : (x += 1) {
+            lfb.put_pixel(x, y, 0x000000);
+        }
     }
 }
 
 pub fn update_vga_cursor() void {
-    const pos = @as(u16, cursor_row) * 80 + cursor_col;
-    outb(0x3D4, 0x0F);
-    outb(0x3D5, @intCast(pos & 0xFF));
-    outb(0x3D4, 0x0E);
-    outb(0x3D5, @intCast((pos >> 8) & 0xFF));
+    // Hardware VGA cursor doesn't work in LFB
 }
 
 pub export fn update_hardware_cursor() void {
