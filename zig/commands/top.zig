@@ -12,7 +12,6 @@ pub fn cmd_top() void {
         vga.zig_set_cursor(0, 0);
 
         common.printZ("=== NovumOS CPU Monitor (TOP) ===\n");
-        // ...
         common.printZ("Cores Online: ");
         common.printNum(@intCast(smp.detected_cores));
         common.printZ(" | Press 'q' to exit\n\n");

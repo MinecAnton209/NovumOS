@@ -1,4 +1,4 @@
-# NovumOS Commands Reference (v0.23-beta.6)
+# NovumOS Commands Reference
 
 Comprehensive documentation for all built-in NovumOS shell commands.
 

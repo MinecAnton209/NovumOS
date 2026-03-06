@@ -54,6 +54,12 @@ print("Precise: " + ftemp);           // "Precise: 36.600"
 | `sys.exec(cmd)` | Alias for shell command | `sys.exec("reboot");` |
 | `sys.reboot()` | Reboots the system | `sys.reboot();` |
 | `sys.shutdown()` | Shuts down the system | `sys.shutdown();` |
+| `sys.whoami()` | Returns current user name | `print(sys.whoami());` |
+| `sys.uname()` | Returns OS name and arch | `print(sys.uname());` |
+| `sys.uptime()` | Returns uptime in seconds | `set u = sys.uptime();` |
+| `sys.get_res_x()`| Returns display width (px)| `print(sys.get_res_x());`|
+| `sys.get_res_y()`| Returns display height (px)| `print(sys.get_res_y());`|
+| `sys.cls()` | Clears the console screen | `sys.cls();` |
 | `exit()` | Terminate script or REPL (Global) | `exit();` |
 
 ### Filesystem
@@ -78,8 +84,14 @@ print("Precise: " + ftemp);           // "Precise: 36.600"
 | `math.min(a, b)`| Minimum of two values | `math.min(10, 20); // 10` |
 | `math.max(a, b)`| Maximum of two values | `math.max(-1, 5); // 5` |
 | `math.random(l, h)`| Pseudo-random integer | `math.random(1, 100);` |
+| `math.pi()` | Returns Pi constant | `math.pi(); // 3.14159` |
 | `math.sin(v)` | Sine (Float) | Precision: Bhaskara I |
 | `math.cos(v)` | Cosine (Float) | Respects `math.set_angles` |
+| `math.sqrt(n)` | Square root (Float) | `math.sqrt(16); // 4.0` |
+| `math.pow(b, e)`| Base to the power of Exp| `math.pow(2, 3); // 8.0` |
+| `math.floor(n)` | Round down to integer | `math.floor(3.8); // 3` |
+| `math.ceil(n)` | Round up to integer | `math.ceil(3.1); // 4` |
+| `math.round(n)` | Round to nearest string | `math.round(3.5); // 4` |
 | `math.set_angles(m)`| Set mode: `rad` or `deg` | `math.set_angles("rad");` |
 | `math.rad(deg)` | Degrees to Radians | `math.rad(180); // 3.141...` |
 | `math.deg(rad)` | Radians to Degrees | `math.deg(3.141); // 180.0` |
