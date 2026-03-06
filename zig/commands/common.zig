@@ -627,6 +627,37 @@ pub fn parse_int(s: []const u8) ?i32 {
         i = 1;
     }
     if (i >= s.len) return null;
+
+    // Base detection
+    if (i + 2 <= s.len and s[i] == '0') {
+        const next = s[i + 1];
+        if (next == 'x' or next == 'X') {
+            i += 2;
+            while (i < s.len) : (i += 1) {
+                const c = s[i];
+                var digit: i32 = 0;
+                if (c >= '0' and c <= '9') {
+                    digit = c - '0';
+                } else if (c >= 'a' and c <= 'f') {
+                    digit = c - 'a' + 10;
+                } else if (c >= 'A' and c <= 'F') {
+                    digit = c - 'A' + 10;
+                } else break;
+                res = (res * 16) + digit;
+            }
+            return res * sign;
+        } else if (next == 'b' or next == 'B') {
+            i += 2;
+            while (i < s.len) : (i += 1) {
+                const c = s[i];
+                if (c == '0' or c == '1') {
+                    res = (res * 2) + @as(i32, c - '0');
+                } else break;
+            }
+            return res * sign;
+        }
+    }
+
     while (i < s.len) : (i += 1) {
         if (s[i] < '0' or s[i] > '9') return null;
         res = res * 10 + @as(i32, @intCast(s[i] - '0'));

@@ -27,6 +27,11 @@ const user = @import("user.zig");
 const elf = @import("elf.zig");
 const pci_cmds = @import("commands/pci_cmds.zig");
 const lfb = @import("drivers/lfb.zig");
+const calc = @import("commands/calc.zig");
+
+pub export fn cmd_calc(args: [*]const u8, args_len: u32) void {
+    calc.execute(args, args_len);
+}
 
 pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
     var argv: [8][]const u8 = undefined;

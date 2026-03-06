@@ -269,6 +269,20 @@ pub fn tokenize(source: []const u8) TokenList {
         // Numbers
         if (c >= '0' and c <= '9') {
             const start = i;
+            if (c == '0' and i + 1 < source.len) {
+                const next = source[i + 1];
+                if (next == 'x' or next == 'X') {
+                    i += 2;
+                    while (i < source.len and ((source[i] >= '0' and source[i] <= '9') or (source[i] >= 'A' and source[i] <= 'F') or (source[i] >= 'a' and source[i] <= 'f'))) : (i += 1) {}
+                    list.append(.{ .ttype = .NUMBER, .value = source[start..i], .line = line_num });
+                    continue;
+                } else if (next == 'b' or next == 'B') {
+                    i += 2;
+                    while (i < source.len and (source[i] == '0' or source[i] == '1')) : (i += 1) {}
+                    list.append(.{ .ttype = .NUMBER, .value = source[start..i], .line = line_num });
+                    continue;
+                }
+            }
             var has_dot = false;
             while (i < source.len) : (i += 1) {
                 const cur = source[i];

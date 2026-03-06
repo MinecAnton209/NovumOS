@@ -87,6 +87,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall },
     .{ .name = "ring3", .help = "Switch to Ring 3 (User Mode) test", .handler = cmd_handler_ring3 },
     .{ .name = "run", .help = "run <elf> - Execute an ELF executable in Ring 3", .handler = cmd_handler_run },
+    .{ .name = "calc", .help = "Evaluate math & bitwise expressions (e.g. 1 << 8)", .handler = cmd_handler_calc },
     .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = cmd_handler_res },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
     .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = cmd_handler_panic },
@@ -1459,6 +1460,10 @@ fn cmd_handler_mkdir(args: []const u8) void {
 
 fn cmd_handler_res(args: []const u8) void {
     shell_cmds.cmd_res(args.ptr, @intCast(args.len));
+}
+
+fn cmd_handler_calc(args: []const u8) void {
+    shell_cmds.cmd_calc(args.ptr, @intCast(args.len));
 }
 
 fn cmd_handler_install(args: []const u8) void {

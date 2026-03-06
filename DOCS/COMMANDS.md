@@ -26,6 +26,7 @@ Comprehensive documentation for all built-in NovumOS shell commands.
 | `sysinfo` | System info & RAM detection | `sysinfo` |
 | `uptime` | System uptime | `uptime` |
 | `mem` | Memory status & Stress Tool | `mem [--test]` |
+| `calc` | Expressions evaluator | `calc <expr>` |
 | `res` | Change resolution | `res <w> <h>` |
 | `top` | Task Monitor | `top` |
 | `matrix` | Screensaver | `matrix` |
@@ -222,6 +223,12 @@ Lists the most recently executed commands.
 ### `echo`
 Prints the provided text back to the console.
 - **Usage:** `echo <text>`
+
+### `calc`
+Evaluates mathematical and bitwise expressions using the Nova core. Supports hex (0x) and binary (0b) inputs.
+- **Usage:** `calc <expression>`
+- **Example:** `calc (0x1234 & 0xFF00) >> 8`
+- **Output:** Result is shown in Decimal, Hex, and Binary formats.
 
 ---
 
