@@ -1,19 +1,55 @@
 // VGA Compatibility Layer for LFB
 const lfb = @import("lfb.zig");
 
-pub const VIDEO_MEMORY: [*]volatile u16 = @ptrFromInt(0xb8000);
-pub const MAX_COLS: usize = 80; // 640 / 8
-pub const MAX_ROWS: usize = 34; // 480 / 14
+var internal_char_buffer: [256 * 160]u16 = undefined;
+pub const VIDEO_MEMORY: [*]volatile u16 = @ptrCast(&internal_char_buffer);
+
+pub var MAX_COLS: usize = 80;
+pub var MAX_ROWS: usize = 25;
 pub const DEFAULT_ATTR: u16 = 0x0f00;
+
+pub var vga_initialized: bool = false;
+
+pub fn init_dimensions() void {
+    if (lfb.initialized) {
+        var nc = lfb.width / 8;
+        var nr = lfb.height / 14;
+
+        // Sanity checks
+        if (nc == 0) nc = 1;
+        if (nr == 0) nr = 1;
+        if (nc > 256) nc = 256;
+        if (nr > 160) nr = 160;
+
+        // Forced initialization on first call or resolution change
+        if (!vga_initialized or nc != MAX_COLS or nr != MAX_ROWS) {
+            MAX_COLS = nc;
+            MAX_ROWS = nr;
+
+            // Clear physical video memory (flush old demons)
+            lfb.fill_screen(0x000000);
+
+            for (0..internal_char_buffer.len) |i| {
+                internal_char_buffer[i] = DEFAULT_ATTR | ' ';
+            }
+
+            // Also initialize screen buffer once
+            for (0..screen_buffer.len) |i| {
+                screen_buffer[i] = DEFAULT_ATTR | ' ';
+            }
+            vga_initialized = true;
+        }
+    }
+}
 
 pub var current_color: u16 = DEFAULT_ATTR;
 
 pub export var cursor_row: u8 = 0;
 pub export var cursor_col: u8 = 0;
 
-var screen_buffer: [MAX_COLS * MAX_ROWS]u16 = [_]u16{0} ** (MAX_COLS * MAX_ROWS);
-var saved_cursor_row: u8 = 0;
-var saved_cursor_col: u8 = 0;
+var screen_buffer: [256 * 160]u16 = undefined;
+var saved_cursor_row: u16 = 0;
+var saved_cursor_col: u16 = 0;
 
 pub export fn set_color(fg: u8, bg: u8) void {
     current_color = (@as(u16, bg) << 12) | (@as(u16, fg) << 8);
@@ -26,6 +62,7 @@ pub export fn reset_color() void {
 pub export fn save_screen_buffer() void {
     var i: usize = 0;
     while (i < MAX_COLS * MAX_ROWS) : (i += 1) {
+        if (i >= screen_buffer.len) break;
         screen_buffer[i] = VIDEO_MEMORY[i];
     }
     saved_cursor_row = cursor_row;
@@ -35,10 +72,11 @@ pub export fn save_screen_buffer() void {
 pub export fn restore_screen_buffer() void {
     var i: usize = 0;
     while (i < MAX_COLS * MAX_ROWS) : (i += 1) {
+        if (i >= screen_buffer.len) break;
         VIDEO_MEMORY[i] = screen_buffer[i];
     }
-    cursor_row = saved_cursor_row;
-    cursor_col = saved_cursor_col;
+    cursor_row = @intCast(saved_cursor_row);
+    cursor_col = @intCast(saved_cursor_col);
     update_hardware_cursor();
 }
 

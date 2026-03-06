@@ -1,5 +1,7 @@
 const memory = @import("../memory.zig");
 const font = @import("font.zig");
+const bga = @import("bga.zig");
+const vga = @import("vga.zig");
 
 pub const VbeModeInfo = extern struct {
     attributes: u16,
@@ -43,6 +45,8 @@ pub var height: u32 = 768;
 pub var bpp: u32 = 32;
 pub var pitch: u32 = 4096;
 pub var framebuffer: ?[*]u8 = null;
+pub var fb_mapped_size: usize = 0;
+pub var fb_phys_base: u32 = 0;
 
 pub fn init() void {
     const raw_info: *VbeModeInfo = @ptrFromInt(0x8000);
@@ -56,12 +60,43 @@ pub fn init() void {
     if (height == 0) height = 768;
     if (pitch == 0) pitch = width * (bpp / 8);
 
-    const fb_phys = raw_info.phys_base_ptr;
-    const fb_size = @as(usize, pitch) * height;
+    fb_phys_base = raw_info.phys_base_ptr;
+    fb_mapped_size = @as(usize, pitch) * height;
 
-    memory.map_range(fb_phys, fb_size);
-    framebuffer = @ptrFromInt(fb_phys);
+    memory.map_range(fb_phys_base, fb_mapped_size);
+    framebuffer = @ptrFromInt(fb_phys_base);
     initialized = true;
+}
+
+pub fn init_bga(w: u16, h: u16) bool {
+    if (!bga.is_available()) return false;
+
+    // Set 32bpp resolution via BGA ports
+    bga.set_resolution(w, h, 32);
+
+    // Update our internal LFB info
+    width = w;
+    height = h;
+    bpp = 32;
+    pitch = @as(u32, w) * 4;
+
+    const new_size = @as(usize, pitch) * height;
+
+    if (!initialized) {
+        fb_phys_base = 0xE0000000; // Default QEMU
+        fb_mapped_size = new_size;
+        memory.map_range(fb_phys_base, fb_mapped_size);
+        framebuffer = @ptrFromInt(fb_phys_base);
+        initialized = true;
+    } else if (new_size > fb_mapped_size) {
+        // Map more memory if resolution increased
+        memory.map_range(fb_phys_base + @as(u32, @intCast(fb_mapped_size)), new_size - fb_mapped_size);
+        fb_mapped_size = new_size;
+    }
+
+    // Refresh shell/vga dimensions
+    vga.init_dimensions();
+    return true;
 }
 
 pub fn put_pixel(x: u32, y: u32, color: u32) void {

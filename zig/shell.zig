@@ -86,6 +86,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall },
     .{ .name = "ring3", .help = "Switch to Ring 3 (User Mode) test", .handler = cmd_handler_ring3 },
     .{ .name = "run", .help = "run <elf> - Execute an ELF executable in Ring 3", .handler = cmd_handler_run },
+    .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = cmd_handler_res },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
     .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = cmd_handler_panic },
     .{ .name = "abort", .help = "Trigger a manual kernel panic", .handler = cmd_handler_abort },
@@ -396,30 +397,32 @@ fn refresh_line() void {
     serial.serial_show_cursor();
 
     // Update status indicator in top-right corner
+    const cols = vga.MAX_COLS;
     const caps_attr = if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800);
-    vga.draw_indicator(80 - 14, caps_attr, 'C');
-    vga.draw_indicator(80 - 13, caps_attr, 'A');
-    vga.draw_indicator(80 - 12, caps_attr, 'P');
-    vga.draw_indicator(80 - 11, caps_attr, 'S');
+    vga.draw_indicator(@intCast(cols - 14), caps_attr, 'C');
+    vga.draw_indicator(@intCast(cols - 13), caps_attr, 'A');
+    vga.draw_indicator(@intCast(cols - 12), caps_attr, 'P');
+    vga.draw_indicator(@intCast(cols - 11), caps_attr, 'S');
 
     const num_attr = if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800);
-    vga.draw_indicator(80 - 9, num_attr, 'N');
-    vga.draw_indicator(80 - 8, num_attr, 'U');
-    vga.draw_indicator(80 - 7, num_attr, 'M');
+    vga.draw_indicator(@intCast(cols - 9), num_attr, 'N');
+    vga.draw_indicator(@intCast(cols - 8), num_attr, 'U');
+    vga.draw_indicator(@intCast(cols - 7), num_attr, 'M');
 
     const ins_attr = @as(u16, 0x0E00); // Yellow on black
     const status = if (insert_mode) " INS " else " OVR ";
     for (status, 0..) |c, k| {
-        vga.draw_indicator(80 - 5 + @as(u8, @intCast(k)), ins_attr, c);
+        vga.draw_indicator(@intCast(cols - 5 + k), ins_attr, c);
     }
 }
 
 fn move_screen_cursor() void {
     var new_col = @as(u16, prompt_col) + cmd_pos;
     var new_row = prompt_row;
+    const cols = vga.MAX_COLS;
 
-    while (new_col >= 80) {
-        new_col -= 80;
+    while (new_col >= cols) {
+        new_col -= @intCast(cols);
         new_row += 1;
     }
     vga.zig_set_cursor(@intCast(new_row), @intCast(new_col));
@@ -1443,6 +1446,10 @@ fn cmd_handler_mkdir(args: []const u8) void {
     } else {
         common.printZ("Usage: mkdir <name>\n");
     }
+}
+
+fn cmd_handler_res(args: []const u8) void {
+    shell_cmds.cmd_res(args.ptr, @intCast(args.len));
 }
 
 fn cmd_handler_install(args: []const u8) void {

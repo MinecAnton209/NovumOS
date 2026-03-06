@@ -26,6 +26,7 @@ const vga = @import("drivers/vga.zig");
 const user = @import("user.zig");
 const elf = @import("elf.zig");
 const pci_cmds = @import("commands/pci_cmds.zig");
+const lfb = @import("drivers/lfb.zig");
 
 pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
     var argv: [8][]const u8 = undefined;
@@ -936,13 +937,17 @@ pub fn cmd_gpf() callconv(.c) void {
 
 pub export fn cmd_matrix() void {
     vga.clear_screen();
-    var row_offsets: [80]u8 = [_]u8{0} ** 80;
+    var row_offsets: [160]u8 = [_]u8{0} ** 160;
+
+    const cols = vga.MAX_COLS;
+    const rows = vga.MAX_ROWS;
 
     // Randomize initial offsets
     var seed: u32 = @intCast(timer.get_ticks());
-    for (0..80) |i| {
+    for (0..cols) |i| {
+        if (i >= row_offsets.len) break;
         seed = seed *% 1103515245 +% 12345;
-        row_offsets[i] = @intCast(seed % 25);
+        row_offsets[i] = @intCast(seed % @as(u32, @intCast(rows)));
     }
 
     common.printZ("Entering the NovumOS Matrix... (Press Ctrl+C to exit)\n");
@@ -950,23 +955,24 @@ pub export fn cmd_matrix() void {
     vga.clear_screen();
 
     while (!keyboard_isr.check_ctrl_c()) {
-        for (0..80) |x| {
+        for (0..cols) |x| {
+            if (x >= row_offsets.len) break;
             seed = seed *% 1103515245 +% 12345;
             if (seed % 5 == 0) {
                 const y = row_offsets[x];
 
                 const c: u8 = @intCast(33 + (seed % 94));
-                const idx = @as(usize, y) * 80 + @as(usize, x);
+                const idx = @as(usize, y) * cols + @as(usize, x);
 
                 // Light Green for head
                 vga.VIDEO_MEMORY[idx] = 0x0A00 | @as(u16, c);
 
-                // Dim previous ones if we had a trail, but let's keep it simple:
                 // Clear the one way above to make it feel like a falling line
-                const tail_idx = (@as(usize, (y + 25 - 5) % 25)) * 80 + @as(usize, x);
+                const tail_y = if (y >= 5) y - 5 else rows - (5 - y);
+                const tail_idx = @as(usize, tail_y % @as(u8, @intCast(rows))) * cols + @as(usize, x);
                 vga.VIDEO_MEMORY[tail_idx] = 0x0000 | ' ';
 
-                row_offsets[x] = (y + 1) % 25;
+                row_offsets[x] = @intCast((y + 1) % rows);
             }
         }
         timer.sleep(30);
@@ -1307,4 +1313,34 @@ pub export fn cmd_more(name_ptr: [*]const u8, name_len: u32) void {
         }
     }
     vga.clear_screen();
+}
+
+pub export fn cmd_res(args_ptr: [*]const u8, args_len: u32) void {
+    var argv: [8][]const u8 = undefined;
+    const argc = common.parseArgs(args_ptr[0..args_len], &argv);
+    if (argc < 2) {
+        common.printZ("Usage: res <width> <height>\n");
+        return;
+    }
+
+    const w = @as(u16, @intCast(common.parse_int(argv[0]) orelse 0));
+    const h = @as(u16, @intCast(common.parse_int(argv[1]) orelse 0));
+
+    if (w == 0 or h == 0) {
+        common.printZ("Error: Invalid dimensions\n");
+        return;
+    }
+
+    common.printZ("Switching resolution to ");
+    common.printNum(@intCast(w));
+    common.printZ("x");
+    common.printNum(@intCast(h));
+    common.printZ("...\n");
+
+    if (lfb.init_bga(w, h)) {
+        vga.clear_screen();
+        common.printZ("Resolution changed successfully.\n");
+    } else {
+        common.printZ("Error: BGA not available or resolution not supported.\n");
+    }
 }

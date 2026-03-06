@@ -3,8 +3,8 @@ OUTPUT_FORMAT(elf32-i386)
 ENTRY(start)
 
 SECTIONS {
-    /* Kernel loads at 0x10000 */
-    . = 0x10000;
+    /* Kernel loads at 0x100000 (1MB) */
+    . = 0x100000;
     _code_start = .;
     
     /* Code section first - start symbol must be at 0x10000 */

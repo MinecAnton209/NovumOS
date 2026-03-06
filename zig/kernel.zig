@@ -65,8 +65,9 @@ export fn kmain() void {
     // Initialize ACPI (for proper shutdown)
     _ = acpi.init();
 
-    // Initialize LFB
+    // Initialize LFB and VGA dimensions
     lfb.init();
+    vga.init_dimensions();
     vga.clear_screen();
 
     // Print welcome banner in LFB
