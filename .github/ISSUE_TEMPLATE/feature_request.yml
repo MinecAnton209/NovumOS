@@ -1,0 +1,28 @@
+name: Feature Request
+description: Propose a new feature for NovumOS.
+title: "[Dev]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Want a new feature in NovumOS? Great!
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: What do you want to add?
+      description: Describe the functionality. e.g., "Realtek Audio Driver".
+    validations:
+      required: true
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Why is this needed?
+      description: Why is this useful for the OS? How will it help users?
+  - type: textarea
+    id: implementation-ideas
+    attributes:
+      label: Implementation Ideas
+      description: If you have ideas for the code (ASM/Zig), please write them here.
+    validations:
+      required: false
