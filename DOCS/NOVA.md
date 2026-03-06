@@ -234,7 +234,44 @@ print("Warning: System Overload");
 
 ---
 
-## 💻 7. Technical Specifications
+## 🎭 8. Pangram Showcase
+Testing all core features in one script:
+
+```nova
+// Nova "Showcase" Pangram
+import sys;
+
+set name = "NovumOS";
+set version = 0.5;
+set x = 0x10;      // Hexadecimal (16)
+set y = 0b1010;    // Binary (10)
+
+print("--- " + name + " v" + version + " ---");
+
+// Bitwise magic: shift and combine
+set magic = (x << 2) | y; 
+print("Magic value: " + magic); // Should be 74
+
+set i = 0;
+while (i < 8) {
+    set bit = (1 << i);
+    
+    // Check if current bit is set
+    if ((magic & bit) != 0) {
+        print("Bit " + i + " is active!");
+    }
+    
+    i = (i + 1);
+}
+
+sys.color(10, 0); // Light Green
+print("Nova Pangram executed successfully!");
+sys.color(15, 0); // Restore White
+```
+
+---
+
+## 💻 9. Technical Specifications
 - **Execution**: Recursive block-based interpreter with dynamic heap allocation.
 - **Math Engine**: High-speed fixed-approximation trigonometry optimized for x86 kernel space.
 - **FS Support**: Full integration with NovumOS FAT driver (v0.22.0).
