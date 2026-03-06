@@ -911,7 +911,7 @@ pub const VM = struct {
     }
 
     pub fn parseComparison(self: *VM) hash_table.VariableValue {
-        var left = self.parseTerm();
+        var left = self.parseBitwise();
 
         while (self.ip < self.tokens.len) {
             const op = self.tokens.tokens[self.ip];
@@ -986,7 +986,7 @@ pub const VM = struct {
                 }
             } else if (op.ttype == .EQUALS_EQUALS or op.ttype == .BANG_EQUALS or op.ttype == .LESS or op.ttype == .GREATER) {
                 self.ip += 1;
-                const right = self.parseTerm();
+                const right = self.parseBitwise();
                 var res = false;
                 if (left.vtype == .int and right.vtype == .int) {
                     res = switch (op.ttype) {
@@ -1021,17 +1021,46 @@ pub const VM = struct {
         return left;
     }
 
+    pub fn parseBitwise(self: *VM) hash_table.VariableValue {
+        var left = self.parseTerm();
+
+        while (self.ip < self.tokens.len) {
+            const op = self.tokens.tokens[self.ip];
+            if (op.ttype == .AMPERSAND or op.ttype == .PIPE or op.ttype == .CARET or
+                op.ttype == .LESS_LESS or op.ttype == .GREATER_GREATER)
+            {
+                self.ip += 1;
+                const right = self.parseTerm();
+                if (left.vtype == .int and right.vtype == .int) {
+                    left.int_val = switch (op.ttype) {
+                        .AMPERSAND => left.int_val & right.int_val,
+                        .PIPE => left.int_val | right.int_val,
+                        .CARET => left.int_val ^ right.int_val,
+                        .LESS_LESS => left.int_val << @intCast(@as(u5, @truncate(@as(u32, @bitCast(right.int_val))))),
+                        .GREATER_GREATER => left.int_val >> @intCast(@as(u5, @truncate(@as(u32, @bitCast(right.int_val))))),
+                        else => left.int_val,
+                    };
+                }
+            } else {
+                break;
+            }
+        }
+        return left;
+    }
+
     pub fn parseTerm(self: *VM) hash_table.VariableValue {
         var left = self.parseFactor();
 
         while (self.ip < self.tokens.len) {
             const op = self.tokens.tokens[self.ip];
-            if (op.ttype == .STAR or op.ttype == .SLASH) {
+            if (op.ttype == .STAR or op.ttype == .SLASH or op.ttype == .PERCENT) {
                 self.ip += 1;
                 const right = self.parseFactor();
                 if (left.vtype == .int and right.vtype == .int) {
                     if (op.ttype == .STAR) {
                         left.int_val *= right.int_val;
+                    } else if (op.ttype == .PERCENT) {
+                        if (right.int_val != 0) left.int_val = @rem(left.int_val, right.int_val) else left.int_val = 0;
                     } else {
                         if (right.int_val != 0) left.int_val = @divTrunc(left.int_val, right.int_val) else left.int_val = 0;
                     }
@@ -1106,6 +1135,10 @@ pub const VM = struct {
         } else if (t.ttype == .MINUS) {
             const val = self.parseFactor();
             if (val.vtype == .int) return .{ .vtype = .int, .int_val = -val.int_val };
+            return val;
+        } else if (t.ttype == .TILDE) {
+            const val = self.parseFactor();
+            if (val.vtype == .int) return .{ .vtype = .int, .int_val = ~val.int_val };
             return val;
         }
         self.reportError("Unexpected token in expression");

@@ -156,7 +156,46 @@ while i < 10 {
 
 ---
 
-## 📝 5. Comments & Formatting
+## � 5. Bitwise & Boolean Operators
+
+Nova supports standard bitwise operators for integer values.
+
+| Operator | Description | Example | Result |
+|----------|-------------|---------|--------|
+| `&` | Bitwise AND | `0b1100 & 0b1010;` | `8` |
+| `\|` | Bitwise OR | `0b1100 \| 0b0011;` | `15` |
+| `^` | Bitwise XOR | `0b1100 ^ 0b1010;` | `6` |
+| `~` | Bitwise NOT (unary) | `~0;` | `-1` |
+| `<<` | Left shift | `1 << 4;` | `16` |
+| `>>` | Right shift | `256 >> 3;` | `32` |
+| `%` | Modulo (remainder) | `17 % 5;` | `2` |
+
+### Example: Working with Flags
+```nova
+set int FLAGS  = 0;
+set int READ   = 1;  // bit 0
+set int WRITE  = 2;  // bit 1
+set int EXEC   = 4;  // bit 2
+
+// Set READ and WRITE flags
+FLAGS = FLAGS | READ | WRITE;
+print("Flags: " + FLAGS);          // 3
+
+// Check if EXEC is set
+if (FLAGS & EXEC) == 1 {
+    print("Executable");
+} else {
+    print("Not executable");
+}
+
+// Clear WRITE flag
+FLAGS = FLAGS & (~WRITE);
+print("After clear: " + FLAGS);    // 1
+```
+
+---
+
+## �📝 6. Comments & Formatting
 Nova supports single-line (`//`) and multi-line (`/* ... */`) comments.
 
 ### ⌨️ Multi-line REPL

@@ -32,6 +32,13 @@ pub const TokenType = enum {
     BREAK,
     CONTINUE,
     DOT,
+    AMPERSAND,
+    PIPE,
+    CARET,
+    TILDE,
+    PERCENT,
+    LESS_LESS,
+    GREATER_GREATER,
     EOF,
     UNKNOWN,
 };
@@ -181,12 +188,47 @@ pub fn tokenize(source: []const u8) TokenList {
             continue;
         }
         if (c == '<') {
-            list.append(.{ .ttype = .LESS, .value = source[i .. i + 1], .line = line_num });
-            i += 1;
+            if (i + 1 < source.len and source[i + 1] == '<') {
+                list.append(.{ .ttype = .LESS_LESS, .value = source[i .. i + 2], .line = line_num });
+                i += 2;
+            } else {
+                list.append(.{ .ttype = .LESS, .value = source[i .. i + 1], .line = line_num });
+                i += 1;
+            }
             continue;
         }
         if (c == '>') {
-            list.append(.{ .ttype = .GREATER, .value = source[i .. i + 1], .line = line_num });
+            if (i + 1 < source.len and source[i + 1] == '>') {
+                list.append(.{ .ttype = .GREATER_GREATER, .value = source[i .. i + 2], .line = line_num });
+                i += 2;
+            } else {
+                list.append(.{ .ttype = .GREATER, .value = source[i .. i + 1], .line = line_num });
+                i += 1;
+            }
+            continue;
+        }
+        if (c == '&') {
+            list.append(.{ .ttype = .AMPERSAND, .value = source[i .. i + 1], .line = line_num });
+            i += 1;
+            continue;
+        }
+        if (c == '|') {
+            list.append(.{ .ttype = .PIPE, .value = source[i .. i + 1], .line = line_num });
+            i += 1;
+            continue;
+        }
+        if (c == '^') {
+            list.append(.{ .ttype = .CARET, .value = source[i .. i + 1], .line = line_num });
+            i += 1;
+            continue;
+        }
+        if (c == '~') {
+            list.append(.{ .ttype = .TILDE, .value = source[i .. i + 1], .line = line_num });
+            i += 1;
+            continue;
+        }
+        if (c == '%') {
+            list.append(.{ .ttype = .PERCENT, .value = source[i .. i + 1], .line = line_num });
             i += 1;
             continue;
         }
