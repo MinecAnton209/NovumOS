@@ -13,6 +13,7 @@ const config = @import("config.zig");
 const nova_interpreter = @import("nova/interpreter.zig");
 const nova_commands = @import("nova/commands.zig");
 const top_cmd = @import("commands/top.zig");
+const lfb = @import("drivers/lfb.zig");
 
 // Embedded Nova Scripts
 const EmbeddedScript = struct {
@@ -126,6 +127,8 @@ var auto_prefix_len: usize = 0;
 var auto_match_index: usize = 0;
 var auto_start_pos: u16 = 0;
 
+var shell_cursor_visible: bool = true;
+
 /// Read a command from input
 pub export fn read_command() void {
     vga.reset_color();
@@ -141,6 +144,7 @@ pub export fn read_command() void {
     display_prompt();
     prompt_row = vga.zig_get_cursor_row();
     prompt_col = vga.zig_get_cursor_col();
+    shell_cursor_visible = true;
     refresh_line(); // Initial draw of status bar
 
     while (true) {
@@ -160,6 +164,8 @@ pub export fn read_command() void {
         if (char != 9) auto_cycling = false;
 
         if (char == 10) { // Enter
+            shell_cursor_visible = false;
+            refresh_line();
             break;
         } else if (char == 8 or char == 127) { // Backspace
             if (cmd_pos > 0) {
@@ -247,6 +253,8 @@ pub export fn read_command() void {
         }
     }
 
+    // Do not explicitly erase, refresh_line clears prompt directly
+
     if (cmd_len > 0) {
         save_to_history();
         save_history_to_disk();
@@ -310,23 +318,8 @@ fn load_history_from_disk() void {
 fn refresh_line() void {
     const saved_pos = cmd_pos;
 
-    // 1. VGA Update (Silent clear to avoid triggering scrolls during clear)
-    {
-        var row = prompt_row;
-        var col = prompt_col;
-        var cleared: usize = 0;
-        // Clear up to 2 lines or until end of screen
-        while (cleared < 160) : (cleared += 1) {
-            if (row >= 25) break;
-            const idx = @as(usize, row) * 80 + col;
-            vga.VIDEO_MEMORY[idx] = vga.DEFAULT_ATTR | ' ';
-            col += 1;
-            if (col >= 80) {
-                col = 0;
-                row += 1;
-            }
-        }
-    }
+    // 1. VGA Update (Clear to avoid trailing characters when line length decreases)
+    vga.clear_prompt_area(prompt_row, prompt_col);
 
     // Draw text on VGA. We use zig_print_char to allow natural wrapping.
     // If it scrolls, we need to detect it.
@@ -389,6 +382,31 @@ fn move_screen_cursor() void {
         new_row += 1;
     }
     vga.zig_set_cursor(@intCast(new_row), @intCast(new_col));
+
+    // Draw cursor only when visible (hidden on Enter to avoid ghost underscore)
+    if (lfb.initialized and shell_cursor_visible) {
+        const bx = @as(u32, @intCast(new_col)) * 8;
+        const by = @as(u32, @intCast(new_row)) * 14;
+        var r: u32 = 12;
+        while (r < 14) : (r += 1) {
+            var c: u32 = 0;
+            while (c < 8) : (c += 1) {
+                lfb.put_pixel(bx + c, by + r, 0xFFFFFF);
+            }
+        }
+    } else if (lfb.initialized and !shell_cursor_visible) {
+        // Erase cursor - paint black over the underscore area
+        const bx = @as(u32, @intCast(new_col)) * 8;
+        const by = @as(u32, @intCast(new_row)) * 14;
+        var r: u32 = 12;
+        while (r < 14) : (r += 1) {
+            var c: u32 = 0;
+            while (c < 8) : (c += 1) {
+                lfb.put_pixel(bx + c, by + r, 0x000000);
+            }
+        }
+    }
+
     serial.serial_set_cursor(@intCast(new_row), @intCast(new_col));
 }
 

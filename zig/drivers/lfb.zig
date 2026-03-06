@@ -102,14 +102,15 @@ pub fn draw_char(c: u8, x: u32, y: u32, color: u32, scale: u32) void {
         const row_data = font.font_data[char_idx + row];
         var col: u32 = 0;
         while (col < font.FONT_WIDTH) : (col += 1) {
-            if ((row_data & (@as(u8, 0x80) >> @as(u3, @intCast(col)))) != 0) {
-                // Draw a 'scale x scale' pixel block
-                var dy: u32 = 0;
-                while (dy < scale) : (dy += 1) {
-                    var dx: u32 = 0;
-                    while (dx < scale) : (dx += 1) {
-                        put_pixel(x + (col * scale) + dx, y + (row * scale) + dy, color);
-                    }
+            const is_set = (row_data & (@as(u8, 0x80) >> @as(u3, @intCast(col)))) != 0;
+            const pcolor = if (is_set) color else 0x000000;
+
+            // Draw a 'scale x scale' pixel block
+            var dy: u32 = 0;
+            while (dy < scale) : (dy += 1) {
+                var dx: u32 = 0;
+                while (dx < scale) : (dx += 1) {
+                    put_pixel(x + (col * scale) + dx, y + (row * scale) + dy, pcolor);
                 }
             }
         }

@@ -142,6 +142,11 @@ pub export fn zig_print_char(c: u8) void {
             scroll();
         }
 
+        if (cursor_row < MAX_ROWS and cursor_col < MAX_COLS) {
+            const idx = @as(usize, cursor_row) * MAX_COLS + cursor_col;
+            VIDEO_MEMORY[idx] = current_color | @as(u16, c);
+        }
+
         if (lfb.initialized) {
             const char_x = @as(u32, @intCast(cursor_col)) * 8;
             const char_y = @as(u32, @intCast(cursor_row)) * 14;
@@ -167,8 +172,41 @@ pub export fn zig_clear_line(row: u8) void {
     }
 }
 
-pub fn update_vga_cursor() void {
-    // Hardware VGA cursor doesn't work in LFB
+pub export fn clear_prompt_area(start_row: u8, start_col: u8) void {
+    var row = start_row;
+    var col = start_col;
+    var cleared: usize = 0;
+    while (cleared < 160) : (cleared += 1) {
+        if (row >= MAX_ROWS) break;
+        const idx = @as(usize, row) * MAX_COLS + col;
+        VIDEO_MEMORY[idx] = DEFAULT_ATTR | ' ';
+
+        if (lfb.initialized) {
+            const bx = @as(u32, @intCast(col)) * 8;
+            const by = @as(u32, @intCast(row)) * 14;
+            var r: u32 = 0;
+            while (r < 14) : (r += 1) {
+                var c: u32 = 0;
+                while (c < 8) : (c += 1) {
+                    lfb.put_pixel(bx + c, by + r, 0x000000);
+                }
+            }
+        }
+
+        col += 1;
+        if (col >= MAX_COLS) {
+            col = 0;
+            row += 1;
+        }
+    }
+}
+
+pub export fn erase_vga_cursor() void {
+    // Disabled stateful cursor erasing to prevent visual glitches
+}
+
+pub export fn update_vga_cursor() void {
+    // Disabled stateful cursor drawing to prevent visual glitches
 }
 
 pub export fn update_hardware_cursor() void {

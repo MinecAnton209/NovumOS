@@ -172,4 +172,3 @@ init_serial:
 
 ; Include drivers
 %include "idt.asm"
-%include "drivers/keyboard.asm"
