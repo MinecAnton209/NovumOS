@@ -128,6 +128,8 @@ var auto_match_index: usize = 0;
 var auto_start_pos: u16 = 0;
 
 var shell_cursor_visible: bool = true;
+var last_shell_cursor_row: u16 = 0;
+var last_shell_cursor_col: u16 = 0;
 
 /// Read a command from input
 pub export fn read_command() void {
@@ -230,6 +232,43 @@ pub export fn read_command() void {
                 auto_match_index += 1;
             }
             autocomplete();
+            refresh_line();
+        } else if (char == 12) { // Ctrl+L - clear screen
+            vga.clear_screen();
+            messages.print_welcome();
+            common.printZ("\n");
+            display_prompt();
+            prompt_row = vga.zig_get_cursor_row();
+            prompt_col = vga.zig_get_cursor_col();
+            shell_cursor_visible = true;
+            refresh_line();
+        } else if (char == 1) { // Ctrl+A - jump to beginning
+            cmd_pos = 0;
+            move_screen_cursor();
+        } else if (char == 5) { // Ctrl+E - jump to end
+            cmd_pos = cmd_len;
+            move_screen_cursor();
+        } else if (char == 23) { // Ctrl+W - delete word backwards
+            if (cmd_pos > 0) {
+                // Skip trailing spaces
+                var pos = cmd_pos;
+                while (pos > 0 and cmd_buffer[pos - 1] == ' ') pos -= 1;
+                // Skip the word
+                while (pos > 0 and cmd_buffer[pos - 1] != ' ') pos -= 1;
+                const deleted = cmd_pos - pos;
+                var i: usize = pos;
+                while (i < cmd_len - deleted) : (i += 1) {
+                    cmd_buffer[i] = cmd_buffer[i + deleted];
+                }
+                while (i < cmd_len) : (i += 1) cmd_buffer[i] = 0;
+                cmd_len -= deleted;
+                cmd_pos = pos;
+                refresh_line();
+            }
+        } else if (char == 21) { // Ctrl+U - clear entire line
+            for (&cmd_buffer) |*b| b.* = 0;
+            cmd_len = 0;
+            cmd_pos = 0;
             refresh_line();
         } else if (char >= 32 and char <= 126) { // Printable characters
             if (cmd_len < 1023) {
@@ -357,19 +396,21 @@ fn refresh_line() void {
     serial.serial_show_cursor();
 
     // Update status indicator in top-right corner
-    vga.VIDEO_MEMORY[80 - 14] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'C';
-    vga.VIDEO_MEMORY[80 - 13] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'A';
-    vga.VIDEO_MEMORY[80 - 12] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'P';
-    vga.VIDEO_MEMORY[80 - 11] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'S';
+    const caps_attr = if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800);
+    vga.draw_indicator(80 - 14, caps_attr, 'C');
+    vga.draw_indicator(80 - 13, caps_attr, 'A');
+    vga.draw_indicator(80 - 12, caps_attr, 'P');
+    vga.draw_indicator(80 - 11, caps_attr, 'S');
 
-    vga.VIDEO_MEMORY[80 - 9] = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'N';
-    vga.VIDEO_MEMORY[80 - 8] = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'U';
-    vga.VIDEO_MEMORY[80 - 7] = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'M';
+    const num_attr = if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800);
+    vga.draw_indicator(80 - 9, num_attr, 'N');
+    vga.draw_indicator(80 - 8, num_attr, 'U');
+    vga.draw_indicator(80 - 7, num_attr, 'M');
 
-    const attr = @as(u16, 0x0E00); // Yellow on black
+    const ins_attr = @as(u16, 0x0E00); // Yellow on black
     const status = if (insert_mode) " INS " else " OVR ";
     for (status, 0..) |c, k| {
-        vga.VIDEO_MEMORY[80 - 5 + k] = attr | @as(u16, c);
+        vga.draw_indicator(80 - 5 + @as(u8, @intCast(k)), ins_attr, c);
     }
 }
 
@@ -383,30 +424,34 @@ fn move_screen_cursor() void {
     }
     vga.zig_set_cursor(@intCast(new_row), @intCast(new_col));
 
-    // Draw cursor only when visible (hidden on Enter to avoid ghost underscore)
-    if (lfb.initialized and shell_cursor_visible) {
-        const bx = @as(u32, @intCast(new_col)) * 8;
-        const by = @as(u32, @intCast(new_row)) * 14;
+    if (lfb.initialized) {
+        // 1. Erase old cursor
+        const old_bx = @as(u32, @intCast(last_shell_cursor_col)) * 8;
+        const old_by = @as(u32, @intCast(last_shell_cursor_row)) * 14;
         var r: u32 = 12;
         while (r < 14) : (r += 1) {
-            var c: u32 = 0;
-            while (c < 8) : (c += 1) {
-                lfb.put_pixel(bx + c, by + r, 0xFFFFFF);
+            var c_idx: u32 = 0;
+            while (c_idx < 8) : (c_idx += 1) {
+                lfb.put_pixel(old_bx + c_idx, old_by + r, 0x000000);
             }
         }
-    } else if (lfb.initialized and !shell_cursor_visible) {
-        // Erase cursor - paint black over the underscore area
-        const bx = @as(u32, @intCast(new_col)) * 8;
-        const by = @as(u32, @intCast(new_row)) * 14;
-        var r: u32 = 12;
-        while (r < 14) : (r += 1) {
-            var c: u32 = 0;
-            while (c < 8) : (c += 1) {
-                lfb.put_pixel(bx + c, by + r, 0x000000);
+
+        // 2. Draw new cursor if visible
+        if (shell_cursor_visible) {
+            const bx = @as(u32, @intCast(new_col)) * 8;
+            const by = @as(u32, @intCast(new_row)) * 14;
+            r = 12;
+            while (r < 14) : (r += 1) {
+                var c_idx: u32 = 0;
+                while (c_idx < 8) : (c_idx += 1) {
+                    lfb.put_pixel(bx + c_idx, by + r, 0xFFFFFF);
+                }
             }
         }
     }
 
+    last_shell_cursor_row = new_row;
+    last_shell_cursor_col = new_col;
     serial.serial_set_cursor(@intCast(new_row), @intCast(new_col));
 }
 

@@ -172,8 +172,10 @@ pub export fn isr_keyboard() void {
                 scancode[scancode_byte];
 
             if (ctrl_pressed) {
-                if (ascii == 'c' or ascii == 'C') {
-                    ascii = 3;
+                // Ctrl+Letter generates ASCII control code (letter - 'a' + 1)
+                const lower = if (ascii >= 'A' and ascii <= 'Z') ascii + 32 else ascii;
+                if (lower >= 'a' and lower <= 'z') {
+                    ascii = lower - 'a' + 1; // Ctrl+A=1, Ctrl+C=3, Ctrl+E=5, Ctrl+L=12, Ctrl+U=21, Ctrl+W=23
                 }
             }
 

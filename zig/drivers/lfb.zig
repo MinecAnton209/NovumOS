@@ -131,3 +131,16 @@ pub fn draw_string(s: []const u8, x: u32, y: u32, color: u32, scale: u32) void {
         }
     }
 }
+
+pub fn copy_region(src_y: u32, dest_y: u32, count: u32) void {
+    if (!initialized or framebuffer == null) return;
+    const fb = framebuffer.?;
+    const bytes_per_line = pitch;
+
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        const src_off = (src_y + i) * bytes_per_line;
+        const dest_off = (dest_y + i) * bytes_per_line;
+        @memcpy(fb[dest_off .. dest_off + bytes_per_line], fb[src_off .. src_off + bytes_per_line]);
+    }
+}

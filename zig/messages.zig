@@ -6,7 +6,6 @@ const versioning = @import("versioning.zig");
 pub export fn print_welcome() void {
     vga.set_color(11, 0); // Light Cyan on Black
     common.printZ(
-        \\
         \\  _   _                             ___  ____  
         \\ | \ | | _____   _ _   _ _ __ ___  / _ \/ ___| 
         \\ |  \| |/ _ \ \ / / | | | '_ ` _ \| | | \___ \ 

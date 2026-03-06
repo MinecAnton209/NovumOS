@@ -100,9 +100,30 @@ pub export fn zig_get_cursor_col() u8 {
 }
 
 fn scroll() void {
-    lfb.fill_screen(0x000000); // Simple clear for now
-    cursor_row = 0;
+    if (!lfb.initialized) return;
+
+    // 1. Shift lines 1..MAX_ROWS-1 up into 0..MAX_ROWS-2
+    // Each line is 14 pixels high.
+    const row_height: u32 = 14;
+    const scroll_rows: u32 = @intCast(MAX_ROWS - 1);
+    lfb.copy_region(row_height, 0, scroll_rows * row_height);
+
+    // 2. Clear the bottom line
+    const last_row: u8 = @intCast(MAX_ROWS - 1);
+    zig_clear_line(last_row);
+
+    // 3. Move cursor to the last row
+    cursor_row = last_row;
     cursor_col = 0;
+
+    // 4. Update the VIDEO_MEMORY buffer (optional but good for consistency)
+    var r: usize = 0;
+    while (r < MAX_ROWS - 1) : (r += 1) {
+        var c: usize = 0;
+        while (c < MAX_COLS) : (c += 1) {
+            VIDEO_MEMORY[r * MAX_COLS + c] = VIDEO_MEMORY[(r + 1) * MAX_COLS + c];
+        }
+    }
 }
 
 fn internal_newline() void {
@@ -111,6 +132,29 @@ fn internal_newline() void {
     if (cursor_row >= MAX_ROWS) {
         scroll();
     }
+}
+
+pub fn vga_attr_to_rgb(attr: u16) u32 {
+    const fg = @as(u8, @intCast((attr >> 8) & 0x0F));
+    return switch (fg) {
+        0 => 0x000000, // Black
+        1 => 0x0000AA, // Blue
+        2 => 0x00AA00, // Green
+        3 => 0x00AAAA, // Cyan
+        4 => 0xAA0000, // Red
+        5 => 0xAA00AA, // Magenta
+        6 => 0xAA5500, // Brown
+        7 => 0xAAAAAA, // Light Gray
+        8 => 0x555555, // Dark Gray
+        9 => 0x5555FF, // Light Blue
+        10 => 0x55FF55, // Light Green
+        11 => 0x55FFFF, // Light Cyan
+        12 => 0xFF5555, // Light Red
+        13 => 0xFF55FF, // Light Magenta
+        14 => 0xFFFF55, // Yellow
+        15 => 0xFFFFFF, // White
+        else => 0xFFFFFF,
+    };
 }
 
 pub export fn zig_print_char(c: u8) void {
@@ -142,15 +186,16 @@ pub export fn zig_print_char(c: u8) void {
             scroll();
         }
 
+        const attr = current_color;
         if (cursor_row < MAX_ROWS and cursor_col < MAX_COLS) {
             const idx = @as(usize, cursor_row) * MAX_COLS + cursor_col;
-            VIDEO_MEMORY[idx] = current_color | @as(u16, c);
+            VIDEO_MEMORY[idx] = attr | @as(u16, c);
         }
 
         if (lfb.initialized) {
             const char_x = @as(u32, @intCast(cursor_col)) * 8;
             const char_y = @as(u32, @intCast(cursor_row)) * 14;
-            lfb.draw_char(c, char_x, char_y, 0xFFFFFF, 1); // White, scale 1
+            lfb.draw_char(c, char_x, char_y, vga_attr_to_rgb(attr), 1);
         }
 
         cursor_col += 1;
@@ -169,6 +214,11 @@ pub export fn zig_clear_line(row: u8) void {
         while (x < @as(u32, MAX_COLS) * 8) : (x += 1) {
             lfb.put_pixel(x, y, 0x000000);
         }
+    }
+    // Also clear the VIDEO_MEMORY buffer
+    var col: usize = 0;
+    while (col < MAX_COLS) : (col += 1) {
+        VIDEO_MEMORY[@as(usize, row) * MAX_COLS + col] = DEFAULT_ATTR | ' ';
     }
 }
 
@@ -198,6 +248,20 @@ pub export fn clear_prompt_area(start_row: u8, start_col: u8) void {
             col = 0;
             row += 1;
         }
+    }
+}
+
+pub export fn draw_indicator(col: u8, attr: u16, c: u8) void {
+    const row = 0; // Fixed top row for indicators
+    if (col >= MAX_COLS) return;
+
+    const idx = @as(usize, row) * MAX_COLS + col;
+    VIDEO_MEMORY[idx] = attr | @as(u16, c);
+
+    if (lfb.initialized) {
+        const bx = @as(u32, col) * 8;
+        const by = @as(u32, row) * 14;
+        lfb.draw_char(c, bx, by, vga_attr_to_rgb(attr), 1);
     }
 }
 
