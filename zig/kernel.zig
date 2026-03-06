@@ -11,6 +11,7 @@ const timer = @import("drivers/timer.zig");
 const acpi = @import("drivers/acpi.zig");
 const memory = @import("memory.zig");
 const lfb = @import("drivers/lfb.zig");
+const vga = @import("drivers/vga.zig");
 const exceptions = @import("exceptions.zig");
 const smp = @import("smp.zig");
 const libc_stubs = @import("libc_stubs.zig");
@@ -66,16 +67,10 @@ export fn kmain() void {
 
     // Initialize LFB
     lfb.init();
-    lfb.fill_screen(0x003366); // Dark Blue
+    vga.clear_screen();
 
-    // Draw a small test square
-    var y: u32 = 200;
-    while (y < 300) : (y += 1) {
-        var x: u32 = 200;
-        while (x < 300) : (x += 1) {
-            lfb.put_pixel(x, y, 0xFFFFFF); // White
-        }
-    }
+    // Print welcome banner in LFB
+    messages.print_welcome();
 
     // Initialize Dumb SMP (Kick Core 1)
     smp.init();

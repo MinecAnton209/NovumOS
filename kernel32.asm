@@ -28,7 +28,6 @@ global start
 ; External Zig / Linker symbols
 extern zig_init
 extern kmain
-extern print_welcome
 extern clear_screen
 extern cursor_row
 extern cursor_col
@@ -119,9 +118,6 @@ actual_code:
 
     sti                         ; Re-enable interrupts
     
-    ; 6. Print Welcome Messages
-    call print_welcome
-
     ; 7. Transfer control to Zig Kernel
     call kmain
     

@@ -2,8 +2,8 @@
 const lfb = @import("lfb.zig");
 
 pub const VIDEO_MEMORY: [*]volatile u16 = @ptrFromInt(0xb8000);
-pub const MAX_COLS: usize = 80;
-pub const MAX_ROWS: usize = 25;
+pub const MAX_COLS: usize = 80; // 640 / 8
+pub const MAX_ROWS: usize = 34; // 480 / 14
 pub const DEFAULT_ATTR: u16 = 0x0f00;
 
 pub var current_color: u16 = DEFAULT_ATTR;
@@ -123,29 +123,29 @@ pub export fn zig_print_char(c: u8) void {
             cursor_col -= 1;
         } else if (cursor_row > 0) {
             cursor_row -= 1;
-            cursor_col = MAX_COLS - 1;
+            cursor_col = @intCast(MAX_COLS - 1);
         }
 
         if (lfb.initialized) {
-            const bx = @as(u32, cursor_col) * 8;
-            const by = @as(u32, cursor_row) * 12;
+            const bx = @as(u32, @intCast(cursor_col)) * 8;
+            const by = @as(u32, @intCast(cursor_row)) * 14;
             var r: u32 = 0;
-            while (r < 8) : (r += 1) {
+            while (r < 14) : (r += 1) {
                 var cl: u32 = 0;
                 while (cl < 8) : (cl += 1) {
                     lfb.put_pixel(bx + cl, by + r, 0x000000);
                 }
             }
         }
-    } else if (c >= 32 and c <= 126) {
+    } else if (c >= 32) {
         if (cursor_row >= MAX_ROWS) {
             scroll();
         }
 
         if (lfb.initialized) {
-            const char_x = @as(u32, cursor_col) * 8;
-            const char_y = @as(u32, cursor_row) * 12;
-            lfb.draw_char(c, char_x, char_y, 0xFFFFFF); // White
+            const char_x = @as(u32, @intCast(cursor_col)) * 8;
+            const char_y = @as(u32, @intCast(cursor_row)) * 14;
+            lfb.draw_char(c, char_x, char_y, 0xFFFFFF, 1); // White, scale 1
         }
 
         cursor_col += 1;
@@ -157,9 +157,9 @@ pub export fn zig_print_char(c: u8) void {
 
 pub export fn zig_clear_line(row: u8) void {
     if (row >= MAX_ROWS) return;
-    const py = @as(u32, row) * 12;
+    const py = @as(u32, row) * 14;
     var y: u32 = py;
-    while (y < py + 8) : (y += 1) {
+    while (y < py + 14) : (y += 1) {
         var x: u32 = 0;
         while (x < @as(u32, MAX_COLS) * 8) : (x += 1) {
             lfb.put_pixel(x, y, 0x000000);

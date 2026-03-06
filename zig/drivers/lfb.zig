@@ -92,33 +92,41 @@ pub fn fill_screen(color: u32) void {
     }
 }
 
-pub fn draw_char(c: u8, x: u32, y: u32, color: u32) void {
+pub fn draw_char(c: u8, x: u32, y: u32, color: u32, scale: u32) void {
     if (!initialized) return;
     if (c < 32 or c > 126) return;
-    const char_idx = @as(usize, c - 32) * 8;
+    const char_idx = @as(usize, c) * font.FONT_HEIGHT;
+
     var row: u32 = 0;
-    while (row < 8) : (row += 1) {
+    while (row < font.FONT_HEIGHT) : (row += 1) {
         const row_data = font.font_data[char_idx + row];
         var col: u32 = 0;
-        while (col < 8) : (col += 1) {
+        while (col < font.FONT_WIDTH) : (col += 1) {
             if ((row_data & (@as(u8, 0x80) >> @as(u3, @intCast(col)))) != 0) {
-                put_pixel(x + col, y + row, color);
+                // Draw a 'scale x scale' pixel block
+                var dy: u32 = 0;
+                while (dy < scale) : (dy += 1) {
+                    var dx: u32 = 0;
+                    while (dx < scale) : (dx += 1) {
+                        put_pixel(x + (col * scale) + dx, y + (row * scale) + dy, color);
+                    }
+                }
             }
         }
     }
 }
 
-pub fn draw_string(s: []const u8, x: u32, y: u32, color: u32) void {
+pub fn draw_string(s: []const u8, x: u32, y: u32, color: u32, scale: u32) void {
     if (!initialized) return;
     var cx = x;
     var cy = y;
     for (s) |c| {
         if (c == '\n') {
             cx = x;
-            cy += 12;
+            cy += font.FONT_HEIGHT * scale;
         } else {
-            draw_char(c, cx, cy, color);
-            cx += 8;
+            draw_char(c, cx, cy, color, scale);
+            cx += font.FONT_WIDTH * scale;
         }
     }
 }

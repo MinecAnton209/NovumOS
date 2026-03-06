@@ -50,15 +50,14 @@ start:
     int 0x13
     jc disk_error
     
-    ; 5. Set up VBE Linear Framebuffer (1024x768x32)
+    ; 5. Set up VBE Linear Framebuffer (640x480x32)
     mov ax, 0x4f01
-    mov cx, 0x4118          ; 1024x768 @ 32bpp (preferred)
-    mov di, 0x8000          ; Store info at 0x8000
+    mov cx, 0x4112          ; 640x480 @ 32bpp
+    mov di, 0x8000
     int 0x10
     
-    ; If failed, try 24bpp as fallback (same mode index often works)
     mov ax, 0x4f02
-    mov bx, 0x4118          ; Set the mode
+    mov bx, 0x4112          ; Set the mode
     int 0x10
     
     ; 6. Switch to Protected Mode
