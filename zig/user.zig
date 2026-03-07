@@ -27,6 +27,46 @@ pub const Registers = extern struct {
 // Global flag to indicate if we are in user mode (for shared code)
 pub var is_user_mode: bool = false;
 
+// Constant for maximum allowed string length in syscalls
+pub const MAX_SYSCALL_STR_LEN = 4096;
+
+/// Helper function to check if a memory address is user-accessible in the current page table
+fn is_user_ptr(addr: usize) bool {
+    const pd_idx = addr >> 22;
+    const pt_idx = (addr >> 12) & 0x3FF;
+
+    // Check Page Directory Entry (PDE)
+    const pde = memory.page_directory[pd_idx];
+    if ((pde & 0x01) == 0) return false; // Not present
+    if ((pde & 0x04) == 0) return false; // User bit must be set
+
+    // If it's a huge page (4MB), we are done (USER bit already checked in PDE)
+    if ((pde & 0x80) != 0) return true;
+
+    // Check Page Table Entry (PTE)
+    if (memory.page_tables[pd_idx]) |pt| {
+        const pte = pt[pt_idx];
+        return (pte & 0x01) != 0 and (pte & 0x04) != 0; // Must be present AND user
+    }
+
+    return false;
+}
+
+/// Safely scans a user-provided string for its length, checking page permissions along the way
+fn safe_strlen_user(ptr: [*]const u8, max_len: usize) ?usize {
+    var i: usize = 0;
+    while (i < max_len) {
+        const addr = @intFromPtr(ptr) + i;
+        // Optimization: check page permissions only on start and at page boundaries
+        if (i == 0 or (addr & 0xFFF) == 0) {
+            if (!is_user_ptr(addr)) return null;
+        }
+        if (ptr[i] == 0) return i;
+        i += 1;
+    }
+    return null; // Too long or not null-terminated within bounds
+}
+
 // Export strlen as it might be needed by the kernel for strings passed from Ring 3
 export fn strlen(s: [*]const u8) usize {
     var i: usize = 0;
@@ -43,8 +83,11 @@ export fn handle_syscall_zig(regs: *Registers) void {
         },
         1 => { // PrintZ(EBX = string_ptr)
             const ptr = @as([*]const u8, @ptrFromInt(regs.ebx));
-            const len = strlen(ptr);
-            common.printZ(ptr[0..len]);
+            if (safe_strlen_user(ptr, MAX_SYSCALL_STR_LEN)) |len| {
+                common.printZ(ptr[0..len]);
+            } else {
+                common.printError("[Security Fault] Invalid user string provided in syscall 1\n");
+            }
         },
         2 => { // GetChar() -> EAX
             regs.eax = keyboard.keyboard_wait_char();
