@@ -60,24 +60,44 @@ pub fn load_and_run(data: []const u8) !noreturn {
     common.printZ(common.intToHex(header.entry, &buf));
     common.printZ("\n");
 
+    // Validate Program Headers table fits in data
+    const ph_table_end = @as(usize, header.phoff) + (@as(usize, header.phnum) * @as(usize, header.phentsize));
+    if (ph_table_end > data.len) {
+        common.printError("[Kernel] ELF Error: Program Headers out of bounds\n");
+        return error.InvalidProgramHeaders;
+    }
+
     const ph_ptr = @as([*]const Phdr, @ptrCast(@alignCast(data.ptr + header.phoff)));
 
     for (0..header.phnum) |i| {
         const ph = ph_ptr[i];
         if (ph.ptype == PT_LOAD) {
+            // Security: Validate offsets and sizes
+            if (ph.filesz > ph.memsz) {
+                common.printError("[Kernel] ELF Error: filesz > memsz\n");
+                return error.InvalidSegmentSize;
+            }
+            if (@as(usize, ph.offset) + @as(usize, ph.filesz) > data.len) {
+                common.printError("[Kernel] ELF Error: Segment data exceeds file size\n");
+                return error.SegmentOutOfBounds;
+            }
+
+            // Security: Validate virtual address boundaries
+            const end_vaddr = @as(usize, ph.vaddr) + @as(usize, ph.memsz);
+            if (end_vaddr < ph.vaddr) { // Check for overflow
+                common.printError("[Kernel] ELF Error: Virtual address overflow\n");
+                return error.VirtualAddressOverflow;
+            }
+            if (end_vaddr > 64 * 1024 * 1024) { // 64MB arbitrary limit based on generic user mapping
+                common.printError("[Kernel] ELF Error: Virtual address too high\n");
+                return error.VirtualAddressTooHigh;
+            }
+
             common.printZ("  Phdr: Mapping segment at ");
             common.printZ(common.intToHex(ph.vaddr, &buf));
             common.printZ(" size ");
             common.printZ(common.intToString(@intCast(ph.memsz), &buf));
             common.printZ("\n");
-
-            // In a real OS, we'd allocate pages here.
-            // For now, we assume the program fits in our shared 64MB user space.
-            // We just copy the data to the virtual address.
-
-            // SECURITY WARNING: This copies data directly to virtual addresses.
-            // We should ideally use map_page to ensure memory is allocated and user-accessible.
-            // Since our memory init already mapped 0-64MB as user-mode, we can copy.
 
             const dest = @as([*]u8, @ptrFromInt(ph.vaddr));
             @memcpy(dest[0..ph.filesz], data[ph.offset .. ph.offset + ph.filesz]);
