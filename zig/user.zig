@@ -197,8 +197,40 @@ export fn handle_syscall_zig(regs: *Registers) void {
         14 => { // Reboot
             common.reboot();
         },
-        15 => { // MemoryMapRange(EBX=addr, ECX=size)
-            memory.map_range(regs.ebx, regs.ecx, true);
+        15 => { // MemoryMapRange(EBX=vaddr, ECX=size)
+            // Security: Do NOT identity-map user requests.
+            // Instead, allocate fresh physical frames from the PMM so the user
+            // cannot target a specific physical address (prevents cross-process
+            // frame snooping in future multi-process scenarios).
+            const vaddr = regs.ebx;
+            const size = regs.ecx;
+            const kernel_end = @intFromPtr(&memory.ebss_sym);
+            // Validate virtual address range
+            if (vaddr < kernel_end or size == 0 or size > 64 * 1024 * 1024) {
+                common.printError("[Security] Invalid MemoryMapRange request\n");
+            } else {
+                var addr = vaddr & 0xFFFFF000;
+                const end = vaddr + size;
+                while (addr < end) : (addr += memory.PAGE_SIZE) {
+                    const pd_idx = addr >> 22;
+                    const pt_idx = (addr >> 12) & 0x3FF;
+                    if (memory.page_tables[pd_idx]) |pt| {
+                        if ((pt[pt_idx] & 1) == 0) {
+                            // Allocate a fresh physical frame
+                            if (memory.pmm.alloc_page()) |paddr| {
+                                pt[pt_idx] = @as(u32, @intCast(paddr)) | 0x7; // P=1, RW=1, USER=1
+                                memory.page_directory[pd_idx] |= 0x04; // ensure USER bit in PDE
+                                asm volatile ("invlpg (%[v])"
+                                    :
+                                    : [v] "r" (addr),
+                                    : "memory");
+                            }
+                        }
+                    } else {
+                        _ = memory.map_page(addr, true);
+                    }
+                }
+            }
         },
         16 => { // InL(EBX = port) -> EAX
             const port: u16 = @intCast(regs.ebx);

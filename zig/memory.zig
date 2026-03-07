@@ -22,6 +22,9 @@ extern const idt_start: anyopaque;
 var bitmap: [131072]u8 align(4096) linksection(".system") = [_]u8{0} ** 131072;
 var last_free_page: u32 = 0;
 
+/// Public alias to the kernel's BSS end symbol (used by user.zig for kernel_end)
+pub const ebss_sym: *const anyopaque = &ebss;
+
 /// Physical Memory Manager (PMM)
 pub const pmm = struct {
     pub fn init() void {
