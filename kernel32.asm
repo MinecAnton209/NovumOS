@@ -35,7 +35,7 @@ extern sbss
 extern ebss
 
 ; External symbols from exceptions.zig
-extern main_tss
+extern cores_tss
 extern df_tss
 extern init_exception_handling
 
@@ -46,14 +46,13 @@ gdt_kernel_start:
     dq 0                        ; Null descriptor (0x00)
     dw 0xffff, 0x0000, 0x9a00, 0x00cf ; Code segment (0x08)
     dw 0xffff, 0x0000, 0x9200, 0x00cf ; Data segment (0x10)
-    ; Main TSS (0x18)
-    dw 0x67, 0x0000, 0x8900, 0x0000
-    ; DF TSS (0x20)
-    dw 0x67, 0x0000, 0x8900, 0x0000
-gdt_kernel_end:
-    ; User Code segment (0x28)
+    ; Core TSS slots (0x18, 0x20, 0x28, ..., 0x90) - 16 total
+    times 16 dw 0x0067, 0x0000, 0x8900, 0x0000
+    ; DF TSS (0x98) - shifted after core TSS
+    dw 0x0067, 0x0000, 0x8900, 0x0000
+    ; User Code segment (0xA0)
     dw 0xffff, 0x0000, 0xfa00, 0x00cf
-    ; User Data segment (0x30)
+    ; User Data segment (0xA8)
     dw 0xffff, 0x0000, 0xf200, 0x00cf
 gdt_kernel_real_end:
 gdt_descriptor_kernel:
@@ -108,11 +107,11 @@ actual_code:
     call gdt_install_tss
     ; Initialize TSS data structures in Zig
     call init_exception_handling
-    ; Load Task Register with Main TSS selector
+    ; Load Task Register with the first Core's TSS (BSP)
     mov ax, 0x18
     ltr ax
 
-    call idt_init               ; Setup IDT (now uses TSS 0x20 for vector 8)
+    call idt_init               ; Setup IDT (now uses TSS 0x98 for vector 8)
     call init_serial            ; Setup COM1 for logging
     call zig_init               ; Initialize Zig modules (FS, etc)
 
@@ -128,19 +127,27 @@ actual_code:
 
 ; Helper: Install TSS base addresses into GDT
 gdt_install_tss:
-    ; Main TSS (0x18)
-    mov eax, main_tss
-    mov [gdt_kernel_start + 0x18 + 2], ax
+    pushad
+    mov ecx, 16                 ; 16 core descriptors
+    mov esi, cores_tss          ; Base of Zig cores_tss array
+    mov edi, gdt_kernel_start + 0x18 ; GDT entry for first core
+.tss_loop:
+    mov eax, esi
+    mov [edi + 2], ax
     shr eax, 16
-    mov [gdt_kernel_start + 0x18 + 4], al
-    mov [gdt_kernel_start + 0x18 + 7], ah
+    mov [edi + 4], al
+    mov [edi + 7], ah
+    add esi, 104                ; sizeof(TSS) = 104
+    add edi, 8                  ; sizeof(GDT entry) = 8
+    loop .tss_loop
 
-    ; DF TSS (0x20)
+    ; DF TSS (0x98)
     mov eax, df_tss
-    mov [gdt_kernel_start + 0x20 + 2], ax
+    mov [gdt_kernel_start + 0x98 + 2], ax
     shr eax, 16
-    mov [gdt_kernel_start + 0x20 + 4], al
-    mov [gdt_kernel_start + 0x20 + 7], ah
+    mov [gdt_kernel_start + 0x98 + 4], al
+    mov [gdt_kernel_start + 0x98 + 7], ah
+    popad
     ret
 
 ; --- Hardware Modules ---

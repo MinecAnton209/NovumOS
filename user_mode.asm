@@ -19,14 +19,14 @@ jump_to_ring3_entry:
     ; [ESP + 4]  CS
     ; [ESP + 0]  EIP
     
-    push 0x33           ; SS (User Data Segment: 0x30 | 3)
+    push 0xAB           ; SS (User Data Segment: 0xA8 | 3)
     push ecx            ; ESP (User Stack passed from Zig)
     push 0x202          ; EFLAGS (IF set)
-    push 0x2B           ; CS (User Code Segment: 0x28 | 3)
+    push 0xA3           ; CS (User Code Segment: 0xA0 | 3)
     push ebp            ; EIP (Entry point passed as argument)
     
     ; Set segment registers to User Data
-    mov ax, 0x33
+    mov ax, 0xAB
     mov ds, ax
     mov es, ax
     mov fs, ax

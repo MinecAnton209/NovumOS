@@ -48,7 +48,7 @@ idt_init:
 
     ; 2. Set Task Gate for Double Fault (Vector 8)
     ; Selector 0x20 is DF TSS (defined in kernel32.asm GDT)
-    mov eax, 0x20
+    mov eax, 0x98
     mov ebx, 8
     call idt_set_task_gate
 

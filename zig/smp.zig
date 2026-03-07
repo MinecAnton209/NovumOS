@@ -28,7 +28,7 @@ pub var detected_map: [256]u8 = [_]u8{255} ** 256; // Maps LAPIC_ID -> Core Inde
 pub var detected_cores: u32 = 1;
 
 const trampoline_bin = @embedFile("trampoline.bin");
-var ap_stacks: [16][8192]u8 align(4096) = undefined;
+pub var ap_stacks: [16][8192]u8 align(4096) = undefined;
 
 pub const CpuInfo = struct {
     vendor: [13]u8,
@@ -46,6 +46,13 @@ pub fn spin_lock(lock: *volatile u32) void {
 
 pub fn spin_unlock(lock: *volatile u32) void {
     @atomicStore(u32, lock, 0, .release);
+}
+
+pub fn load_ltr(selector: u16) void {
+    asm volatile ("ltr %[sel]"
+        :
+        : [sel] "r" (selector),
+    );
 }
 
 pub fn lock_print() void {
@@ -133,6 +140,11 @@ fn steal_task(my_idx: u32) ?Task {
 pub export fn ap_kernel_entry() noreturn {
     // Get my core index from mailbox
     const my_idx = @as(*volatile u32, @ptrFromInt(MAILBOX_ID)).*;
+
+    // Load unique Task Register (TSS selector) for this core
+    // Selector starts at 0x18 and each is 8 bytes wide
+    const selector = @as(u16, 0x18) + (@as(u16, @intCast(my_idx)) * 8);
+    load_ltr(selector);
 
     while (true) {
         if (pop_local_task(my_idx)) |task| {

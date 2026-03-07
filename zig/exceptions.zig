@@ -95,14 +95,22 @@ pub const exception_names = [_][]const u8{
     "RESERVED",
 };
 
-pub export var main_tss: TSS align(16) = undefined;
+pub export var cores_tss: [16]TSS align(16) = undefined;
 pub export var df_tss: TSS align(16) = undefined;
+
+// Compatibility export for old code
+pub export var main_tss: *TSS = &cores_tss[0];
 
 var emergency_stack: [4096]u8 align(16) = undefined;
 
 pub export fn init_exception_handling() void {
-    // Zero out TSS structures
-    @memset(@as([*]u8, @ptrCast(&main_tss))[0..@sizeOf(TSS)], 0);
+    // Zero out and initialize all core TSS
+    for (&cores_tss) |*tss| {
+        @memset(@as([*]u8, @ptrCast(tss))[0..@sizeOf(TSS)], 0);
+        tss.ss0 = 0x10;
+        tss.cr3 = get_cr3();
+    }
+
     @memset(@as([*]u8, @ptrCast(&df_tss))[0..@sizeOf(TSS)], 0);
 
     // Setup DF TSS
@@ -136,8 +144,28 @@ fn get_cr2() u32 {
     );
 }
 
+pub fn get_core_index() u8 {
+    const smp = @import("smp.zig");
+    var eax: u32 = 1;
+    var ebx: u32 = undefined;
+    var ecx: u32 = undefined;
+    var edx: u32 = undefined;
+    asm volatile ("cpuid"
+        : [eax] "={eax}" (eax),
+          [ebx] "={ebx}" (ebx),
+          [ecx] "={ecx}" (ecx),
+          [edx] "={edx}" (edx),
+        : [eax_in] "{eax}" (eax),
+    );
+    const lapic_id: u8 = @intCast(ebx >> 24);
+    // Fallback if smp initialization hasn't happened or ID is unknown
+    if (lapic_id >= 256) return 0;
+    const idx = smp.detected_map[lapic_id];
+    return if (idx < 16) idx else 0;
+}
+
 pub fn get_cpu_id() u8 {
-    return 0;
+    return get_core_index();
 }
 
 fn get_ds() u32 {
@@ -224,7 +252,7 @@ export fn handle_exception(frame: *ExceptionFrame) void {
 }
 
 export fn handle_double_fault() noreturn {
-    draw_rsod(null, &main_tss, "Hardware Task Switch due to Double Fault.", null);
+    draw_rsod(null, main_tss, "Hardware Task Switch due to Double Fault.", null);
 }
 
 pub fn panic(msg: []const u8) noreturn {

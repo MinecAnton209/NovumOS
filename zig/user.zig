@@ -294,16 +294,25 @@ pub fn jump_to_user_mode() noreturn {
 pub fn jump_to_user_mode_with_entry(entry: usize) noreturn {
     is_user_mode = true;
 
-    // Ensure TSS is ready for interrupts coming from Ring 3
-    exceptions.main_tss.ss0 = 0x10;
-    exceptions.main_tss.esp0 = 0x500000;
+    // Ensure current core's TSS is ready for interrupts coming from user-space
+    const core_idx = exceptions.get_core_index();
+    const tss = &exceptions.cores_tss[core_idx];
+    tss.ss0 = 0x10;
+
+    // BSP uses 0x500000, APs use their respective allocated stacks
+    if (core_idx == 0) {
+        tss.esp0 = 0x500000;
+    } else {
+        const smp = @import("smp.zig");
+        tss.esp0 = @intFromPtr(&smp.ap_stacks[core_idx - 1]) + 8192;
+    }
 
     // Check if we are already in Ring 3
-    var cs: u16 = 0;
+    var cs_reg: u16 = 0;
     asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
+        : [cs] "=r" (cs_reg),
     );
-    if ((cs & 3) == 3) {
+    if ((cs_reg & 3) == 3) {
         // Use syscall 12 to jump to a new entry point
         asm volatile ("int $0x80"
             :
