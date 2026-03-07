@@ -42,6 +42,21 @@ pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
     }
     const name = argv[0];
 
+    if (config.ENABLE_EMBEDDED_ELFS) {
+        if (common.std_mem_eql(name, "hello.elf") or common.std_mem_eql(name, "hello")) {
+            const data = @embedFile("embedded/hello.elf");
+            common.printZ("[Kernel] Running embedded ELF: ");
+            common.printZ(name);
+            common.printZ("\n");
+            elf.load_and_run(data) catch |err| {
+                common.printError("Error loading embedded ELF: ");
+                common.printZ(@errorName(err));
+                common.printZ("\n");
+            };
+            return;
+        }
+    }
+
     if (common.selected_disk < 0) {
         common.printError("Error: ELF loading from RAM FS not implemented yet\n");
         return;

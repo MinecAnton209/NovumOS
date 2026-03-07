@@ -5,3 +5,4 @@ pub const HISTORY_SIZE = 50; // Default history size
 pub const ENABLE_DEBUG_CRASH_COMMANDS = true;
 pub const ENABLE_DEBUG_COMMANDS = true;
 pub const ENABLE_RSOD_REBOOT = true;
+pub const ENABLE_EMBEDDED_ELFS = true;
