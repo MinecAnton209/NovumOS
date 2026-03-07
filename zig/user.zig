@@ -4,6 +4,8 @@ const keyboard = @import("keyboard_isr.zig");
 const vga = @import("drivers/vga.zig");
 const timer = @import("drivers/timer.zig");
 const memory = @import("memory.zig");
+const ata = @import("drivers/ata.zig");
+const rtc = @import("drivers/rtc.zig");
 
 // External jump target to return to kernel shell
 extern fn kernel_loop() noreturn;
@@ -103,8 +105,6 @@ fn is_io_port_allowed(port: u16) bool {
     if (port == 0xCF8 or port == 0xCFC) return false;
 
     // Blocking ACPI PM Ports (usually dynamic, but typical values)
-    // No easy way to block all without checking ACPI tables,
-    // so we rely on the fact that we don't expose them to user-mode anyway.
 
     // Allow everything else (VGA, Serial COM1/COM2 if not blocked)
     // Note: In a production kernel, we would use a bitmap or a very strict whitelist.
@@ -226,6 +226,40 @@ export fn handle_syscall_zig(regs: *Registers) void {
             vga.current_color = @intCast(regs.esi);
             vga.zig_draw_char_at(@intCast(regs.ebx), @intCast(regs.ecx), @intCast(regs.edx));
             vga.current_color = old_color;
+        },
+        19 => { // GetDateTime(EBX = ptr to DateTime)
+            const dt_ptr = @as(*rtc.DateTime, @ptrFromInt(regs.ebx));
+            if (is_user_ptr(regs.ebx) and is_user_ptr(regs.ebx + @sizeOf(rtc.DateTime) - 1)) {
+                dt_ptr.* = rtc.get_datetime();
+            } else {
+                common.printError("[Security Fault] Invalid DateTime pointer for GetDateTime\n");
+            }
+        },
+        20 => { // ATA_IDENTIFY(EBX = drive) -> EAX
+            const drive: ata.Drive = @enumFromInt(@as(u1, @intCast(regs.ebx & 1)));
+            regs.eax = ata.identify(drive);
+        },
+        21 => { // ATA_READ_SECTOR(EBX = drive, ECX = lba, EDX = buf)
+            const drive: ata.Drive = @enumFromInt(@as(u1, @intCast(regs.ebx & 1)));
+            const lba: u32 = regs.ecx;
+            const ptr = @as([*]u8, @ptrFromInt(regs.edx));
+            // Validate user pointer (sector is 512 bytes)
+            if (is_user_ptr(regs.edx) and is_user_ptr(regs.edx + 511)) {
+                ata.read_sector(drive, lba, ptr);
+            } else {
+                common.printError("[Security Fault] Invalid buffer pointer for ATA Read\n");
+            }
+        },
+        22 => { // ATA_WRITE_SECTOR(EBX = drive, ECX = lba, EDX = data)
+            const drive: ata.Drive = @enumFromInt(@as(u1, @intCast(regs.ebx & 1)));
+            const lba: u32 = regs.ecx;
+            const ptr = @as([*]const u8, @ptrFromInt(regs.edx));
+            // Validate user pointer (sector is 512 bytes)
+            if (is_user_ptr(regs.edx) and is_user_ptr(regs.edx + 511)) {
+                ata.write_sector(drive, lba, ptr);
+            } else {
+                common.printError("[Security Fault] Invalid data pointer for ATA Write\n");
+            }
         },
         else => {
             common.printZ("Unknown syscall from user mode\n");

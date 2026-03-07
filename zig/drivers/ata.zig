@@ -21,6 +21,18 @@ fn wait_drq() void {
 }
 
 pub fn identify(drive: Drive) u32 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        return asm volatile ("int $0x80"
+            : [ret] "={eax}" (-> u32),
+            : [sys] "{eax}" (@as(u32, 20)),
+              [d] "{ebx}" (@as(u32, @intFromEnum(drive))),
+        );
+    }
+
     common.outb(ATA_PRIMARY_BASE + 6, if (drive == .Master) @as(u8, 0xA0) else @as(u8, 0xB0));
     common.outb(ATA_PRIMARY_BASE + 2, 0);
     common.outb(ATA_PRIMARY_BASE + 3, 0);
@@ -55,6 +67,21 @@ pub fn identify(drive: Drive) u32 {
 }
 
 pub fn read_sector(drive: Drive, lba: u32, buffer: [*]u8) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 21)),
+              [d] "{ebx}" (@as(u32, @intFromEnum(drive))),
+              [l] "{ecx}" (lba),
+              [b] "{edx}" (@intFromPtr(buffer)),
+        );
+        return;
+    }
+
     wait_bsy();
     common.outb(ATA_PRIMARY_BASE + 6, 0xE0 | (@as(u8, @intFromEnum(drive)) << 4) | @as(u8, @intCast((lba >> 24) & 0x0F)));
     common.outb(ATA_PRIMARY_BASE + 2, 1); // 1 sector
@@ -75,6 +102,21 @@ pub fn read_sector(drive: Drive, lba: u32, buffer: [*]u8) void {
 }
 
 pub fn write_sector(drive: Drive, lba: u32, data: [*]const u8) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 22)),
+              [d] "{ebx}" (@as(u32, @intFromEnum(drive))),
+              [l] "{ecx}" (lba),
+              [b] "{edx}" (@intFromPtr(data)),
+        );
+        return;
+    }
+
     wait_bsy();
     common.outb(ATA_PRIMARY_BASE + 6, 0xE0 | (@as(u8, @intFromEnum(drive)) << 4) | @as(u8, @intCast((lba >> 24) & 0x0F)));
     common.outb(ATA_PRIMARY_BASE + 2, 1); // 1 sector

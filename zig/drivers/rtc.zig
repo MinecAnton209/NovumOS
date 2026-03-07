@@ -24,6 +24,20 @@ pub const DateTime = struct {
 };
 
 pub fn get_datetime() DateTime {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        var dt: DateTime = undefined;
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 19)),
+              [ptr] "{ebx}" (@intFromPtr(&dt)),
+            : "memory");
+        return dt;
+    }
+
     while (is_updating()) {}
 
     var second = read_rtc(0x00);
