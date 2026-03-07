@@ -264,7 +264,7 @@ pub fn init() void {
         detected_cores = acpi.madt_core_count;
     }
 
-    if (!memory.map_page(lapic_base)) {
+    if (!memory.map_page(lapic_base, false)) {
         // common.printZ("SMP: Failed to map LAPIC memory!\n");
         return;
     }

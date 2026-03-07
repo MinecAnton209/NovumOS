@@ -62,8 +62,10 @@ pub fn init() void {
 
     fb_phys_base = raw_info.phys_base_ptr;
     fb_mapped_size = @as(usize, pitch) * height;
+    memory.user_mmio_start = fb_phys_base;
+    memory.user_mmio_end = fb_phys_base + fb_mapped_size;
 
-    memory.map_range(fb_phys_base, fb_mapped_size);
+    memory.map_range(fb_phys_base, fb_mapped_size, false);
     framebuffer = @ptrFromInt(fb_phys_base);
     initialized = true;
 }
@@ -85,13 +87,18 @@ pub fn init_bga(w: u16, h: u16) bool {
     if (!initialized) {
         fb_phys_base = 0xE0000000; // Default QEMU
         fb_mapped_size = new_size;
-        memory.map_range(fb_phys_base, fb_mapped_size);
+
+        memory.user_mmio_start = fb_phys_base;
+        memory.user_mmio_end = fb_phys_base + fb_mapped_size;
+
+        memory.map_range(fb_phys_base, fb_mapped_size, false);
         framebuffer = @ptrFromInt(fb_phys_base);
         initialized = true;
     } else if (new_size > fb_mapped_size) {
         // Map more memory if resolution increased
-        memory.map_range(fb_phys_base + @as(u32, @intCast(fb_mapped_size)), new_size - fb_mapped_size);
+        memory.map_range(fb_phys_base + @as(u32, @intCast(fb_mapped_size)), new_size - fb_mapped_size, false);
         fb_mapped_size = new_size;
+        memory.user_mmio_end = fb_phys_base + fb_mapped_size;
     }
 
     // Refresh shell/vga dimensions

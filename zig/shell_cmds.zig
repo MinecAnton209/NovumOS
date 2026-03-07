@@ -813,7 +813,7 @@ pub export fn cmd_mem(args_ptr: [*]const u8, args_len: u32) void {
             common.printHex(@as(u32, @intCast(@intFromPtr(ptr))));
 
             common.printZ("\nPre-mapping memory (Zero CPU Exceptions)... ");
-            memory.map_range(@intFromPtr(ptr), size);
+            memory.map_range(@intFromPtr(ptr), size, false);
             common.printZ("Done.\n");
 
             common.printZ("Filling memory...\n");

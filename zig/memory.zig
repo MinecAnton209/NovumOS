@@ -138,6 +138,10 @@ var first_16mb_pts: [4]PageTable align(4096) = [_]PageTable{[_]u32{0} ** 1024} *
 
 pub var pf_count: usize = 0;
 
+// Whitelisted MMIO regions for User-mode (e.g., LFB)
+pub var user_mmio_start: usize = 0;
+pub var user_mmio_end: usize = 0;
+
 pub fn init_paging() void {
     // 1. Disable Interrupts during this transition
     asm volatile ("cli");
@@ -263,7 +267,8 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
 }
 
 /// map_page handles demand paging and discovery of high-memory tables (ACPI, BIOS, MMIO).
-pub fn map_page(vaddr: usize) bool {
+/// If is_user is true, it verifies that the address is within allowed user-mode memory boundaries.
+pub fn map_page(vaddr: usize, is_user: bool) bool {
     const pd_idx = vaddr >> 22;
     const pt_idx = (vaddr >> 12) & 0x3FF;
 
@@ -273,12 +278,38 @@ pub fn map_page(vaddr: usize) bool {
     if (vaddr < 4096) return false;
     if (vaddr >= 0xDEAD0000 and vaddr <= 0xDEADFFFF) return false;
 
+    // Security check for User Mode requests
+    if (is_user) {
+        // User Mode can only map:
+        // 1. RAM within [kernel_end, MAX_MEMORY)
+        // 2. Whitelisted MMIO (like LFB)
+        // 3. Legacy VGA text buffer (0xB8000)
+        const kernel_end = @intFromPtr(&ebss);
+
+        const is_vga = (vaddr >= 0xB8000 and vaddr < 0xC0000);
+        const is_allowed_mmio = (user_mmio_start != 0 and vaddr >= user_mmio_start and vaddr < user_mmio_end);
+
+        if (!is_vga and !is_allowed_mmio) {
+            if (vaddr < kernel_end or vaddr >= MAX_MEMORY) {
+                common.printError("[Security] User-mode tried to map unauthorized memory: ");
+                common.printHex(@intCast(vaddr));
+                common.printZ("\n");
+                return false;
+            }
+        }
+    }
+
     // Check for HUGE PAGE (Bit 7)
     const pde = &page_directory[pd_idx];
     if ((pde.* & 0x80) != 0) {
-        // If not present or not user
-        if ((pde.* & 1) == 0 or (pde.* & 4) == 0) {
-            pde.* |= 0x5; // Mark Present and User
+        // If not present or (if user request) user bit missing
+        if ((pde.* & 1) == 0 or (is_user and (pde.* & 4) == 0)) {
+            if (is_user) {
+                pde.* |= 0x5; // Mark Present and User
+            } else {
+                pde.* |= 0x1; // Mark Present (Supervisor)
+            }
+
             var cs: u16 = 0;
             asm volatile ("mov %%cs, %[cs]"
                 : [cs] "=r" (cs),
@@ -297,8 +328,8 @@ pub fn map_page(vaddr: usize) bool {
     const pt = create_page_table(@as(u32, @intCast(pd_idx))) orelse return false;
     const pte = &pt[pt_idx];
 
-    // If not present or not user
-    if ((pte.* & 1) == 0 or (pte.* & 4) == 0) {
+    // If not present or (if user request) user bit missing
+    if ((pte.* & 1) == 0 or (is_user and (pte.* & 4) == 0)) {
         var paddr: usize = 0;
 
         if ((pte.* & 1) != 0) {
@@ -317,7 +348,10 @@ pub fn map_page(vaddr: usize) bool {
             set_page_busy(@as(u32, @intCast(paddr / PAGE_SIZE)));
         }
 
-        pte.* = @as(u32, @intCast(paddr)) | 0x7; // P=1, RW=1, USER=1
+        // Set attributes based on requester
+        const attr: u32 = if (is_user) 0x7 else 0x3; // User: P=1,RW=1,U=1 | Kernel: P=1,RW=1,U=0
+        pte.* = @as(u32, @intCast(paddr)) | attr;
+
         var cs: u16 = 0;
         asm volatile ("mov %%cs, %[cs]"
             : [cs] "=r" (cs),
@@ -335,12 +369,13 @@ pub fn map_page(vaddr: usize) bool {
     return false;
 }
 
-pub fn map_range(vaddr: usize, size: usize) void {
+pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
     var cs: u16 = 0;
     asm volatile ("mov %%cs, %[cs]"
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
+        // Redirect to syscall if called from user-mode code directly
         asm volatile ("int $0x80"
             :
             : [sys] "{eax}" (@as(u32, 15)),
@@ -356,10 +391,10 @@ pub fn map_range(vaddr: usize, size: usize) void {
         const pd_idx = addr >> 22;
         if ((page_directory[pd_idx] & 0x80) != 0) {
             // Huge page: map it and jump to next 4MB
-            _ = map_page(addr);
+            _ = map_page(addr, is_user);
             addr = (addr + 0x400000) & 0xFFC00000;
         } else {
-            _ = map_page(addr);
+            _ = map_page(addr, is_user);
             addr += PAGE_SIZE;
         }
     }

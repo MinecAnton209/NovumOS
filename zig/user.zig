@@ -198,7 +198,7 @@ export fn handle_syscall_zig(regs: *Registers) void {
             common.reboot();
         },
         15 => { // MemoryMapRange(EBX=addr, ECX=size)
-            memory.map_range(regs.ebx, regs.ecx);
+            memory.map_range(regs.ebx, regs.ecx, true);
         },
         16 => { // InL(EBX = port) -> EAX
             const port: u16 = @intCast(regs.ebx);

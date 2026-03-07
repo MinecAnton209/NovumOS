@@ -201,8 +201,9 @@ pub fn crash_gpf() void {
 export fn handle_exception(frame: *ExceptionFrame) void {
     if (frame.vector == 14) { // Page Fault
         const fault_addr = get_cr2();
+        const is_user_fault = (frame.cs & 3) == 3;
         // Try to handle Page Fault via demand paging
-        if (memory.map_page(fault_addr)) {
+        if (memory.map_page(fault_addr, is_user_fault)) {
             return; // Successfully handled, retry instruction
         }
     }
