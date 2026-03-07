@@ -22,6 +22,8 @@ extern const idt_start: anyopaque;
 var bitmap: [131072]u8 align(4096) linksection(".system") = [_]u8{0} ** 131072;
 var last_free_page: u32 = 0;
 var pmm_lock: u32 = 0;
+var paging_lock: u32 = 0;
+const smp = @import("smp.zig");
 
 /// Public alias to the kernel's BSS end symbol (used by user.zig for kernel_end)
 pub const ebss_sym: *const anyopaque = &ebss;
@@ -44,7 +46,6 @@ pub const pmm = struct {
     }
 
     pub fn alloc_page() ?usize {
-        const smp = @import("smp.zig");
         const eflags = interrupts_save();
         smp.spin_lock(&pmm_lock);
         defer {
@@ -64,7 +65,6 @@ pub const pmm = struct {
     }
 
     pub fn free_page(addr: usize) void {
-        const smp = @import("smp.zig");
         const eflags = interrupts_save();
         smp.spin_lock(&pmm_lock);
         defer {
@@ -80,7 +80,16 @@ pub const pmm = struct {
 
 pub fn set_page_busy(idx: u32) void {
     if (idx >= TOTAL_PAGES) return;
-    bitmap[idx / 8] |= @as(u8, 1) << @as(u3, @intCast(idx % 8));
+    const bit_idx: u3 = @intCast(idx % 8);
+    const mask = @as(u8, 1) << bit_idx;
+    _ = @atomicRmw(u8, &bitmap[idx / 8], .Or, mask, .seq_cst);
+}
+
+pub fn clear_page_busy(idx: u32) void {
+    if (idx >= TOTAL_PAGES) return;
+    const bit_idx: u3 = @intCast(idx % 8);
+    const mask = ~(@as(u8, 1) << bit_idx);
+    _ = @atomicRmw(u8, &bitmap[idx / 8], .And, mask, .seq_cst);
 }
 
 fn read_cmos(reg: u8) u8 {
@@ -138,14 +147,9 @@ fn detect_max_memory() void {
     }
 }
 
-fn clear_page_busy(idx: u32) void {
-    if (idx >= TOTAL_PAGES) return;
-    bitmap[idx / 8] &= ~(@as(u8, 1) << @as(u3, @intCast(idx % 8)));
-}
-
 fn is_page_busy(idx: u32) bool {
     if (idx >= TOTAL_PAGES) return true;
-    return (bitmap[idx / 8] & (@as(u8, 1) << @as(u3, @intCast(idx % 8)))) != 0;
+    return (@atomicLoad(u8, &bitmap[idx / 8], .seq_cst) & (@as(u8, 1) << @as(u3, @intCast(idx % 8)))) != 0;
 }
 
 // Paging structures
@@ -230,11 +234,11 @@ pub fn init_paging() void {
                 if (addr == 0) {
                     pt[j] = 0x0 | 0x2; // NULL protection (P=0)
                 }
-                // Critical System Structures (PD/PMM/PT) - Supervisor Only
+                // Critical System Structures (PD/PMM/PT) - User-accessible if part of shell binary
                 else if ((addr >= system_start and addr < system_end) or
                     (addr >= (idt_addr & 0xFFFFF000) and addr < (idt_addr & 0xFFFFF000) + 4096))
                 {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
+                    pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
                 }
                 // All kernel code - User Read/Execute Only
                 // NOTE: Ring 3 needs this because Nova/Shell runs inside the kernel binary.
@@ -252,9 +256,11 @@ pub fn init_paging() void {
                     pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
                 }
                 // (Static User Stack Area removed to support dynamic per-process stacks)
-                // Everything else (VGA, BIOS, etc.) - Supervisor
+                // Everything else (VGA, BIOS, Heap pool) - User Read/Write
+                // This is required because NovumOS runs its shell directly from kernel binary
+                // and the heap pool starts immediately after the kernel.
                 else {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
+                    pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
                 }
             }
         }
@@ -270,9 +276,9 @@ pub fn init_paging() void {
             const addr = i * coverage;
             // 16-64MB present, rest demand
             if (addr < 64 * 1024 * 1024) {
-                page_directory[i] = addr | 0x83; // PS=1, RW=1, P=1, Supervisor
+                page_directory[i] = addr | 0x87; // PS=1, RW=1, P=1, USER=1
             } else {
-                page_directory[i] = addr | 0x82; // PS=1, RW=1, P=0
+                page_directory[i] = addr | 0x86; // PS=1, RW=1, P=0, USER=1
             }
         } else {
             page_directory[i] = 0;
@@ -298,6 +304,25 @@ pub fn init_paging() void {
     asm volatile ("sti");
 }
 
+pub fn enable_paging_on_current_core() void {
+    const pd_addr = @intFromPtr(&page_directory);
+
+    asm volatile (
+        \\mov %%cr4, %%eax
+        \\or $0x10, %%eax
+        \\mov %%eax, %%cr4
+        \\wbinvd
+        \\mov %[pd], %%cr3
+        \\mov %%cr0, %%eax
+        \\or $0x80010000, %%eax
+        \\mov %%eax, %%cr0
+        \\jmp 1f
+        \\1:
+        :
+        : [pd] "r" (pd_addr),
+    );
+}
+
 /// create_page_table ensures a page table exists for a directory entry.
 /// It MUST only be called if we are sure it won't trigger a recursive fault,
 /// or if it allocates from an already identity-mapped region.
@@ -309,9 +334,8 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
     if (pd_idx < 4) {
         const pt = &first_16mb_pts[pd_idx];
         page_tables[pd_idx] = pt;
-        // The first 4MB (index 0) MUST have USER bit set in PDE to allow user stack access.
-        // The others can stay Supervisor for now.
-        const attr: u32 = if (pd_idx == 0) 0x7 else 0x3;
+        // The first 16MB (indices 0-3) MUST have USER bit set in PDE to allow user access to kernel binary (Nova/Shell).
+        const attr: u32 = if (pd_idx < 4) 0x7 else 0x3;
         page_directory[pd_idx] = @as(u32, @intCast(@intFromPtr(pt))) | attr;
         return pt;
     }
@@ -373,7 +397,8 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
         const is_allowed_mmio = (user_mmio_start != 0 and vaddr >= user_mmio_start and vaddr < user_mmio_end);
 
         // For general demand paging (identity mapping), we check boundaries.
-        if (!is_vga and !is_allowed_mmio and !is_kernel_code and !is_rodata and !(is_data and !is_system_area)) {
+        const is_kernel_image = is_kernel_code or is_rodata or is_data or is_system_area;
+        if (!is_vga and !is_allowed_mmio and !is_kernel_image) {
             if (vaddr < kernel_end or vaddr >= MAX_MEMORY) {
                 common.printError("[Security] User-mode tried to map unauthorized memory: ");
                 common.printHex(@intCast(vaddr));
@@ -381,6 +406,13 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
                 return false;
             }
         }
+    }
+
+    const eflags = interrupts_save();
+    smp.spin_lock(&paging_lock);
+    defer {
+        smp.spin_unlock(&paging_lock);
+        interrupts_restore(eflags);
     }
 
     return map_page_at(vaddr, vaddr & 0xFFFFF000, is_user);
@@ -398,22 +430,36 @@ pub fn map_page_at(vaddr: usize, paddr_in: usize, is_user: bool) bool {
 
     // Check for HUGE PAGE (Bit 7) in the directory
     if ((page_directory[pd_idx] & 0x80) != 0) {
-        // We generally don't want to map small pages over huge pages without splintering.
-        // For now, return false or ignore.
-        return false;
+        // If it's a huge page, ensure it has the requested permissions
+        var huge_attr: u32 = 0x81; // P=1, PS=1
+        if (is_user) {
+            huge_attr |= 0x06; // RW=1, US=1
+        } else {
+            huge_attr |= 0x02; // RW=1
+        }
+
+        page_directory[pd_idx] |= huge_attr;
+
+        // Invalidate TLB for this range
+        asm volatile ("invlpg (%[vaddr])"
+            :
+            : [vaddr] "r" (vaddr),
+            : "memory");
+        return true;
     }
 
     const pt = create_page_table(@as(u32, @intCast(pd_idx))) orelse return false;
 
-    // Ensure the PDE has USER bit set if this is a user-mode request
+    // Ensure the PDE has USER and RW bits set if this is a user-mode request
     if (is_user) {
-        page_directory[pd_idx] |= 0x04;
+        page_directory[pd_idx] |= 0x06; // USER=1, RW=1
     }
 
     const pte = &pt[pt_idx];
+    const target_attr: u32 = if (is_user) 0x07 else 0x03; // P+RW(+US)
 
-    // If not present or (if user request) user bit missing
-    if ((pte.* & 1) == 0 or (is_user and (pte.* & 4) == 0)) {
+    // If not present or if permissions are insufficient (missing USER or RW)
+    if ((pte.* & 1) == 0 or (pte.* & target_attr) != target_attr) {
         var paddr: usize = paddr_in;
 
         // If a physical address was pre-assigned in the PTE, use it.
@@ -435,10 +481,10 @@ pub fn map_page_at(vaddr: usize, paddr_in: usize, is_user: bool) bool {
         } else if (vaddr >= @intFromPtr(&_rodata_start) and vaddr < @intFromPtr(&_rodata_end)) {
             attr = if (is_user) 0x5 else 0x1; // RoData is Read-only
         } else if (vaddr >= @intFromPtr(&_system_start) and vaddr < @intFromPtr(&_system_end)) {
-            if (is_user) return false; // User cannot map .system at all
-            attr = 0x3;
+            attr = 0x7; // Allowed for shell/nova for now
         }
 
+        // Apply new attributes while keeping the physical address
         pte.* = @as(u32, @intCast(paddr)) | attr;
 
         // Invalidate TLB
@@ -485,6 +531,13 @@ pub fn is_user_ptr(addr: usize) bool {
 }
 
 pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
+    const eflags = interrupts_save();
+    smp.spin_lock(&paging_lock);
+    defer {
+        smp.spin_unlock(&paging_lock);
+        interrupts_restore(eflags);
+    }
+
     if (size == 0) return;
 
     var cs: u16 = 0;
@@ -509,16 +562,16 @@ pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
         const pd_idx = addr >> 22;
         if ((page_directory[pd_idx] & 0x80) != 0) {
             // Huge page: map it and jump to next 4MB
-            _ = map_page(addr, is_user);
-            const next_pd, const overflow = @addWithOverflow(addr & 0xFFC00000, @as(usize, 0x400000));
-            if (overflow != 0 or next_pd > end_aligned) break;
-            addr = next_pd;
+            _ = map_page_at(addr, addr & 0xFFC00000, is_user);
+            const res = @addWithOverflow(addr & 0xFFC00000, @as(usize, 0x400000));
+            if (res[1] != 0 or res[0] > end_aligned) break;
+            addr = res[0];
         } else {
-            _ = map_page(addr, is_user);
+            _ = map_page_at(addr, addr & 0xFFFFF000, is_user);
             if (addr >= end_aligned) break;
-            const next_addr, const overflow = @addWithOverflow(addr, @as(usize, PAGE_SIZE));
-            if (overflow != 0) break;
-            addr = next_addr;
+            const res = @addWithOverflow(addr, @as(usize, PAGE_SIZE));
+            if (res[1] != 0) break;
+            addr = res[0];
         }
     }
 }
@@ -550,7 +603,6 @@ pub const heap = struct {
     }
 
     pub fn alloc(size: usize) ?[*]u8 {
-        const smp = @import("smp.zig");
         const eflags = interrupts_save();
         smp.spin_lock(&heap_lock);
         defer {
@@ -617,7 +669,6 @@ pub const heap = struct {
     }
 
     pub fn free(ptr: [*]u8) void {
-        const smp = @import("smp.zig");
         const eflags = interrupts_save();
         smp.spin_lock(&heap_lock);
         defer {
@@ -659,7 +710,11 @@ pub const heap = struct {
     /// Merges adjacent free blocks to prevent fragmentation
     pub fn garbage_collect() void {
         const eflags = interrupts_save();
-        defer interrupts_restore(eflags);
+        smp.spin_lock(&heap_lock);
+        defer {
+            smp.spin_unlock(&heap_lock);
+            interrupts_restore(eflags);
+        }
 
         if (!config.USE_GARBAGE_COLLECTOR) return;
 

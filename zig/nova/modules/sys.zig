@@ -15,23 +15,16 @@ pub fn handleSys(vm: anytype, name: []const u8) ?hash_table.VariableValue {
         } else {
             vm.reportError("Expected ')' in sys.get_mem");
         }
-        return .{ .vtype = .int, .int_val = @intCast(memory.get_free_memory()) };
+        return .{ .vtype = .int, .int_val = @intCast(0) }; // TODO: Replace with syscall if needed
     } else if (common.streq(name, "sys.get_temp")) {
         if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) {
             vm.ip += 1;
         } else {
             vm.reportError("Expected ')' in sys.get_temp");
         }
-        var eax_val: u32 = 0;
-        var edx_val: u32 = 0;
-        const msr: u32 = 0x19C;
-        asm volatile ("rdmsr"
-            : [eax] "={eax}" (eax_val),
-              [edx] "={edx}" (edx_val),
-            : [ecx] "{ecx}" (msr),
-        );
-        const readout = (eax_val >> 16) & 0x7F;
-        return .{ .vtype = .int, .int_val = @intCast(100 - readout) };
+        // rdmsr is privileged and will crash in Ring 3.
+        // For now, return a placeholder or use a syscall if implemented.
+        return .{ .vtype = .int, .int_val = 0 };
     } else if (common.streq(name, "sys.delay") or common.streq(name, "sys.sleep")) {
         const val = vm.evaluateExpression();
         if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) {
@@ -79,15 +72,19 @@ pub fn handleSys(vm: anytype, name: []const u8) ?hash_table.VariableValue {
         } else {
             vm.reportError("Expected ')' in sys.color");
         }
-        vga.set_color(@intCast(fg.int_val), @intCast(bg.int_val));
-        return .{ .vtype = .string, .str_val = "Colors updated" };
+        // Use common.draw_char_at(0,0,0, color) as a trick if needed,
+        // or just let it be for now since vga.set_color takes a lock.
+        // Actually, we should add a Syscall for color.
+        _ = fg;
+        _ = bg;
+        return .{ .vtype = .string, .str_val = "Not supported in Ring 3 yet" };
     } else if (common.streq(name, "sys.key")) {
         if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) {
             vm.ip += 1;
         } else {
             vm.reportError("Expected ')' in sys.key");
         }
-        return .{ .vtype = .int, .int_val = @intCast(keyboard.keyboard_getchar()) };
+        return .{ .vtype = .int, .int_val = @intCast(global_common.get_char()) };
     } else if (common.streq(name, "sys.reboot")) {
         if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) {
             vm.ip += 1;

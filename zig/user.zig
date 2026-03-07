@@ -1,5 +1,6 @@
 const common = @import("commands/common.zig");
 const exceptions = @import("exceptions.zig");
+const smp = @import("smp.zig");
 const keyboard = @import("keyboard_isr.zig");
 const vga = @import("drivers/vga.zig");
 const timer = @import("drivers/timer.zig");
@@ -26,8 +27,14 @@ pub const Registers = extern struct {
     gs: u32,
 };
 
-// Global flag to indicate if we are in user mode (for shared code)
-pub var is_user_mode: bool = false;
+// (is_user_mode now stored in smp.cores[id])
+pub fn get_is_user_mode() bool {
+    return smp.cores[exceptions.get_core_index()].is_user_mode;
+}
+
+pub fn set_is_user_mode(val: bool) void {
+    smp.cores[exceptions.get_core_index()].is_user_mode = val;
+}
 
 // Constant for maximum allowed string length in syscalls
 pub const MAX_SYSCALL_STR_LEN = 4096;
@@ -278,10 +285,66 @@ export fn handle_syscall_zig(regs: *Registers) void {
                 common.printError("[Security Fault] Invalid data pointer for ATA Write\n");
             }
         },
+        30 => { // Malloc(EBX = size) -> EAX
+            const size = regs.ebx;
+            if (memory.heap.alloc(size)) |ptr| {
+                regs.eax = @intFromPtr(ptr);
+            } else {
+                regs.eax = 0;
+            }
+        },
+        31 => { // Free(EBX = ptr)
+            if (regs.ebx != 0) {
+                memory.heap.free(@ptrFromInt(regs.ebx));
+            }
+        },
+        32 => { // CheckCtrlC() -> EAX (1/0)
+            regs.eax = if (keyboard.check_ctrl_c_kernel()) 1 else 0;
+        },
         else => {
-            common.printZ("Unknown syscall from user mode\n");
+            common.printError("[Syscall Fault] Unknown syscall: ");
+            common.printNum(@intCast(regs.eax));
+            common.printZ("\n");
         },
     }
+}
+
+/// Thread-safe and ISR-safe malloc for User and Kernel mode.
+/// If in Ring 3, it performs a syscall to transition to Ring 0.
+pub fn user_malloc(size: usize) ?[*]u8 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) return memory.heap.alloc(size); // Already in Ring 0
+
+    var res: usize = 0;
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (res),
+        : [sys] "{eax}" (@as(u32, 30)),
+          [arg1] "{ebx}" (size),
+        : "memory");
+    if (res == 0) return null;
+    return @ptrFromInt(res);
+}
+
+/// Thread-safe and ISR-safe free for User and Kernel mode.
+pub fn user_free(ptr: ?[*]u8) void {
+    const p = ptr orelse return;
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) {
+        memory.heap.free(p);
+        return;
+    }
+
+    asm volatile ("int $0x80"
+        :
+        : [sys] "{eax}" (@as(u32, 31)),
+          [arg1] "{ebx}" (@intFromPtr(p)),
+        : "memory");
 }
 
 // Link to the assembly implementation
@@ -292,7 +355,7 @@ pub fn jump_to_user_mode() noreturn {
 }
 
 pub fn jump_to_user_mode_with_entry(entry: usize) noreturn {
-    is_user_mode = true;
+    set_is_user_mode(true);
 
     // Ensure current core's TSS is ready for interrupts coming from user-space
     const core_idx = exceptions.get_core_index();
@@ -303,8 +366,8 @@ pub fn jump_to_user_mode_with_entry(entry: usize) noreturn {
     if (core_idx == 0) {
         tss.esp0 = 0x500000;
     } else {
-        const smp = @import("smp.zig");
-        tss.esp0 = @intFromPtr(&smp.ap_stacks[core_idx - 1]) + 8192;
+        const smp_mod = @import("smp.zig");
+        tss.esp0 = @intFromPtr(&smp_mod.ap_stacks[core_idx - 1]) + 8192;
     }
 
     // Check if we are already in Ring 3
@@ -323,12 +386,25 @@ pub fn jump_to_user_mode_with_entry(entry: usize) noreturn {
     }
 
     // --- Dynamic User Stack Allocation ---
-    // Instead of a shared 0x3FFFF0, we allocate a fresh physical page
-    // and map it to a specific virtual address per transition.
-    const stack_paddr = memory.pmm.alloc_page() orelse @panic("OOM: Failed to allocate user stack page");
     // We'll use 0x3FF000 as the virtual base for the stack page
     const stack_vaddr = 0x3FF000;
-    _ = memory.map_page_at(stack_vaddr, stack_paddr, true);
+    const pd_idx = stack_vaddr >> 22;
+    const pt_idx = (stack_vaddr >> 12) & 0x3FF;
+
+    var stack_paddr: usize = 0;
+    if (memory.page_tables[pd_idx]) |pt| {
+        if ((pt[pt_idx] & 1) != 0) {
+            stack_paddr = pt[pt_idx] & 0xFFFFF000;
+        }
+    }
+
+    if (stack_paddr == 0) {
+        stack_paddr = memory.pmm.alloc_page() orelse @panic("OOM: Failed to allocate user stack page");
+        _ = memory.map_page_at(stack_vaddr, stack_paddr, true);
+    }
+
+    // Zero out the stack to avoid artifacts from previous runs
+    @memset(@as([*]u8, @ptrFromInt(stack_vaddr))[0..memory.PAGE_SIZE], 0);
 
     // Top of stack (16-byte aligned for entry point)
     const user_esp = stack_vaddr + memory.PAGE_SIZE - 16;

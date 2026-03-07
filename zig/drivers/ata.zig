@@ -7,6 +7,7 @@ pub const Drive = enum(u1) {
     Master = 0,
     Slave = 1,
 };
+pub var ata_lock: u32 = 0;
 
 pub const ATA_PRIMARY_BASE = 0x1F0;
 pub const ATA_STATUS_REG = ATA_PRIMARY_BASE + 7;
@@ -14,6 +15,33 @@ pub const ATA_COMMAND_REG = ATA_PRIMARY_BASE + 7;
 
 fn wait_bsy() void {
     while ((common.inb(ATA_STATUS_REG) & 0x80) != 0) {}
+}
+
+fn interrupts_save() u32 {
+    var eflags: u32 = undefined;
+    asm volatile ("pushfl; popl %[f]"
+        : [f] "=r" (eflags),
+    );
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) asm volatile ("cli");
+    return eflags;
+}
+fn interrupts_restore(f: u32) void {
+    asm volatile ("pushl %[f]; popfl"
+        :
+        : [f] "r" (f),
+        : "memory");
+}
+fn spin_lock(lock: *volatile u32) void {
+    while (@atomicRmw(u32, lock, .Xchg, 1, .acquire) == 1) {
+        asm volatile ("pause");
+    }
+}
+fn spin_unlock(lock: *volatile u32) void {
+    @atomicStore(u32, lock, 0, .release);
 }
 
 fn wait_drq() void {
@@ -31,6 +59,13 @@ pub fn identify(drive: Drive) u32 {
             : [sys] "{eax}" (@as(u32, 20)),
               [d] "{ebx}" (@as(u32, @intFromEnum(drive))),
         );
+    }
+
+    const eflags = interrupts_save();
+    spin_lock(&ata_lock);
+    defer {
+        spin_unlock(&ata_lock);
+        interrupts_restore(eflags);
     }
 
     common.outb(ATA_PRIMARY_BASE + 6, if (drive == .Master) @as(u8, 0xA0) else @as(u8, 0xB0));
@@ -82,6 +117,13 @@ pub fn read_sector(drive: Drive, lba: u32, buffer: [*]u8) void {
         return;
     }
 
+    const eflags = interrupts_save();
+    spin_lock(&ata_lock);
+    defer {
+        spin_unlock(&ata_lock);
+        interrupts_restore(eflags);
+    }
+
     wait_bsy();
     common.outb(ATA_PRIMARY_BASE + 6, 0xE0 | (@as(u8, @intFromEnum(drive)) << 4) | @as(u8, @intCast((lba >> 24) & 0x0F)));
     common.outb(ATA_PRIMARY_BASE + 2, 1); // 1 sector
@@ -115,6 +157,13 @@ pub fn write_sector(drive: Drive, lba: u32, data: [*]const u8) void {
               [b] "{edx}" (@intFromPtr(data)),
         );
         return;
+    }
+
+    const eflags = interrupts_save();
+    spin_lock(&ata_lock);
+    defer {
+        spin_unlock(&ata_lock);
+        interrupts_restore(eflags);
     }
 
     wait_bsy();

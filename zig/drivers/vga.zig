@@ -208,7 +208,48 @@ pub fn vga_attr_to_rgb(attr: u16) u32 {
     };
 }
 
+pub var vga_lock: u32 = 0;
+
+fn interrupts_save_vga() u32 {
+    var eflags: u32 = undefined;
+    asm volatile ("pushfl; popl %[f]"
+        : [f] "=r" (eflags),
+    );
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) asm volatile ("cli");
+    return eflags;
+}
+
+fn interrupts_restore_vga(f: u32) void {
+    asm volatile ("pushl %[f]; popfl"
+        :
+        : [f] "r" (f),
+        : "memory");
+}
+
+fn spin_lock_vga(lock: *volatile u32) void {
+    while (@atomicRmw(u32, lock, .Xchg, 1, .acquire) == 1) {
+        asm volatile ("pause");
+    }
+}
+
+fn spin_unlock_vga(lock: *volatile u32) void {
+    @atomicStore(u32, lock, 0, .release);
+}
+
 pub export fn zig_print_char(c: u8) void {
+    if (!vga_initialized) init_dimensions();
+
+    const eflags = interrupts_save_vga();
+    spin_lock_vga(&vga_lock);
+    defer {
+        spin_unlock_vga(&vga_lock);
+        interrupts_restore_vga(eflags);
+    }
+
     if (c == '\n' or c == 10) {
         internal_newline();
     } else if (c == '\r' or c == 13) {

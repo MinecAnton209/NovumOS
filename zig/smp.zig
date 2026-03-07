@@ -13,12 +13,15 @@ pub const Task = struct {
     arg: usize,
 };
 
+extern const gdt_descriptor_kernel: anyopaque;
+
 pub const CoreData = struct {
     lock: u32 = 0,
     tasks: [32]?Task = [_]?Task{null} ** 32,
     task_count: u32 = 0,
     total_tasks: u32 = 0,
     is_busy: bool = false,
+    is_user_mode: bool = false,
     id: u8 = 0,
 };
 
@@ -39,6 +42,20 @@ pub const CpuInfo = struct {
 };
 
 pub fn spin_lock(lock: *volatile u32) void {
+    // Safety check: Spinlocks should NEVER be acquired from Ring 3.
+    // In Ring 3, interrupts are enabled and we cannot disable them (CLI is privileged).
+    // If a process is preempted while holding a spinlock, it causes a system-wide deadlock.
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        common.printError("\n[RING3 FAULT] Spinlock held by User! Addr: ");
+        common.printHex(@intFromPtr(lock));
+        common.printZ("\n");
+        @panic("Spinlock in Ring 3");
+    }
+
     while (@atomicRmw(u32, lock, .Xchg, 1, .acquire) == 1) {
         asm volatile ("pause");
     }
@@ -48,10 +65,37 @@ pub fn spin_unlock(lock: *volatile u32) void {
     @atomicStore(u32, lock, 0, .release);
 }
 
+inline fn interrupts_save() u32 {
+    var eflags: u32 = undefined;
+    asm volatile ("pushfl; popl %[f]"
+        : [f] "=r" (eflags),
+    );
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) asm volatile ("cli");
+    return eflags;
+}
+
+inline fn interrupts_restore(f: u32) void {
+    asm volatile ("pushl %[f]; popfl"
+        :
+        : [f] "r" (f),
+        : "memory");
+}
+
 pub fn load_ltr(selector: u16) void {
     asm volatile ("ltr %[sel]"
         :
         : [sel] "r" (selector),
+    );
+}
+
+pub fn load_gdt(descriptor: *const anyopaque) void {
+    asm volatile ("lgdt (%[desc])"
+        :
+        : [desc] "r" (descriptor),
     );
 }
 
@@ -79,8 +123,15 @@ pub fn push_task(func: *const fn (usize) void, arg: usize) bool {
     }
 
     const target = &cores[best_core];
+
+    // Safety: Disable interrupts on current core to prevent single-core deadlocks
+    // if an interrupt occurs while holding this core-specific lock.
+    const eflags = interrupts_save();
     spin_lock(&target.lock);
-    defer spin_unlock(&target.lock);
+    defer {
+        spin_unlock(&target.lock);
+        interrupts_restore(eflags);
+    }
 
     for (&target.tasks) |*slot| {
         if (slot.* == null) {
@@ -138,6 +189,22 @@ fn steal_task(my_idx: u32) ?Task {
 }
 
 pub export fn ap_kernel_entry() noreturn {
+    // 0. Load the REAL kernel GDT (trampoline had a tiny one)
+    load_gdt(&gdt_descriptor_kernel);
+
+    // Refresh segment registers for the new GDT
+    asm volatile (
+        \\mov $0x10, %ax
+        \\mov %ax, %ds
+        \\mov %ax, %es
+        \\mov %ax, %fs
+        \\mov %ax, %gs
+        \\mov %ax, %ss
+    );
+
+    // 0.1 Enable paging and PSE on this core
+    memory.enable_paging_on_current_core();
+
     // Get my core index from mailbox
     const my_idx = @as(*volatile u32, @ptrFromInt(MAILBOX_ID)).*;
 

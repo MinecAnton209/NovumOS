@@ -1,6 +1,7 @@
 // Nova Language - Lexer
 const common = @import("common.zig");
 const memory = @import("../memory.zig");
+const user = @import("../user.zig");
 
 pub const TokenType = enum {
     DEF,
@@ -60,7 +61,7 @@ pub const TokenList = struct {
 
     pub fn init() TokenList {
         const initial_cap = 32;
-        const ptr = memory.heap.alloc(initial_cap * @sizeOf(Token)) orelse {
+        const ptr = user.user_malloc(initial_cap * @sizeOf(Token)) orelse {
             return .{ .tokens = undefined, .len = 0, .capacity = 0 };
         };
         return .{
@@ -74,7 +75,7 @@ pub const TokenList = struct {
         if (self.capacity == 0) return;
         if (self.len >= self.capacity) {
             const new_capacity = self.capacity * 2;
-            const new_ptr = memory.heap.alloc(new_capacity * @sizeOf(Token)) orelse return;
+            const new_ptr = user.user_malloc(new_capacity * @sizeOf(Token)) orelse return;
             const new_tokens: [*]Token = @ptrCast(@alignCast(new_ptr));
 
             for (0..self.len) |i| {
@@ -85,7 +86,7 @@ pub const TokenList = struct {
             // and we don't have a way to free the old pointer easily if we don't track it well.
             // But for a script execution, it might be fine for now.
             // Actually, we SHOULD free it if we can.
-            memory.heap.free(@ptrCast(self.tokens));
+            user.user_free(@ptrCast(self.tokens));
             self.tokens = new_tokens;
             self.capacity = new_capacity;
         }
@@ -95,7 +96,7 @@ pub const TokenList = struct {
 
     pub fn deinit(self: *TokenList) void {
         if (self.capacity > 0) {
-            memory.heap.free(@ptrCast(self.tokens));
+            user.user_free(@ptrCast(self.tokens));
         }
     }
 };

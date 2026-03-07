@@ -65,7 +65,7 @@ var repl_len: usize = 0;
 pub fn readInput(buf: []u8) usize {
     var length: usize = 0;
     while (length < buf.len - 1) {
-        const key = keyboard.keyboard_wait_char();
+        const key = common.get_char();
         if (key == 10 or key == 13) { // Enter
             common.print_char('\n');
             break;
@@ -74,12 +74,12 @@ pub fn readInput(buf: []u8) usize {
                 length -= 1;
                 buf[length] = 0;
                 // Visually backspace
-                const cur_row = vga.zig_get_cursor_row();
-                const cur_col = vga.zig_get_cursor_col();
+                const cur_row = common.get_cursor_row();
+                const cur_col = common.get_cursor_col();
                 if (cur_col > 0) {
-                    vga.zig_set_cursor(cur_row, cur_col - 1);
-                    vga.zig_print_char(' ');
-                    vga.zig_set_cursor(cur_row, cur_col - 1);
+                    common.set_cursor(cur_row, cur_col - 1);
+                    common.print_char(' ');
+                    common.set_cursor(cur_row, cur_col - 1);
                 }
             }
         } else if (key >= 32 and key <= 126) {

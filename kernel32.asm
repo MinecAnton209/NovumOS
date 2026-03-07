@@ -55,6 +55,7 @@ gdt_kernel_start:
     ; User Data segment (0xA8)
     dw 0xffff, 0x0000, 0xf200, 0x00cf
 gdt_kernel_real_end:
+global gdt_descriptor_kernel
 gdt_descriptor_kernel:
     dw gdt_kernel_real_end - gdt_kernel_start - 1
     dd gdt_kernel_start

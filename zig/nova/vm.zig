@@ -12,6 +12,7 @@ const keyboard = @import("../keyboard_isr.zig");
 const vga = @import("../drivers/vga.zig");
 const math_mod = @import("modules/math.zig");
 const sys_mod = @import("modules/sys.zig");
+const user = @import("../user.zig");
 
 pub const VM = struct {
     tokens: lexer.TokenList,
@@ -63,7 +64,7 @@ pub const VM = struct {
             .script_args = args,
         };
 
-        const scope_ptr = memory.heap.alloc(@sizeOf(Scope)) orelse unreachable;
+        const scope_ptr = user.user_malloc(@sizeOf(Scope)) orelse unreachable;
         const scope: *Scope = @ptrCast(@alignCast(scope_ptr));
         scope.* = .{
             .table = hash_table.HashTable.init(16),
@@ -387,7 +388,7 @@ pub const VM = struct {
 
                 // Construct "name.member"
                 const combined_len = name.len + 1 + member.len;
-                const buf_ptr = memory.heap.alloc(combined_len) orelse {
+                const buf_ptr = user.user_malloc(combined_len) orelse {
                     self.reportError("Out of memory for namespaced call");
                     return;
                 };
@@ -587,12 +588,12 @@ pub const VM = struct {
             if (path.vtype == .string) {
                 const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
                 if (fat.read_bpb(drive)) |bpb| {
-                    var buf_ptr = memory.heap.alloc(4096) orelse return .{ .vtype = .string, .str_val = "" };
+                    var buf_ptr = user.user_malloc(4096) orelse return .{ .vtype = .string, .str_val = "" };
                     const len = fat.read_file(drive, bpb, global_common.current_dir_cluster, path.str_val, buf_ptr);
                     if (len > 0) {
                         return .{ .vtype = .string, .str_val = buf_ptr[0..@intCast(len)] };
                     }
-                    memory.heap.free(buf_ptr);
+                    user.user_free(buf_ptr);
                 }
             }
             return .{ .vtype = .string, .str_val = "" };
@@ -696,7 +697,7 @@ pub const VM = struct {
                 self.reportError("Expected ')' in str");
             }
             if (val.vtype == .int) {
-                var buf_ptr = memory.heap.alloc(16) orelse return .{ .vtype = .string, .str_val = "0" };
+                var buf_ptr = user.user_malloc(16) orelse return .{ .vtype = .string, .str_val = "0" };
                 const s = common.intToString(val.int_val, buf_ptr[0..16]);
                 return .{ .vtype = .string, .str_val = s };
             }
@@ -716,7 +717,7 @@ pub const VM = struct {
             if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
             if (prompt.vtype == .string) common.printZ(prompt.str_val);
 
-            var buf = memory.heap.alloc(128) orelse return .{ .vtype = .string, .str_val = "" };
+            var buf = user.user_malloc(128) orelse return .{ .vtype = .string, .str_val = "" };
             // Simple blocking read
             var len: usize = 0;
             while (len < 127) {
@@ -742,7 +743,7 @@ pub const VM = struct {
             if (bytes_v.vtype == .int) {
                 const b = @as(u64, @intCast(bytes_v.int_val));
                 const b_64 = b;
-                const buf_ptr = memory.heap.alloc(32) orelse return .{ .vtype = .string, .str_val = "" };
+                const buf_ptr = user.user_malloc(32) orelse return .{ .vtype = .string, .str_val = "" };
                 const buf = buf_ptr[0..32];
                 var res: []const u8 = "";
                 if (b_64 < 1024) {
@@ -813,7 +814,7 @@ pub const VM = struct {
                     return val;
                 } else if (common.streq(fmt.str_val, "str") or common.streq(fmt.str_val, "string")) {
                     if (val.vtype == .int) {
-                        const buf_ptr = memory.heap.alloc(16) orelse return .{ .vtype = .string, .str_val = "0" };
+                        const buf_ptr = user.user_malloc(16) orelse return .{ .vtype = .string, .str_val = "0" };
                         const s = common.intToString(val.int_val, buf_ptr[0..16]);
                         return .{ .vtype = .string, .str_val = s };
                     }
@@ -822,7 +823,7 @@ pub const VM = struct {
                     // Reuse format_size logic
                     if (val.vtype == .int) {
                         const b_64 = @as(u64, @intCast(val.int_val));
-                        const buf_ptr = memory.heap.alloc(32) orelse return .{ .vtype = .string, .str_val = "" };
+                        const buf_ptr = user.user_malloc(32) orelse return .{ .vtype = .string, .str_val = "" };
                         const buf = buf_ptr[0..32];
                         var res_s: []const u8 = "";
                         if (b_64 < 1024) {
@@ -849,7 +850,7 @@ pub const VM = struct {
                     }
                 } else if (common.streq(fmt.str_val, "hex")) {
                     if (val.vtype == .int) {
-                        const buf_ptr = memory.heap.alloc(16) orelse return .{ .vtype = .string, .str_val = "0x0" };
+                        const buf_ptr = user.user_malloc(16) orelse return .{ .vtype = .string, .str_val = "0x0" };
                         const s = common.intToHex(@intCast(val.int_val), buf_ptr[0..16]);
                         return .{ .vtype = .string, .str_val = s };
                     }
@@ -923,7 +924,7 @@ pub const VM = struct {
             const prev_scope = self.current_scope;
 
             // 2. Create new scope
-            const scope_ptr = memory.heap.alloc(@sizeOf(Scope)) orelse return .{ .vtype = .int, .int_val = 0 };
+            const scope_ptr = user.user_malloc(@sizeOf(Scope)) orelse return .{ .vtype = .int, .int_val = 0 };
             const scope: *Scope = @ptrCast(@alignCast(scope_ptr));
             scope.* = .{
                 .table = hash_table.HashTable.init(8),
@@ -961,7 +962,7 @@ pub const VM = struct {
 
             self.current_scope = prev_scope;
             scope.table.deinit();
-            memory.heap.free(@ptrCast(scope));
+            user.user_free(@ptrCast(scope));
             self.ip = old_ip;
 
             return result;
@@ -1007,7 +1008,7 @@ pub const VM = struct {
                 return;
             }
 
-            const resolved_ptr = memory.heap.alloc(resolved_local.len) orelse {
+            const resolved_ptr = user.user_malloc(resolved_local.len) orelse {
                 self.reportError("Out of memory for path");
                 return;
             };
@@ -1093,7 +1094,7 @@ pub const VM = struct {
                     left = .{ .vtype = .float, .float_val = lf };
                 } else if (left.vtype == .string and right.vtype == .string and op.ttype == .PLUS) {
                     const total_len = left.str_val.len + right.str_val.len;
-                    const buf_ptr = memory.heap.alloc(total_len) orelse {
+                    const buf_ptr = user.user_malloc(total_len) orelse {
                         self.reportError("Out of memory for string concat");
                         return left;
                     };
@@ -1105,7 +1106,7 @@ pub const VM = struct {
                     var num_buf: [16]u8 = undefined;
                     const s_num = common.intToString(right.int_val, &num_buf);
                     const total_len = left.str_val.len + s_num.len;
-                    const buf_ptr = memory.heap.alloc(total_len) orelse {
+                    const buf_ptr = user.user_malloc(total_len) orelse {
                         self.reportError("Out of memory for string concat");
                         return left;
                     };
@@ -1117,7 +1118,7 @@ pub const VM = struct {
                     var num_buf: [16]u8 = undefined;
                     const s_num = common.intToString(left.int_val, &num_buf);
                     const total_len = s_num.len + right.str_val.len;
-                    const buf_ptr = memory.heap.alloc(total_len) orelse {
+                    const buf_ptr = user.user_malloc(total_len) orelse {
                         self.reportError("Out of memory for string concat");
                         return left;
                     };
@@ -1129,7 +1130,7 @@ pub const VM = struct {
                     var num_buf: [32]u8 = undefined;
                     const s_num = common.floatToString(right.float_val, &num_buf);
                     const total_len = left.str_val.len + s_num.len;
-                    const buf_ptr = memory.heap.alloc(total_len) orelse {
+                    const buf_ptr = user.user_malloc(total_len) orelse {
                         self.reportError("Out of memory for string concat");
                         return left;
                     };
@@ -1141,7 +1142,7 @@ pub const VM = struct {
                     var num_buf: [32]u8 = undefined;
                     const s_num = common.floatToString(left.float_val, &num_buf);
                     const total_len = s_num.len + right.str_val.len;
-                    const buf_ptr = memory.heap.alloc(total_len) orelse {
+                    const buf_ptr = user.user_malloc(total_len) orelse {
                         self.reportError("Out of memory for string concat");
                         return left;
                     };
@@ -1270,7 +1271,7 @@ pub const VM = struct {
                     self.ip += 1;
 
                     const combined_len = name.len + 1 + member.len;
-                    const buf_ptr = memory.heap.alloc(combined_len) orelse return .{ .vtype = .int, .int_val = 0 };
+                    const buf_ptr = user.user_malloc(combined_len) orelse return .{ .vtype = .int, .int_val = 0 };
                     const buf = buf_ptr[0..combined_len];
                     common.copy(buf[0..name.len], name);
                     buf[name.len] = '.';
