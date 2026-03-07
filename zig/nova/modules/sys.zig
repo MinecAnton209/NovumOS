@@ -123,6 +123,12 @@ pub fn handleSys(vm: anytype, name: []const u8) ?hash_table.VariableValue {
         if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) vm.ip += 1;
         common.clear_screen();
         return .{ .vtype = .string, .str_val = "" };
+    } else if (common.streq(name, "sys.exit")) {
+        if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) {
+            vm.ip += 1;
+        }
+        vm.exit_flag = true;
+        return .{ .vtype = .string, .str_val = "" };
     }
     return null;
 }

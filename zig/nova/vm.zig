@@ -106,7 +106,10 @@ pub const VM = struct {
                 self.ip += 1;
             },
             .SEMICOLON => self.ip += 1,
-            .EOF => self.exit_flag = true,
+            .EOF => {
+                if (!self.repl_mode) self.exit_flag = true;
+                self.ip += 1;
+            },
             else => {
                 // Skip or error
                 self.ip += 1;
@@ -472,6 +475,12 @@ pub const VM = struct {
                 self.ip += 1;
             } else {
                 self.reportError("Expected ')' in print");
+            }
+            return .{ .vtype = .string, .str_val = "" };
+        } else if (common.streq(name, "exit")) {
+            self.exit_flag = true;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
+                self.ip += 1;
             }
             return .{ .vtype = .string, .str_val = "" };
         } else if (common.startsWith(name, "math.")) {
