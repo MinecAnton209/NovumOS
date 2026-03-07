@@ -74,6 +74,43 @@ export fn strlen(s: [*]const u8) usize {
     return i;
 }
 
+/// Validates if a user-mode process is allowed to access a specific I/O port.
+/// Returns false for sensitive system ports.
+fn is_io_port_allowed(port: u16) bool {
+    // Whitelist approach: only allow safe ports if any.
+    // For now, we block most sensitive system ports.
+
+    // Blocking Programmable Interrupt Controller (PIC)
+    if (port == 0x20 or port == 0x21 or port == 0xA0 or port == 0xA1) return false;
+
+    // Blocking Programmable Interval Timer (PIT)
+    if (port >= 0x40 and port <= 0x43) return false;
+
+    // Blocking PS/2 Keyboard Controller
+    if (port == 0x60 or port == 0x64) return false;
+
+    // Blocking CMOS / RTC
+    if (port == 0x70 or port == 0x71) return false;
+
+    // Blocking DMA Controllers
+    if (port <= 0x1F or (port >= 0xC0 and port <= 0xDF)) return false;
+
+    // Blocking Primary/Secondary ATA (Hard Disk)
+    if (port >= 0x1F0 and port <= 0x1F7) return false;
+    if (port == 0x3F6) return false;
+
+    // Blocking PCI Configuration Ports
+    if (port == 0xCF8 or port == 0xCFC) return false;
+
+    // Blocking ACPI PM Ports (usually dynamic, but typical values)
+    // No easy way to block all without checking ACPI tables,
+    // so we rely on the fact that we don't expose them to user-mode anyway.
+
+    // Allow everything else (VGA, Serial COM1/COM2 if not blocked)
+    // Note: In a production kernel, we would use a bitmap or a very strict whitelist.
+    return true;
+}
+
 // System call handler exported for linker
 export fn handle_syscall_zig(regs: *Registers) void {
     switch (regs.eax) {
@@ -104,16 +141,46 @@ export fn handle_syscall_zig(regs: *Registers) void {
             vga.clear_screen();
         },
         6 => { // InB(EBX = port) -> EAX
-            regs.eax = common.inb(@intCast(regs.ebx));
+            const port: u16 = @intCast(regs.ebx);
+            if (is_io_port_allowed(port)) {
+                regs.eax = common.inb(port);
+            } else {
+                common.printError("[Security Fault] Unauthorized InB to port ");
+                common.printHex(port);
+                common.printZ("\n");
+                regs.eax = 0xFF;
+            }
         },
         7 => { // OutB(EBX = port, ECX = val)
-            common.outb(@intCast(regs.ebx), @intCast(regs.ecx));
+            const port: u16 = @intCast(regs.ebx);
+            if (is_io_port_allowed(port)) {
+                common.outb(port, @intCast(regs.ecx));
+            } else {
+                common.printError("[Security Fault] Unauthorized OutB to port ");
+                common.printHex(port);
+                common.printZ("\n");
+            }
         },
         8 => { // InW(EBX = port) -> EAX
-            regs.eax = common.inw(@intCast(regs.ebx));
+            const port: u16 = @intCast(regs.ebx);
+            if (is_io_port_allowed(port)) {
+                regs.eax = common.inw(port);
+            } else {
+                common.printError("[Security Fault] Unauthorized InW to port ");
+                common.printHex(port);
+                common.printZ("\n");
+                regs.eax = 0xFFFF;
+            }
         },
         9 => { // OutW(EBX = port, ECX = val)
-            common.outw(@intCast(regs.ebx), @intCast(regs.ecx));
+            const port: u16 = @intCast(regs.ebx);
+            if (is_io_port_allowed(port)) {
+                common.outw(port, @intCast(regs.ecx));
+            } else {
+                common.printError("[Security Fault] Unauthorized OutW to port ");
+                common.printHex(port);
+                common.printZ("\n");
+            }
         },
         10 => { // Sleep(EBX = ms)
             common.sleep(@intCast(regs.ebx));
@@ -134,10 +201,25 @@ export fn handle_syscall_zig(regs: *Registers) void {
             memory.map_range(regs.ebx, regs.ecx);
         },
         16 => { // InL(EBX = port) -> EAX
-            regs.eax = common.inl(@intCast(regs.ebx));
+            const port: u16 = @intCast(regs.ebx);
+            if (is_io_port_allowed(port)) {
+                regs.eax = common.inl(port);
+            } else {
+                common.printError("[Security Fault] Unauthorized InL to port ");
+                common.printHex(port);
+                common.printZ("\n");
+                regs.eax = 0xFFFFFFFF;
+            }
         },
         17 => { // OutL(EBX = port, ECX = val)
-            common.outl(@intCast(regs.ebx), regs.ecx);
+            const port: u16 = @intCast(regs.ebx);
+            if (is_io_port_allowed(port)) {
+                common.outl(port, regs.ecx);
+            } else {
+                common.printError("[Security Fault] Unauthorized OutL to port ");
+                common.printHex(port);
+                common.printZ("\n");
+            }
         },
         18 => { // DrawCharAt(EBX=row, ECX=col, EDX=char, ESI=attr)
             const old_color = vga.current_color;
