@@ -524,7 +524,10 @@ pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
 }
 
 /// --- Linked List Heap Allocator ---
+const HEAP_MAGIC = 0x48454150; // "HEAP" in ASCII
+
 const BlockHeader = struct {
+    magic: u32,
     size: usize,
     is_free: bool,
     next: ?*BlockHeader,
@@ -538,6 +541,7 @@ pub const heap = struct {
         if (pmm.alloc_page()) |addr| {
             first_block = @as(*BlockHeader, @ptrFromInt(addr));
             first_block.?.* = .{
+                .magic = HEAP_MAGIC,
                 .size = PAGE_SIZE - @sizeOf(BlockHeader),
                 .is_free = true,
                 .next = null,
@@ -568,6 +572,7 @@ pub const heap = struct {
                         const next_ptr = @intFromPtr(block) + @sizeOf(BlockHeader) + aligned_size;
                         const new_block = @as(*BlockHeader, @ptrFromInt(next_ptr));
                         new_block.* = .{
+                            .magic = HEAP_MAGIC,
                             .size = block.size - aligned_size - @sizeOf(BlockHeader),
                             .is_free = true,
                             .next = block.next,
@@ -584,6 +589,7 @@ pub const heap = struct {
             if (pmm.alloc_page()) |addr| {
                 const new_block = @as(*BlockHeader, @ptrFromInt(addr));
                 new_block.* = .{
+                    .magic = HEAP_MAGIC,
                     .size = PAGE_SIZE - @sizeOf(BlockHeader),
                     .is_free = true,
                     .next = null,
@@ -619,8 +625,30 @@ pub const heap = struct {
             interrupts_restore(eflags);
         }
 
-        const header_ptr = @intFromPtr(ptr) - @sizeOf(BlockHeader);
+        // 1. Basic pointer validation
+        const addr = @intFromPtr(ptr);
+        if (addr < 0x1000 or (addr & 7) != 0) {
+            @panic("Heap: Attempt to free invalid or unaligned pointer");
+        }
+
+        const header_ptr = addr - @sizeOf(BlockHeader);
         const header = @as(*BlockHeader, @ptrFromInt(header_ptr));
+
+        // 2. Magic number validation (prevents freeing non-heap memory)
+        if (header.magic != HEAP_MAGIC) {
+            @panic("Heap: Corruption detected (invalid magic)! Potential buffer overflow or invalid free.");
+        }
+
+        // 3. Double-free detection
+        if (header.is_free) {
+            @panic("Heap: Double-free detected!");
+        }
+
+        // 4. Sanity check on size
+        if (header.size > 128 * 1024 * 1024) {
+            @panic("Heap: Corruption detected (implausible block size)!");
+        }
+
         header.is_free = true;
 
         // Simple immediate coalescing with next block
