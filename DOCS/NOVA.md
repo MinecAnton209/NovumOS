@@ -11,7 +11,7 @@ Nova is a statement-based interpreted language for the NovumOS kernel. It provid
 
 ## 🚀 1. Variable Management
 
-Nova uses the `set` keyword or direct assignment. Typing is dynamic, but you can use optional type hints for code clarity.
+Nova uses direct assignment, type hints, or the optional `set` keyword. Typing is dynamic.
 
 ### Types
 - **Integer (`int`)**: 32-bit signed values (e.g. `42`, `-10`).
@@ -20,9 +20,9 @@ Nova uses the `set` keyword or direct assignment. Typing is dynamic, but you can
 
 ### Examples
 ```nova
-set int x = 10;
-set float pi = 3.14159;
-set string msg = "System Ready";
+int x = 10;
+float pi = 3.14159;
+string msg = "System Ready";
 
 y = x * 2.5; // Result will be float
 ```
@@ -147,16 +147,36 @@ if x > 10 {
 ```nova
 set i = 0;
 while i < 10 {
-    i = i + 1;
-    if i == 5 { continue; }
-    if i == 8 { break; }
     print(i);
+}
+```
+
+### For Loops
+Nova supports classic C-style `for` loops.
+```nova
+for (i = 0; i < 10; i++) {
+    print("Iteration: " + i);
 }
 ```
 
 ---
 
-## � 5. Bitwise & Boolean Operators
+## 🛠 5. User Functions
+Functions in Nova can take parameters and return values using the `return` keyword.
+
+```nova
+def calculate(a, b) {
+    res = (a * b) + 10;
+    return res;
+}
+
+val = calculate(5, 2);
+print("Result: " + val); // 20
+```
+
+---
+
+## 🔟 6. Bitwise & Boolean Operators
 
 Nova supports standard bitwise operators for integer values.
 
@@ -195,7 +215,7 @@ print("After clear: " + FLAGS);    // 1
 
 ---
 
-## �📝 6. Comments & Formatting
+## 📝 7. Comments & Formatting
 Nova supports single-line (`//`) and multi-line (`/* ... */`) comments.
 
 ### ⌨️ Multi-line REPL
@@ -210,7 +230,7 @@ Hello World
 
 ---
 
-## 🎨 6. VGA Color Guide
+## 🎨 8. VGA Color Guide
 
 The `sys.color(fg, bg)` function uses standard 16-color VGA palette indices (0-15).
 
@@ -234,44 +254,46 @@ print("Warning: System Overload");
 
 ---
 
-## 🎭 8. Pangram Showcase
+## 🎭 9. Pangram Showcase
 Testing all core features in one script:
 
 ```nova
-// Nova "Showcase" Pangram
+// Nova "Modern" Pangram
 import sys;
 
-set name = "NovumOS";
-set version = 0.5;
-set x = 0x10;      // Hexadecimal (16)
-set y = 0b1010;    // Binary (10)
+def check_bit(val, index) {
+    mask = (1 << index);
+    if (val & mask) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+name = "NovumOS";
+version = 0.6;
+x = 0x10; 
+y = 0b1010;
 
 print("--- " + name + " v" + version + " ---");
 
-// Bitwise magic: shift and combine
-set magic = (x << 2) | y; 
-print("Magic value: " + magic); // Should be 74
+// Bitwise magic
+magic = (x << 2) | y; 
+print("Magic value: " + magic); 
 
-set i = 0;
-while (i < 8) {
-    set bit = (1 << i);
-    
-    // Check if current bit is set
-    if ((magic & bit) != 0) {
+for (i = 0; i < 8; i++) {
+    if check_bit(magic, i) == 1 {
         print("Bit " + i + " is active!");
     }
-    
-    i = (i + 1);
 }
 
-sys.color(10, 0); // Light Green
+sys.color(10, 0); 
 print("Nova Pangram executed successfully!");
-sys.color(15, 0); // Restore White
+sys.color(15, 0); 
 ```
 
 ---
 
-## 💻 9. Technical Specifications
+## 💻 10. Technical Specifications
 - **Execution**: Recursive block-based interpreter with dynamic heap allocation.
 - **Math Engine**: High-speed fixed-approximation trigonometry optimized for x86 kernel space.
 - **FS Support**: Full integration with NovumOS FAT driver (v0.22.0).

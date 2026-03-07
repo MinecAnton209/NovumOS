@@ -39,6 +39,10 @@ pub const TokenType = enum {
     PERCENT,
     LESS_LESS,
     GREATER_GREATER,
+    FOR,
+    RETURN,
+    PLUS_PLUS,
+    MINUS_MINUS,
     EOF,
     UNKNOWN,
 };
@@ -233,13 +237,23 @@ pub fn tokenize(source: []const u8) TokenList {
             continue;
         }
         if (c == '+') {
-            list.append(.{ .ttype = .PLUS, .value = source[i .. i + 1], .line = line_num });
-            i += 1;
+            if (i + 1 < source.len and source[i + 1] == '+') {
+                list.append(.{ .ttype = .PLUS_PLUS, .value = source[i .. i + 2], .line = line_num });
+                i += 2;
+            } else {
+                list.append(.{ .ttype = .PLUS, .value = source[i .. i + 1], .line = line_num });
+                i += 1;
+            }
             continue;
         }
         if (c == '-') {
-            list.append(.{ .ttype = .MINUS, .value = source[i .. i + 1], .line = line_num });
-            i += 1;
+            if (i + 1 < source.len and source[i + 1] == '-') {
+                list.append(.{ .ttype = .MINUS_MINUS, .value = source[i .. i + 2], .line = line_num });
+                i += 2;
+            } else {
+                list.append(.{ .ttype = .MINUS, .value = source[i .. i + 1], .line = line_num });
+                i += 1;
+            }
             continue;
         }
         if (c == '*') {
@@ -325,6 +339,10 @@ pub fn tokenize(source: []const u8) TokenList {
                 ttype = .BREAK;
             } else if (common.streq(value, "continue")) {
                 ttype = .CONTINUE;
+            } else if (common.streq(value, "for")) {
+                ttype = .FOR;
+            } else if (common.streq(value, "return")) {
+                ttype = .RETURN;
             }
 
             list.append(.{ .ttype = ttype, .value = value, .line = line_num });

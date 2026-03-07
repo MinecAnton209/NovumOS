@@ -30,6 +30,8 @@ pub const VM = struct {
     is_math_loaded: bool = false,
     is_sys_loaded: bool = false,
     repl_mode: bool = false,
+    return_flag: bool = false,
+    return_value: hash_table.VariableValue = .{ .vtype = .int, .int_val = 0 },
 
     pub const Scope = struct {
         table: hash_table.HashTable,
@@ -84,26 +86,31 @@ pub const VM = struct {
                 break;
             }
             const token = self.tokens.tokens[self.ip];
+            self.handleInstruction(token);
+        }
+    }
 
-            switch (token.ttype) {
-                .DEF => self.handleDef(),
-                .IMPORT => self.handleImport(),
-                .IF => self.handleIf(),
-                .WHILE => self.handleWhile(),
-                .SET => self.handleSet(),
-                .IDENTIFIER => self.handleAssignmentOrCall(),
-                .L_BRACE => self.ip += 1, // Skip {
-                .R_BRACE => {
-                    // This happens at end of blocks if not handled by handleIf/while
-                    self.ip += 1;
-                },
-                .SEMICOLON => self.ip += 1,
-                .EOF => break,
-                else => {
-                    // Skip or error
-                    self.ip += 1;
-                },
-            }
+    fn handleInstruction(self: *VM, token: lexer.Token) void {
+        switch (token.ttype) {
+            .DEF => self.handleDef(),
+            .IMPORT => self.handleImport(),
+            .IF => self.handleIf(),
+            .WHILE => self.handleWhile(),
+            .FOR => self.handleFor(),
+            .SET, .INT_TYPE, .STRING_TYPE => self.handleSet(),
+            .IDENTIFIER => self.handleAssignmentOrCall(),
+            .RETURN => self.handleReturn(),
+            .L_BRACE => self.ip += 1, // Skip {
+            .R_BRACE => {
+                // This happens at end of blocks if not handled by handleIf/while
+                self.ip += 1;
+            },
+            .SEMICOLON => self.ip += 1,
+            .EOF => self.exit_flag = true,
+            else => {
+                // Skip or error
+                self.ip += 1;
+            },
         }
     }
 
@@ -115,13 +122,13 @@ pub const VM = struct {
         if (name_token.ttype != .IDENTIFIER) return;
 
         self.ip += 1; // skip name
-        while (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .L_BRACE) : (self.ip += 1) {}
-
-        // Value is the IP of the first token after def name
+        const start_of_params = self.ip;
         self.functions.put(name_token.value, .{
             .vtype = .function,
-            .func_ptr = self.ip,
+            .func_ptr = start_of_params,
         });
+
+        while (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .L_BRACE) : (self.ip += 1) {}
 
         // Skip until matching }
         var depth: i32 = 0;
@@ -187,7 +194,7 @@ pub const VM = struct {
                     self.skipBlock(1);
                     break;
                 }
-                if (self.exit_flag) break;
+                if (self.exit_flag or self.return_flag) break;
                 self.continue_flag = false;
                 // Loop back
             } else {
@@ -198,10 +205,116 @@ pub const VM = struct {
         }
     }
 
+    fn handleFor(self: *VM) void {
+        self.ip += 1; // skip for
+        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .L_PAREN) self.ip += 1;
+
+        // 1. Init
+        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .SEMICOLON) {
+            const t = self.tokens.tokens[self.ip];
+            if (t.ttype == .SET or t.ttype == .INT_TYPE or t.ttype == .STRING_TYPE) {
+                self.handleSet();
+            } else if (t.ttype == .IDENTIFIER) {
+                self.handleAssignmentOrCall();
+            } else {
+                self.ip += 1;
+            }
+        }
+        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .SEMICOLON) self.ip += 1;
+
+        const cond_ip = self.ip;
+        // Find increment and block
+        var semi_count: i32 = 0;
+        var paren_depth: i32 = 0;
+        var temp_ip = self.ip;
+        while (temp_ip < self.tokens.len) : (temp_ip += 1) {
+            const t = self.tokens.tokens[temp_ip];
+            if (t.ttype == .L_PAREN) paren_depth += 1;
+            if (t.ttype == .R_PAREN) paren_depth -= 1;
+            if (t.ttype == .SEMICOLON and paren_depth == 0) {
+                semi_count += 1;
+                if (semi_count == 1) break;
+            }
+        }
+        const inc_ip = temp_ip + 1;
+
+        // Skip increment to find block
+        temp_ip = inc_ip;
+        paren_depth = 1; // we started inside (
+        while (temp_ip < self.tokens.len and paren_depth > 0) : (temp_ip += 1) {
+            const t = self.tokens.tokens[temp_ip];
+            if (t.ttype == .L_PAREN) paren_depth += 1;
+            if (t.ttype == .R_PAREN) paren_depth -= 1;
+        }
+        const block_ip = temp_ip;
+
+        while (true) {
+            if (keyboard.check_ctrl_c()) {
+                self.exit_flag = true;
+                return;
+            }
+
+            self.ip = cond_ip;
+            const condition = if (self.tokens.tokens[self.ip].ttype == .SEMICOLON) @as(hash_table.VariableValue, .{ .vtype = .int, .int_val = 1 }) else self.evaluateExpression();
+
+            if (condition.int_val != 0) {
+                self.ip = block_ip;
+                self.runBlock();
+
+                if (self.break_flag) {
+                    self.break_flag = false;
+                    break;
+                }
+                if (self.exit_flag or self.return_flag) break;
+
+                self.continue_flag = false;
+                self.ip = inc_ip;
+                // Handle increment
+                const t = self.tokens.tokens[self.ip];
+                if (t.ttype == .IDENTIFIER) {
+                    self.handleAssignmentOrCall();
+                } else if (t.ttype != .R_PAREN) {
+                    _ = self.evaluateExpression();
+                }
+            } else {
+                break;
+            }
+        }
+        self.ip = block_ip;
+        self.skipBlock(0);
+    }
+
+    fn handleReturn(self: *VM) void {
+        self.ip += 1; // skip return
+        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .SEMICOLON) {
+            self.return_value = self.evaluateExpression();
+        } else {
+            self.return_value = .{ .vtype = .int, .int_val = 0 };
+        }
+        self.return_flag = true;
+        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .SEMICOLON) self.ip += 1;
+    }
+
+    fn updateVariable(self: *VM, name: []const u8, val: hash_table.VariableValue) bool {
+        var s: ?*Scope = self.current_scope;
+        while (s) |scope| {
+            if (scope.table.get(name)) |_| {
+                scope.table.put(name, val);
+                return true;
+            }
+            s = scope.parent;
+        }
+        if (self.globals.get(name)) |_| {
+            self.globals.put(name, val);
+            return true;
+        }
+        return false;
+    }
+
     fn runBlock(self: *VM) void {
         if (self.tokens.tokens[self.ip].ttype == .L_BRACE) self.ip += 1;
         var depth: i32 = 1;
-        while (self.ip < self.tokens.len and depth > 0 and !self.exit_flag and !self.break_flag and !self.continue_flag) {
+        while (self.ip < self.tokens.len and depth > 0 and !self.exit_flag and !self.break_flag and !self.continue_flag and !self.return_flag) {
             if (keyboard.check_ctrl_c()) {
                 common.printZ("\nInterrupted by Ctrl+C\n");
                 self.exit_flag = true;
@@ -216,7 +329,7 @@ pub const VM = struct {
                     break;
                 }
             }
-            self.step();
+            self.handleInstruction(t);
         }
     }
 
@@ -236,29 +349,15 @@ pub const VM = struct {
     }
 
     fn step(self: *VM) void {
+        if (self.ip >= self.tokens.len) return;
         const t = self.tokens.tokens[self.ip];
-        switch (t.ttype) {
-            .DEF => self.handleDef(),
-            .IMPORT => self.handleImport(),
-            .IF => self.handleIf(),
-            .WHILE => self.handleWhile(),
-            .SET => self.handleSet(),
-            .IDENTIFIER => self.handleAssignmentOrCall(),
-            .BREAK => {
-                self.break_flag = true;
-                self.ip += 1;
-            },
-            .CONTINUE => {
-                self.continue_flag = true;
-                self.ip += 1;
-            },
-            .SEMICOLON => self.ip += 1,
-            else => self.ip += 1,
-        }
+        self.handleInstruction(t);
     }
 
     fn handleSet(self: *VM) void {
-        self.ip += 1; // skip set
+        const current = self.tokens.tokens[self.ip];
+        if (current.ttype == .SET) self.ip += 1;
+
         if (self.ip >= self.tokens.len) return;
 
         const t = self.tokens.tokens[self.ip];
@@ -303,7 +402,33 @@ pub const VM = struct {
         if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .EQUALS) {
             self.ip += 1; // skip =
             const val = self.evaluateExpression();
-            self.current_scope.table.put(name, val);
+            if (!self.updateVariable(name, val)) {
+                self.current_scope.table.put(name, val);
+            }
+        } else if (self.ip < self.tokens.len and (self.tokens.tokens[self.ip].ttype == .PLUS_PLUS or self.tokens.tokens[self.ip].ttype == .MINUS_MINUS)) {
+            const op = self.tokens.tokens[self.ip].ttype;
+            self.ip += 1;
+            // Lookup variable
+            var target_val: ?hash_table.VariableValue = null;
+            var s: ?*Scope = self.current_scope;
+            while (s) |scope| {
+                if (scope.table.get(name)) |v| {
+                    target_val = v;
+                    break;
+                }
+                s = scope.parent;
+            }
+            if (target_val == null) target_val = self.globals.get(name);
+
+            if (target_val) |v| {
+                if (v.vtype == .int) {
+                    var new_v = v;
+                    if (op == .PLUS_PLUS) new_v.int_val += 1 else new_v.int_val -= 1;
+                    if (!self.updateVariable(name, new_v)) {
+                        self.current_scope.table.put(name, new_v);
+                    }
+                }
+            }
         } else if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .L_PAREN) {
             // Function call
             const result = self.handleCall(name);
@@ -769,36 +894,68 @@ pub const VM = struct {
             shell.shell_execute_literal("shutdown");
             return .{ .vtype = .string, .str_val = "" };
         } else if (self.functions.get(name)) |func| {
-            // Save state
+            // 1. Evaluate arguments before changing scope
+            var args_buf: [8]hash_table.VariableValue = undefined;
+            var args_count: usize = 0;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .L_PAREN) {
+                self.ip += 1; // skip (
+                while (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .R_PAREN) {
+                    if (args_count < 8) {
+                        args_buf[args_count] = self.evaluateExpression();
+                        args_count += 1;
+                    } else {
+                        _ = self.evaluateExpression(); // skip
+                    }
+                    if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
+                }
+                if (self.ip < self.tokens.len) self.ip += 1; // skip )
+            }
             const old_ip = self.ip;
-            const old_scope = self.current_scope;
+            const prev_scope = self.current_scope;
 
-            // Create new scope
+            // 2. Create new scope
             const scope_ptr = memory.heap.alloc(@sizeOf(Scope)) orelse return .{ .vtype = .int, .int_val = 0 };
-            const new_scope: *Scope = @ptrCast(@alignCast(scope_ptr));
-            new_scope.* = .{
+            const scope: *Scope = @ptrCast(@alignCast(scope_ptr));
+            scope.* = .{
                 .table = hash_table.HashTable.init(8),
-                .parent = old_scope,
+                .parent = prev_scope,
             };
-            self.current_scope = new_scope;
+            self.current_scope = scope;
 
-            // Jump to function
+            // 3. Bind parameters
             self.ip = func.func_ptr;
+            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .L_PAREN) {
+                self.ip += 1;
+                var param_idx: usize = 0;
+                while (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .R_PAREN) {
+                    if (self.tokens.tokens[self.ip].ttype == .IDENTIFIER) {
+                        const param_name = self.tokens.tokens[self.ip].value;
+                        if (param_idx < args_count) {
+                            scope.table.put(param_name, args_buf[param_idx]);
+                        }
+                        param_idx += 1;
+                    }
+                    self.ip += 1;
+                    if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
+                }
+                if (self.ip < self.tokens.len) self.ip += 1;
+            }
+
+            // 4. Run function body
+            while (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .L_BRACE) : (self.ip += 1) {}
             self.runBlock();
 
-            // Restore state
-            self.current_scope = old_scope;
-            new_scope.table.deinit();
-            memory.heap.free(@ptrCast(new_scope));
+            // 5. Capture return value and restore
+            const result = self.return_value;
+            self.return_flag = false;
+            self.return_value = .{ .vtype = .int, .int_val = 0 };
+
+            self.current_scope = prev_scope;
+            scope.table.deinit();
+            memory.heap.free(@ptrCast(scope));
             self.ip = old_ip;
 
-            // Skip call parens (we already handled ( above, but handleCall is called when ip is at ( )
-            // Wait, if it's a user function, we need to skip the arguments if any.
-            // For now, Nova doesn't support user function arguments well in this VM draft.
-            while (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .R_PAREN) : (self.ip += 1) {}
-            if (self.ip < self.tokens.len) self.ip += 1;
-
-            return .{ .vtype = .int, .int_val = 0 };
+            return result;
         } else {
             var err_buf: [64]u8 = undefined;
             const start_s = "Undefined function: ";
