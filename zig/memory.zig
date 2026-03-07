@@ -1,4 +1,3 @@
-// NovumOS Memory Management Module - Advanced Edition
 const common = @import("commands/common.zig");
 const config = @import("config.zig");
 
@@ -11,12 +10,16 @@ pub var BITMAP_SIZE: usize = 0;
 extern const ebss: anyopaque;
 extern const _code_start: anyopaque;
 extern const _code_end: anyopaque;
+extern const _rodata_start: anyopaque;
+extern const _rodata_end: anyopaque;
 extern const _data_start: anyopaque;
 extern const _data_end: anyopaque;
+extern const _system_start: anyopaque;
+extern const _system_end: anyopaque;
 extern const idt_start: anyopaque;
 
 // We'll allocate a fixed-size bitmap for up to 4GB (128KB bitmap)
-var bitmap: [131072]u8 = [_]u8{0} ** 131072;
+var bitmap: [131072]u8 align(4096) linksection(".system") = [_]u8{0} ** 131072;
 var last_free_page: u32 = 0;
 
 /// Physical Memory Manager (PMM)
@@ -130,11 +133,11 @@ pub const PageDirectory = [1024]u32;
 pub const PageTable = [1024]u32;
 
 // Paging structures - MUST be 4096-byte aligned for the CPU
-pub var page_directory: PageDirectory align(4096) = [_]u32{0} ** 1024;
-pub var page_tables: [1024]?*PageTable = [_]?*PageTable{null} ** 1024;
+pub var page_directory: PageDirectory align(4096) linksection(".system") = [_]u32{0} ** 1024;
+pub var page_tables: [1024]?*PageTable linksection(".system") = [_]?*PageTable{null} ** 1024;
 
 // Statically allocate enough page tables to safely cover the first 16MB (Kernel, stack, IDT)
-var first_16mb_pts: [4]PageTable align(4096) = [_]PageTable{[_]u32{0} ** 1024} ** 4;
+var first_16mb_pts: [4]PageTable align(4096) linksection(".system") = [_]PageTable{[_]u32{0} ** 1024} ** 4;
 
 pub var pf_count: usize = 0;
 
@@ -155,7 +158,11 @@ pub fn init_paging() void {
 
     const code_start = @intFromPtr(&_code_start);
     const code_end = @intFromPtr(&_code_end);
+    const rodata_start = @intFromPtr(&_rodata_start);
+    const rodata_end = @intFromPtr(&_rodata_end);
     const data_start = @intFromPtr(&_data_start);
+    const system_start = @intFromPtr(&_system_start);
+    const system_end = @intFromPtr(&_system_end);
     const idt_addr = @intFromPtr(&idt_start);
 
     // 3. Setup Page Directory Index 0-3 (0-16MB) using 4KB pages
@@ -168,33 +175,33 @@ pub fn init_paging() void {
                 if (addr == 0) {
                     pt[j] = 0x0 | 0x2; // NULL protection (P=0)
                 }
-                // VGA Text Mode Buffer - Temporarily allow User access
-                // TODO: Migrate all VGA writes to use syscalls, then make this Supervisor-only
-                else if (addr == 0xB8000) {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
+                // Critical System Structures (PD/PMM/PT) - Supervisor Only
+                else if ((addr >= system_start and addr < system_end) or
+                    (addr >= (idt_addr & 0xFFFFF000) and addr < (idt_addr & 0xFFFFF000) + 4096))
+                {
+                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
                 }
-                // Kernel/Shell Code Section - User Read-Only
+                // All kernel code - User Read/Execute Only
+                // NOTE: Ring 3 needs this because Nova/Shell runs inside the kernel binary.
+                // The .system section above protects the most critical structures.
                 else if (addr >= code_start and addr < code_end) {
                     pt[j] = @as(u32, @intCast(addr)) | 0x5; // P=1, RW=0, USER=1
                 }
-                // IDT Protection - Supervisor Only
-                else if (addr >= (idt_addr & 0xFFFFF000) and addr < (idt_addr & 0xFFFFF000) + 4096) {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
+                // Read-Only Data (constants, strings)
+                else if (addr >= rodata_start and addr < rodata_end) {
+                    pt[j] = @as(u32, @intCast(addr)) | 0x5; // P=1, RW=0, USER=1
                 }
-                // Kernel/Shell Data Section & User Stack (Generous 256KB+ area)
-                // We allow Read-Write access from the start of data up to the end of the first 4MB
-                else if (addr >= data_start and addr < 0x400000) {
+                // Kernel Data and BSS - User Read-Write
+                // Nova interpreter and Shell store state here
+                else if (addr >= data_start and addr < @intFromPtr(&ebss)) {
                     pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
                 }
-                // Kernel Stack Area (around 0x500000) - Supervisor Only
-                else if (addr >= 0x500000 and addr < 0x501000) {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
-                }
-                // Reserved for System / User Read-Write (For VBE Info at 0x8000)
-                else if (addr < 0x100000) {
+                // User Stack Area
+                else if (addr >= 0x3F0000 and addr < 0x400000) {
                     pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
-                } else {
-                    // Default to Supervisor for other unknown regions in the first 16MB
+                }
+                // Everything else (VGA, BIOS, etc.) - Supervisor
+                else {
                     pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
                 }
             }
@@ -211,7 +218,7 @@ pub fn init_paging() void {
             const addr = i * coverage;
             // 16-64MB present, rest demand
             if (addr < 64 * 1024 * 1024) {
-                page_directory[i] = addr | 0x87; // PS=1, RW=1, P=1, USER
+                page_directory[i] = addr | 0x83; // PS=1, RW=1, P=1, Supervisor
             } else {
                 page_directory[i] = addr | 0x82; // PS=1, RW=1, P=0
             }
@@ -250,7 +257,10 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
     if (pd_idx < 4) {
         const pt = &first_16mb_pts[pd_idx];
         page_tables[pd_idx] = pt;
-        page_directory[pd_idx] = @as(u32, @intCast(@intFromPtr(pt))) | 0x7; // P=1, RW=1, USER=1
+        // The first 4MB (index 0) MUST have USER bit set in PDE to allow user stack access.
+        // The others can stay Supervisor for now.
+        const attr: u32 = if (pd_idx == 0) 0x7 else 0x3;
+        page_directory[pd_idx] = @as(u32, @intCast(@intFromPtr(pt))) | attr;
         return pt;
     }
 
@@ -260,7 +270,8 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
         for (pt) |*entry| entry.* = 0;
 
         page_tables[pd_idx] = pt;
-        page_directory[pd_idx] = @as(u32, @intCast(pt_addr)) | 0x7; // P=1, RW=1, USER=1
+        // Start as Supervisor; map_page will upgrade to USER if needed
+        page_directory[pd_idx] = @as(u32, @intCast(pt_addr)) | 0x3;
         return pt;
     }
     return null;
@@ -288,8 +299,13 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
 
         const is_vga = (vaddr >= 0xB8000 and vaddr < 0xC0000);
         const is_allowed_mmio = (user_mmio_start != 0 and vaddr >= user_mmio_start and vaddr < user_mmio_end);
+        const is_kernel_code = (vaddr >= @intFromPtr(&_code_start) and vaddr < @intFromPtr(&_code_end));
+        const is_rodata = (vaddr >= @intFromPtr(&_rodata_start) and vaddr < @intFromPtr(&_rodata_end));
+        const is_user_stack = (vaddr >= 0x3F0000 and vaddr < 0x400000);
+        const is_data = (vaddr >= @intFromPtr(&_data_start) and vaddr < @intFromPtr(&ebss));
+        const is_system_area = (vaddr >= @intFromPtr(&_system_start) and vaddr < @intFromPtr(&_system_end));
 
-        if (!is_vga and !is_allowed_mmio) {
+        if (!is_vga and !is_allowed_mmio and !is_kernel_code and !is_rodata and !is_user_stack and !(is_data and !is_system_area)) {
             if (vaddr < kernel_end or vaddr >= MAX_MEMORY) {
                 common.printError("[Security] User-mode tried to map unauthorized memory: ");
                 common.printHex(@intCast(vaddr));
@@ -326,6 +342,12 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
     }
 
     const pt = create_page_table(@as(u32, @intCast(pd_idx))) orelse return false;
+
+    // Ensure the PDE has USER bit set if this is a user-mode request
+    if (is_user) {
+        page_directory[pd_idx] |= 0x04;
+    }
+
     const pte = &pt[pt_idx];
 
     // If not present or (if user request) user bit missing
@@ -349,7 +371,22 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
         }
 
         // Set attributes based on requester
-        const attr: u32 = if (is_user) 0x7 else 0x3; // User: P=1,RW=1,U=1 | Kernel: P=1,RW=1,U=0
+        var attr: u32 = if (is_user) 0x7 else 0x3;
+
+        // Code is User Read/Execute only (needed for Ring 3 to run Nova/Shell)
+        if (vaddr >= @intFromPtr(&_code_start) and vaddr < @intFromPtr(&_code_end)) {
+            attr = if (is_user) 0x5 else 0x1;
+        }
+        // RoData is User Read only
+        if (vaddr >= @intFromPtr(&_rodata_start) and vaddr < @intFromPtr(&_rodata_end)) {
+            attr = if (is_user) 0x5 else 0x1;
+        }
+        // .system is always Supervisor-only
+        if (vaddr >= @intFromPtr(&_system_start) and vaddr < @intFromPtr(&_system_end)) {
+            if (is_user) return false;
+            attr = 0x3;
+        }
+
         pte.* = @as(u32, @intCast(paddr)) | attr;
 
         var cs: u16 = 0;
