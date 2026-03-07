@@ -168,6 +168,17 @@ common_exception_handler:
     ; If it ever returns:
     add esp, 4              ; Clean up argument
     popad
+    
+    ; Register Hygiene: Zero XMM registers
+    pxor xmm0, xmm0
+    pxor xmm1, xmm1
+    pxor xmm2, xmm2
+    pxor xmm3, xmm3
+    pxor xmm4, xmm4
+    pxor xmm5, xmm5
+    pxor xmm6, xmm6
+    pxor xmm7, xmm7
+
     pop ds
     pop es
     pop fs
@@ -251,6 +262,16 @@ isr_keyboard_wrapper:
     mov al, 0x20
     out 0x20, al
     popad
+    
+    ; Register Hygiene: Zero XMM registers
+    pxor xmm0, xmm0
+    pxor xmm1, xmm1
+    pxor xmm2, xmm2
+    pxor xmm3, xmm3
+    pxor xmm4, xmm4
+    pxor xmm5, xmm5
+    pxor xmm6, xmm6
+    pxor xmm7, xmm7
     pop ds                  ; Restore segments
     pop es
     pop fs
@@ -274,6 +295,16 @@ isr_timer_wrapper:
     mov al, 0x20
     out 0x20, al
     popad
+    
+    ; Register Hygiene: Zero XMM registers
+    pxor xmm0, xmm0
+    pxor xmm1, xmm1
+    pxor xmm2, xmm2
+    pxor xmm3, xmm3
+    pxor xmm4, xmm4
+    pxor xmm5, xmm5
+    pxor xmm6, xmm6
+    pxor xmm7, xmm7
     pop ds                  ; Restore segments
     pop es
     pop fs
@@ -303,7 +334,24 @@ syscall_handler:
     call handle_syscall_zig
     add esp, 4
     
+    ; Defensive Zeroing: Clear scratch GPRs (ECX, EDX) on stack
+    ; EAX is the return value, others are callee-saved (preserved).
+    mov dword [esp + 24], 0 ; ECX offset in pushad frame
+    mov dword [esp + 20], 0 ; EDX offset in pushad frame
+
     popad
+    
+    ; Defensive Zeroing: Clear SSE/XMM registers to prevent leakage 
+    ; of kernel calculation state to User Mode.
+    pxor xmm0, xmm0
+    pxor xmm1, xmm1
+    pxor xmm2, xmm2
+    pxor xmm3, xmm3
+    pxor xmm4, xmm4
+    pxor xmm5, xmm5
+    pxor xmm6, xmm6
+    pxor xmm7, xmm7
+
     pop ds                  ; Restore segment registers
     pop es
     pop fs

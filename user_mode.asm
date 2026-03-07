@@ -7,30 +7,44 @@ extern handle_syscall_zig
 section .text
 
 ; Function called from Zig: jump_to_ring3_entry(entry_address, stack_address)
+; Function called from Zig: jump_to_ring1_entry(entry_address, stack_address)
 jump_to_ring3_entry:
     cli
-    mov ebp, [esp + 4]   ; Get entry point address from argument
-    mov ecx, [esp + 8]   ; Get stack address from argument
+    mov ebp, [esp + 4]   ; Get entry point address
+    mov ecx, [esp + 8]   ; Get stack address
     
-    ; Prepare stack for IRET:
-    ; [ESP + 16] SS
-    ; [ESP + 12] ESP
-    ; [ESP + 8]  EFLAGS
-    ; [ESP + 4]  CS
-    ; [ESP + 0]  EIP
+    ; Setup IRET frame
+    push 0xAB           ; SS
+    push ecx            ; ESP
+    push 0x202          ; EFLAGS (IF=1)
+    push 0xA3           ; CS
+    push ebp            ; EIP
     
-    push 0xAB           ; SS (User Data Segment: 0xA8 | 3)
-    push ecx            ; ESP (User Stack passed from Zig)
-    push 0x202          ; EFLAGS (IF set)
-    push 0xA3           ; CS (User Code Segment: 0xA0 | 3)
-    push ebp            ; EIP (Entry point passed as argument)
-    
-    ; Set segment registers to User Data
+    ; 1. Zero out segment registers for Ring 3
     mov ax, 0xAB
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
-    
-    ; Jump!
+
+    ; 2. Zero out SSE registers to prevent information leak
+    pxor xmm0, xmm0
+    pxor xmm1, xmm1
+    pxor xmm2, xmm2
+    pxor xmm3, xmm3
+    pxor xmm4, xmm4
+    pxor xmm5, xmm5
+    pxor xmm6, xmm6
+    pxor xmm7, xmm7
+
+    ; 3. Zero out all GPRs (Sanitization)
+    xor eax, eax
+    xor ebx, ebx
+    xor ecx, ecx
+    xor edx, edx
+    xor esi, esi
+    xor edi, edi
+    xor ebp, ebp
+
+    ; All set. Jump to Ring 3!
     iret
