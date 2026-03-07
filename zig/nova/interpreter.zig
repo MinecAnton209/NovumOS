@@ -622,11 +622,27 @@ fn isComplete(source: []const u8) bool {
     var paren_depth: i32 = 0;
     var brace_depth: i32 = 0;
     var in_string: bool = false;
+    var in_comment: bool = false;
+    var in_block_comment: bool = false;
     var last_char: u8 = 0;
     var i: usize = 0;
 
     while (i < source.len) : (i += 1) {
         const c = source[i];
+
+        if (in_block_comment) {
+            if (c == '*' and i + 1 < source.len and source[i + 1] == '/') {
+                in_block_comment = false;
+                i += 1;
+            }
+            continue;
+        }
+
+        if (in_comment) {
+            if (c == '\n' or c == '\r') in_comment = false;
+            continue;
+        }
+
         if (in_string) {
             if (c == '"') {
                 if (i > 0 and source[i - 1] == '\\') {
@@ -635,25 +651,40 @@ fn isComplete(source: []const u8) bool {
                     in_string = false;
                 }
             }
-        } else {
-            if (c == '"') {
-                in_string = true;
-            } else if (c == '(') {
-                paren_depth += 1;
-            } else if (c == ')') {
-                paren_depth -= 1;
-            } else if (c == '{') {
-                brace_depth += 1;
-            } else if (c == '}') {
-                brace_depth -= 1;
+            continue;
+        }
+
+        // Check for start of comments
+        if (c == '/' and i + 1 < source.len) {
+            if (source[i + 1] == '/') {
+                in_comment = true;
+                i += 1;
+                continue;
+            } else if (source[i + 1] == '*') {
+                in_block_comment = true;
+                i += 1;
+                continue;
             }
         }
-        if (c != ' ' and c != '\n' and c != '\r' and c != '\t') {
+
+        if (c == '"') {
+            in_string = true;
+        } else if (c == '(') {
+            paren_depth += 1;
+        } else if (c == ')') {
+            paren_depth -= 1;
+        } else if (c == '{') {
+            brace_depth += 1;
+        } else if (c == '}') {
+            brace_depth -= 1;
+        }
+
+        if (c != ' ' and c != '\n' and c != '\r' and c != '\t' and c != 0) {
             last_char = c;
         }
     }
 
-    if (in_string or paren_depth > 0 or brace_depth > 0) return false;
+    if (in_string or paren_depth > 0 or brace_depth > 0 or in_block_comment) return false;
     if (last_char == ';' or last_char == '}') return true;
 
     return false;
