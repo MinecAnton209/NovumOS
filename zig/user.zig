@@ -34,24 +34,7 @@ pub const MAX_SYSCALL_STR_LEN = 4096;
 
 /// Helper function to check if a memory address is user-accessible in the current page table
 fn is_user_ptr(addr: usize) bool {
-    const pd_idx = addr >> 22;
-    const pt_idx = (addr >> 12) & 0x3FF;
-
-    // Check Page Directory Entry (PDE)
-    const pde = memory.page_directory[pd_idx];
-    if ((pde & 0x01) == 0) return false; // Not present
-    if ((pde & 0x04) == 0) return false; // User bit must be set
-
-    // If it's a huge page (4MB), we are done (USER bit already checked in PDE)
-    if ((pde & 0x80) != 0) return true;
-
-    // Check Page Table Entry (PTE)
-    if (memory.page_tables[pd_idx]) |pt| {
-        const pte = pt[pt_idx];
-        return (pte & 0x01) != 0 and (pte & 0x04) != 0; // Must be present AND user
-    }
-
-    return false;
+    return memory.is_user_ptr(addr);
 }
 
 /// Safely scans a user-provided string for its length, checking page permissions along the way
@@ -189,7 +172,9 @@ export fn handle_syscall_zig(regs: *Registers) void {
             regs.eax = @intCast(timer.get_ticks());
         },
         12 => { // JumpToUser(EBX = entry)
-            jump_to_ring3_entry(regs.ebx);
+            // Reset to the standard user stack location
+            const user_esp = 0x3FF000 + 4096 - 16;
+            jump_to_ring3_entry(regs.ebx, user_esp);
         },
         13 => { // Shutdown
             common.shutdown();
@@ -300,31 +285,10 @@ export fn handle_syscall_zig(regs: *Registers) void {
 }
 
 // Link to the assembly implementation
-extern fn jump_to_ring3_entry(entry: usize) noreturn;
-extern fn jump_to_ring3() noreturn;
+extern fn jump_to_ring3_entry(entry: usize, stack: usize) noreturn;
 
 pub fn jump_to_user_mode() noreturn {
-    is_user_mode = true;
-    exceptions.main_tss.ss0 = 0x10;
-    exceptions.main_tss.esp0 = 0x500000;
-
-    // Detect if we are already in Ring 3
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        // Already in Ring 3, just return to loop via syscall or jump
-        // For jump_to_user_mode (no entry), we can't easily jump to "nothing".
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 12)),
-              [ent] "{ebx}" (@intFromPtr(&kernel_loop)),
-        );
-        unreachable;
-    }
-
-    jump_to_ring3();
+    jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop));
 }
 
 pub fn jump_to_user_mode_with_entry(entry: usize) noreturn {
@@ -334,13 +298,13 @@ pub fn jump_to_user_mode_with_entry(entry: usize) noreturn {
     exceptions.main_tss.ss0 = 0x10;
     exceptions.main_tss.esp0 = 0x500000;
 
-    // Detect if we are already in Ring 3
+    // Check if we are already in Ring 3
     var cs: u16 = 0;
     asm volatile ("mov %%cs, %[cs]"
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        // We are in Ring 3. Use syscall 12 to jump to a new entry point
+        // Use syscall 12 to jump to a new entry point
         asm volatile ("int $0x80"
             :
             : [sys] "{eax}" (@as(u32, 12)),
@@ -349,6 +313,17 @@ pub fn jump_to_user_mode_with_entry(entry: usize) noreturn {
         unreachable;
     }
 
-    // Call the stable assembly transition
-    jump_to_ring3_entry(entry);
+    // --- Dynamic User Stack Allocation ---
+    // Instead of a shared 0x3FFFF0, we allocate a fresh physical page
+    // and map it to a specific virtual address per transition.
+    const stack_paddr = memory.pmm.alloc_page() orelse @panic("OOM: Failed to allocate user stack page");
+    // We'll use 0x3FF000 as the virtual base for the stack page
+    const stack_vaddr = 0x3FF000;
+    _ = memory.map_page_at(stack_vaddr, stack_paddr, true);
+
+    // Top of stack (16-byte aligned for entry point)
+    const user_esp = stack_vaddr + memory.PAGE_SIZE - 16;
+
+    // Call the stable assembly transition with entry and stack
+    jump_to_ring3_entry(entry, user_esp);
 }

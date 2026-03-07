@@ -199,19 +199,19 @@ pub fn crash_gpf() void {
 }
 
 export fn handle_exception(frame: *ExceptionFrame) void {
+    const fault_addr = get_cr2();
     if (frame.vector == 14) { // Page Fault
-        const fault_addr = get_cr2();
         const is_user_fault = (frame.cs & 3) == 3;
         // Try to handle Page Fault via demand paging
         if (memory.map_page(fault_addr, is_user_fault)) {
             return; // Successfully handled, retry instruction
         }
     }
-    draw_rsod(frame, null, null);
+    draw_rsod(frame, null, null, if (frame.vector == 14) fault_addr else null);
 }
 
 export fn handle_double_fault() noreturn {
-    draw_rsod(null, &main_tss, "Hardware Task Switch due to Double Fault.");
+    draw_rsod(null, &main_tss, "Hardware Task Switch due to Double Fault.", null);
 }
 
 pub fn panic(msg: []const u8) noreturn {
@@ -263,10 +263,10 @@ pub fn panic(msg: []const u8) noreturn {
         .error_code = 0,
     };
 
-    draw_rsod(@as(*const ExceptionFrame, @ptrCast(&frame)), null, msg);
+    draw_rsod(@as(*const ExceptionFrame, @ptrCast(&frame)), null, msg, null);
 }
 
-fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]const u8) noreturn {
+fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]const u8, fault_addr: ?u32) noreturn {
     asm volatile ("cli");
 
     // Disable Write Protect to allow kernel to write to protected pages (like VGA)
@@ -372,7 +372,7 @@ fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]cons
     print_hex_at(row, 7, ss, bg_red);
     row += 1;
 
-    const cr2 = get_cr2();
+    const cr2 = fault_addr orelse get_cr2();
     const cr3 = get_cr3();
     print_at(row, 2, "CR2: ", bg_red);
     print_hex_at(row, 7, cr2, bg_red);
@@ -387,8 +387,33 @@ fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]cons
         const stack_ptr: [*]u32 = @ptrFromInt(esp);
         var col: usize = 2;
         for (0..6) |i| {
-            print_hex_at(row, col, stack_ptr[i], bg_red);
-            col += 14; // Added more space to avoid sticking
+            const addr = esp + (i * 4);
+            if (memory.is_ptr_present(addr)) {
+                print_hex_at(row, col, stack_ptr[i], bg_red);
+            } else {
+                print_at(row, col, "??          ", bg_red);
+            }
+            col += 14;
+        }
+        row += 2;
+
+        print_at(row, 2, "BACKTRACE:", bg_red);
+        row += 1;
+        var current_ebp = ebp;
+        var col_bt: usize = 2;
+        var frames: usize = 0;
+        while (current_ebp != 0 and frames < 6) : (frames += 1) {
+            // Check if current_ebp and current_ebp + 4 are readable
+            if (!memory.is_ptr_present(current_ebp) or !memory.is_ptr_present(current_ebp + 4)) break;
+
+            const frame_ptr: [*]u32 = @ptrFromInt(current_ebp);
+            const return_addr = frame_ptr[1];
+            print_hex_at(row, col_bt, return_addr, bg_red);
+            col_bt += 14;
+
+            const prev_ebp = frame_ptr[0];
+            if (prev_ebp <= current_ebp) break; // Defensive: stack grows down
+            current_ebp = prev_ebp;
         }
         row += 2;
     }

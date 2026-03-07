@@ -43,7 +43,7 @@ export fn kernel_panic(msg_ptr: [*]const u8, msg_len: usize) noreturn {
 }
 
 /// Main Panic Handler - Stops execution and displays an error message
-pub fn panic(msg: []const u8) noreturn {
+pub fn panic(msg: []const u8, _: ?*@import("std").builtin.StackTrace, _: ?usize) noreturn {
     exceptions.panic(msg);
 }
 const user = @import("user.zig");

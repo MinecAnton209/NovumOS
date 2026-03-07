@@ -199,10 +199,7 @@ pub fn init_paging() void {
                 else if (addr >= data_start and addr < @intFromPtr(&ebss)) {
                     pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
                 }
-                // User Stack Area
-                else if (addr >= 0x3F0000 and addr < 0x400000) {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
-                }
+                // (Static User Stack Area removed to support dynamic per-process stacks)
                 // Everything else (VGA, BIOS, etc.) - Supervisor
                 else {
                     pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
@@ -283,14 +280,29 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
 /// map_page handles demand paging and discovery of high-memory tables (ACPI, BIOS, MMIO).
 /// If is_user is true, it verifies that the address is within allowed user-mode memory boundaries.
 pub fn map_page(vaddr: usize, is_user: bool) bool {
-    const pd_idx = vaddr >> 22;
-    const pt_idx = (vaddr >> 12) & 0x3FF;
-
-    if (pd_idx >= 1024) return false;
-
     // Address 0x0 and Poison addresses are protected
     if (vaddr < 4096) return false;
     if (vaddr >= 0xDEAD0000 and vaddr <= 0xDEADFFFF) return false;
+
+    const pd_idx = vaddr >> 22;
+
+    // --- Restore Huge Page (4MB) Activation ---
+    const pde = &page_directory[pd_idx];
+    if ((pde.* & 0x80) != 0) {
+        // If not present or (if user request) user bit missing
+        if ((pde.* & 1) == 0 or (is_user and (pde.* & 4) == 0)) {
+            pde.* |= 0x1; // Mark Present
+            if (is_user) pde.* |= 0x4; // User-mode access
+
+            asm volatile ("invlpg (%[vaddr])"
+                :
+                : [vaddr] "r" (vaddr),
+                : "memory");
+            pf_count += 1;
+            return true;
+        }
+        return true; // Already present
+    }
 
     // Security check for User Mode requests
     if (is_user) {
@@ -301,14 +313,15 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
         const kernel_end = @intFromPtr(&ebss);
 
         const is_vga = (vaddr >= 0xB8000 and vaddr < 0xC0000);
-        const is_allowed_mmio = (user_mmio_start != 0 and vaddr >= user_mmio_start and vaddr < user_mmio_end);
         const is_kernel_code = (vaddr >= @intFromPtr(&_code_start) and vaddr < @intFromPtr(&_code_end));
         const is_rodata = (vaddr >= @intFromPtr(&_rodata_start) and vaddr < @intFromPtr(&_rodata_end));
-        const is_user_stack = (vaddr >= 0x3F0000 and vaddr < 0x400000);
         const is_data = (vaddr >= @intFromPtr(&_data_start) and vaddr < @intFromPtr(&ebss));
         const is_system_area = (vaddr >= @intFromPtr(&_system_start) and vaddr < @intFromPtr(&_system_end));
 
-        if (!is_vga and !is_allowed_mmio and !is_kernel_code and !is_rodata and !is_user_stack and !(is_data and !is_system_area)) {
+        const is_allowed_mmio = (user_mmio_start != 0 and vaddr >= user_mmio_start and vaddr < user_mmio_end);
+
+        // For general demand paging (identity mapping), we check boundaries.
+        if (!is_vga and !is_allowed_mmio and !is_kernel_code and !is_rodata and !(is_data and !is_system_area)) {
             if (vaddr < kernel_end or vaddr >= MAX_MEMORY) {
                 common.printError("[Security] User-mode tried to map unauthorized memory: ");
                 common.printHex(@intCast(vaddr));
@@ -318,30 +331,24 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
         }
     }
 
-    // Check for HUGE PAGE (Bit 7)
-    const pde = &page_directory[pd_idx];
-    if ((pde.* & 0x80) != 0) {
-        // If not present or (if user request) user bit missing
-        if ((pde.* & 1) == 0 or (is_user and (pde.* & 4) == 0)) {
-            if (is_user) {
-                pde.* |= 0x5; // Mark Present and User
-            } else {
-                pde.* |= 0x1; // Mark Present (Supervisor)
-            }
+    return map_page_at(vaddr, vaddr & 0xFFFFF000, is_user);
+}
 
-            var cs: u16 = 0;
-            asm volatile ("mov %%cs, %[cs]"
-                : [cs] "=r" (cs),
-            );
-            if ((cs & 3) == 0) {
-                asm volatile ("invlpg (%[vaddr])"
-                    :
-                    : [vaddr] "r" (vaddr),
-                    : "memory");
-            }
-            pf_count += 1;
-        }
-        return true;
+/// map_page_at maps a specific virtual address to a specific physical address with requested permissions.
+pub fn map_page_at(vaddr: usize, paddr_in: usize, is_user: bool) bool {
+    const pd_idx = vaddr >> 22;
+    const pt_idx = (vaddr >> 12) & 0x3FF;
+
+    if (pd_idx >= 1024) return false;
+
+    // Address 0x0 and Poison addresses are protected from mapping (except maybe kernel?)
+    if (vaddr < 4096) return false;
+
+    // Check for HUGE PAGE (Bit 7) in the directory
+    if ((page_directory[pd_idx] & 0x80) != 0) {
+        // We generally don't want to map small pages over huge pages without splintering.
+        // For now, return false or ignore.
+        return false;
     }
 
     const pt = create_page_table(@as(u32, @intCast(pd_idx))) orelse return false;
@@ -355,17 +362,11 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
 
     // If not present or (if user request) user bit missing
     if ((pte.* & 1) == 0 or (is_user and (pte.* & 4) == 0)) {
-        var paddr: usize = 0;
+        var paddr: usize = paddr_in;
 
-        if ((pte.* & 1) != 0) {
-            // Protection violation (e.g. USER bit missing)
+        // If a physical address was pre-assigned in the PTE, use it.
+        if ((pte.* & 0xFFFFF000) != 0) {
             paddr = pte.* & 0xFFFFF000;
-        } else if ((pte.* & 0xFFFFF000) != 0) {
-            // Use pre-assigned physical address (for 32MB - RAM range)
-            paddr = pte.* & 0xFFFFF000;
-        } else {
-            // Identity map for discovery (BIOS, ACPI, MMIO)
-            paddr = vaddr & 0xFFFFF000;
         }
 
         // Mark as busy if it's in our RAM range
@@ -373,38 +374,60 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
             set_page_busy(@as(u32, @intCast(paddr / PAGE_SIZE)));
         }
 
-        // Set attributes based on requester
+        // Set attributes based on requester and region
         var attr: u32 = if (is_user) 0x7 else 0x3;
 
-        // Code is User Read/Execute only (needed for Ring 3 to run Nova/Shell)
+        // Security: Restrict permissions for specific regions
         if (vaddr >= @intFromPtr(&_code_start) and vaddr < @intFromPtr(&_code_end)) {
-            attr = if (is_user) 0x5 else 0x1;
-        }
-        // RoData is User Read only
-        if (vaddr >= @intFromPtr(&_rodata_start) and vaddr < @intFromPtr(&_rodata_end)) {
-            attr = if (is_user) 0x5 else 0x1;
-        }
-        // .system is always Supervisor-only
-        if (vaddr >= @intFromPtr(&_system_start) and vaddr < @intFromPtr(&_system_end)) {
-            if (is_user) return false;
+            attr = if (is_user) 0x5 else 0x1; // Code is Read/Execute
+        } else if (vaddr >= @intFromPtr(&_rodata_start) and vaddr < @intFromPtr(&_rodata_end)) {
+            attr = if (is_user) 0x5 else 0x1; // RoData is Read-only
+        } else if (vaddr >= @intFromPtr(&_system_start) and vaddr < @intFromPtr(&_system_end)) {
+            if (is_user) return false; // User cannot map .system at all
             attr = 0x3;
         }
 
         pte.* = @as(u32, @intCast(paddr)) | attr;
 
-        var cs: u16 = 0;
-        asm volatile ("mov %%cs, %[cs]"
-            : [cs] "=r" (cs),
-        );
-        if ((cs & 3) == 0) {
-            asm volatile ("invlpg (%[vaddr])"
-                :
-                : [vaddr] "r" (vaddr),
-                : "memory");
-        }
+        // Invalidate TLB
+        asm volatile ("invlpg (%[vaddr])"
+            :
+            : [vaddr] "r" (vaddr),
+            : "memory");
 
         pf_count += 1;
         return true;
+    }
+    return false;
+}
+
+/// Helper to check if an address is mapped and present in the page directory/tables.
+pub fn is_ptr_present(addr: usize) bool {
+    const pd_idx = addr >> 22;
+    const pt_idx = (addr >> 12) & 0x3FF;
+
+    const pde = page_directory[pd_idx];
+    if ((pde & 0x01) == 0) return false;
+    if ((pde & 0x80) != 0) return true; // Huge page is present
+
+    if (page_tables[pd_idx]) |pt| {
+        return (pt[pt_idx] & 0x01) != 0;
+    }
+    return false;
+}
+
+/// Helper to check if an address is mapped for User-mode (P=1 and USER=1)
+pub fn is_user_ptr(addr: usize) bool {
+    const pd_idx = addr >> 22;
+    const pt_idx = (addr >> 12) & 0x3FF;
+
+    const pde = page_directory[pd_idx];
+    if ((pde & 0x01) == 0 or (pde & 0x04) == 0) return false;
+    if ((pde & 0x80) != 0) return true; // Huge page is present and user
+
+    if (page_tables[pd_idx]) |pt| {
+        const pte = pt[pt_idx];
+        return (pte & 0x01) != 0 and (pte & 0x04) != 0;
     }
     return false;
 }
