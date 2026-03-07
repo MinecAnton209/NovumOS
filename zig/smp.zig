@@ -38,13 +38,13 @@ pub const CpuInfo = struct {
     stepping: u32,
 };
 
-fn spin_lock(lock: *volatile u32) void {
+pub fn spin_lock(lock: *volatile u32) void {
     while (@atomicRmw(u32, lock, .Xchg, 1, .acquire) == 1) {
         asm volatile ("pause");
     }
 }
 
-fn spin_unlock(lock: *volatile u32) void {
+pub fn spin_unlock(lock: *volatile u32) void {
     @atomicStore(u32, lock, 0, .release);
 }
 

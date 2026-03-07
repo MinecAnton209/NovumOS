@@ -1,4 +1,5 @@
 const vga = @import("drivers/vga.zig");
+const lfb = @import("drivers/lfb.zig");
 const serial = @import("drivers/serial.zig");
 const config = @import("config.zig");
 const memory = @import("memory.zig");
@@ -202,12 +203,24 @@ export fn handle_exception(frame: *ExceptionFrame) void {
     const fault_addr = get_cr2();
     if (frame.vector == 14) { // Page Fault
         const is_user_fault = (frame.cs & 3) == 3;
-        // Try to handle Page Fault via demand paging
-        if (memory.map_page(fault_addr, is_user_fault)) {
-            return; // Successfully handled, retry instruction
+
+        // Detect kernel stack overflow: if the fault is near/below the kernel stack top
+        // and the faulting instruction is in kernel code (not user mode), it's almost
+        // certainly a stack overflow, not a legitimate demand-paging access.
+        const KERNEL_STACK_TOP: usize = 0x500000;
+        const KERNEL_STACK_GUARD: usize = 256 * 1024; // 256KB guard window
+        const is_stack_overflow = !is_user_fault and
+            fault_addr < KERNEL_STACK_TOP and
+            fault_addr >= KERNEL_STACK_TOP - KERNEL_STACK_GUARD;
+
+        if (!is_stack_overflow) {
+            // Try to handle Page Fault via demand paging
+            if (memory.map_page(fault_addr, is_user_fault)) {
+                return; // Successfully handled, retry instruction
+            }
         }
     }
-    draw_rsod(frame, null, null, if (frame.vector == 14) fault_addr else null);
+    draw_rsod(frame, null, if (frame.vector == 14 and (frame.error_code & 0x10) == 0) @as(?[]const u8, "Stack overflow or null pointer dereference") else null, if (frame.vector == 14) fault_addr else null);
 }
 
 export fn handle_double_fault() noreturn {
@@ -282,27 +295,83 @@ fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]cons
 
     const bg_red = 0x4f; // Red background, White text
 
-    // Clear screen with red
-    for (0..2000) |i| {
-        vga.VIDEO_MEMORY[i] = (bg_red << 8) | ' ';
+    const use_lfb = lfb.initialized;
+
+    if (use_lfb) {
+        // Fill entire screen red
+        lfb.fill_screen(0xCC0000);
+    } else {
+        // VGA text mode fallback: clear with red attribute
+        for (0..2000) |i| {
+            vga.VIDEO_MEMORY[i] = (bg_red << 8) | ' ';
+        }
     }
 
-    print_at(1, 2, "****************************************************************************", bg_red);
-    print_at(2, 2, "*                              KERNEL PANIC                                *", bg_red);
-    print_at(3, 2, "****************************************************************************", bg_red);
+    // --- Helper closures (comptime row tracking) ---
+    // We use mutable variables and call lfb_print_at / print_at based on use_lfb.
+    // LFB: scale=1, char size 8x16, so each row is 18px, col is 8px wide.
+    const LFB_CHAR_W = 8;
+    const LFB_CHAR_H = 18;
+    const LFB_MARGIN_X: u32 = 8;
+    const LFB_MARGIN_Y: u32 = 8;
+    const COL_WHITE: u32 = 0xFFFFFF;
+    const COL_YELLOW: u32 = 0xFFFF00;
+    const COL_BG: u32 = 0xCC0000;
+
+    // Draw a string on LFB at logical (row, col) where units are characters
+    const draw_lfb = struct {
+        fn str(row: u32, col: u32, s: []const u8, color: u32) void {
+            var cx: u32 = LFB_MARGIN_X + col * LFB_CHAR_W;
+            const cy: u32 = LFB_MARGIN_Y + row * LFB_CHAR_H;
+            for (s) |c| {
+                lfb.draw_char(c, cx, cy, color, COL_BG, 1);
+                cx += LFB_CHAR_W;
+            }
+        }
+        fn hex(row: u32, col: u32, val: u32, color: u32) void {
+            var buf: [10]u8 = undefined;
+            buf[0] = '0';
+            buf[1] = 'x';
+            var i: i8 = 7;
+            while (i >= 0) : (i -= 1) {
+                const nibble = @as(u8, @intCast((val >> @as(u5, @intCast(i * 4))) & 0xF));
+                buf[@as(usize, @intCast(7 - i)) + 2] = if (nibble < 10) '0' + nibble else 'A' + (nibble - 10);
+            }
+            str(row, col, &buf, color);
+        }
+    };
 
     const vector = if (frame) |f| f.vector else if (saved_tss != null) @as(u32, 8) else 0xFF;
     const name = if (vector < 32) exception_names[vector] else if (vector == 0xFF) @as([]const u8, "SOFTWARE PANIC") else "UNKNOWN EXCEPTION";
 
-    print_at(5, 2, "EXCEPTION: ", bg_red);
-    print_at(5, 13, name, bg_red);
+    if (use_lfb) {
+        draw_lfb.str(0, 0, "******************************************************************************", COL_WHITE);
+        draw_lfb.str(1, 0, "*                            KERNEL PANIC                                   *", COL_YELLOW);
+        draw_lfb.str(2, 0, "******************************************************************************", COL_WHITE);
+        draw_lfb.str(4, 0, "EXCEPTION: ", COL_WHITE);
+        draw_lfb.str(4, 11, name, COL_YELLOW);
+    } else {
+        print_at(1, 2, "****************************************************************************", bg_red);
+        print_at(2, 2, "*                              KERNEL PANIC                                *", bg_red);
+        print_at(3, 2, "****************************************************************************", bg_red);
+        print_at(5, 2, "EXCEPTION: ", bg_red);
+        print_at(5, 13, name, bg_red);
+    }
 
     var row: usize = 7;
+    var lrow: u32 = 6; // LFB logical row
+
     if (msg) |m| {
-        print_at(row, 2, "REASON: ", bg_red);
         const display_msg = if (m.len > 68) m[0..68] else m;
-        print_at(row, 10, display_msg, bg_red);
-        row += 2;
+        if (use_lfb) {
+            draw_lfb.str(lrow, 0, "REASON: ", COL_WHITE);
+            draw_lfb.str(lrow, 8, display_msg, COL_YELLOW);
+            lrow += 2;
+        } else {
+            print_at(row, 2, "REASON: ", bg_red);
+            print_at(row, 10, display_msg, bg_red);
+            row += 2;
+        }
     }
 
     const eax = if (frame) |f| f.eax else if (saved_tss) |t| t.eax else 0;
@@ -323,174 +392,261 @@ fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]cons
     const gs = if (frame) |f| f.gs else get_gs();
     const ss = if (frame) |f| (if (f.cs & 3 == 3) f.user_ss else get_ss()) else get_ss();
     const eflags = if (frame) |f| f.eflags else (if (saved_tss) |t| t.eflags else 0);
-
-    // Registers Row 1
-    print_at(row, 2, "EAX: ", bg_red);
-    print_hex_at(row, 7, eax, bg_red);
-    print_at(row, 22, "EBX: ", bg_red);
-    print_hex_at(row, 27, ebx, bg_red);
-    print_at(row, 42, "ECX: ", bg_red);
-    print_hex_at(row, 47, ecx, bg_red);
-    print_at(row, 62, "EDX: ", bg_red);
-    print_hex_at(row, 67, edx, bg_red);
-    row += 1;
-
-    // Registers Row 2
-    print_at(row, 2, "ESI: ", bg_red);
-    print_hex_at(row, 7, esi, bg_red);
-    print_at(row, 22, "EDI: ", bg_red);
-    print_hex_at(row, 27, edi, bg_red);
-    print_at(row, 42, "EBP: ", bg_red);
-    print_hex_at(row, 47, ebp, bg_red);
-    print_at(row, 62, "ESP: ", bg_red);
-    print_hex_at(row, 67, esp, bg_red);
-    row += 1;
-
-    // Registers Row 3
-    print_at(row, 2, "EIP: ", bg_red);
-    print_hex_at(row, 7, eip, bg_red);
-    print_at(row, 22, "CS : ", bg_red);
-    print_hex_at(row, 27, cs, bg_red);
-    print_at(row, 42, "ERR: ", bg_red);
-    print_hex_at(row, 47, err, bg_red);
-    print_at(row, 62, "FLG: ", bg_red);
-    print_hex_at(row, 67, eflags, bg_red);
-    row += 1;
-
-    // Segment Registers Row
-    print_at(row, 2, "DS : ", bg_red);
-    print_hex_at(row, 7, ds, bg_red);
-    print_at(row, 22, "ES : ", bg_red);
-    print_hex_at(row, 27, es, bg_red);
-    print_at(row, 42, "FS : ", bg_red);
-    print_hex_at(row, 47, fs, bg_red);
-    print_at(row, 62, "GS : ", bg_red);
-    print_hex_at(row, 67, gs, bg_red);
-    row += 1;
-
-    print_at(row, 2, "SS : ", bg_red);
-    print_hex_at(row, 7, ss, bg_red);
-    row += 1;
-
     const cr2 = fault_addr orelse get_cr2();
     const cr3 = get_cr3();
-    print_at(row, 2, "CR2: ", bg_red);
-    print_hex_at(row, 7, cr2, bg_red);
-    print_at(row, 22, "CR3: ", bg_red);
-    print_hex_at(row, 27, cr3, bg_red);
-    print_at(row, 42, "CPU: 00000000", bg_red);
-    row += 2;
 
-    if (esp != 0) {
-        print_at(row, 2, "STACK DUMP:", bg_red);
-        row += 1;
-        const stack_ptr: [*]u32 = @ptrFromInt(esp);
-        var col: usize = 2;
-        for (0..6) |i| {
-            const addr = esp + (i * 4);
-            if (memory.is_ptr_present(addr)) {
-                print_hex_at(row, col, stack_ptr[i], bg_red);
-            } else {
-                print_at(row, col, "??          ", bg_red);
+    if (use_lfb) {
+        // Row 1: EAX EBX ECX EDX
+        draw_lfb.str(lrow, 0, "EAX:", COL_WHITE);
+        draw_lfb.hex(lrow, 5, eax, COL_YELLOW);
+        draw_lfb.str(lrow, 16, "EBX:", COL_WHITE);
+        draw_lfb.hex(lrow, 21, ebx, COL_YELLOW);
+        draw_lfb.str(lrow, 32, "ECX:", COL_WHITE);
+        draw_lfb.hex(lrow, 37, ecx, COL_YELLOW);
+        draw_lfb.str(lrow, 48, "EDX:", COL_WHITE);
+        draw_lfb.hex(lrow, 53, edx, COL_YELLOW);
+        lrow += 1;
+        // Row 2: ESI EDI EBP ESP
+        draw_lfb.str(lrow, 0, "ESI:", COL_WHITE);
+        draw_lfb.hex(lrow, 5, esi, COL_YELLOW);
+        draw_lfb.str(lrow, 16, "EDI:", COL_WHITE);
+        draw_lfb.hex(lrow, 21, edi, COL_YELLOW);
+        draw_lfb.str(lrow, 32, "EBP:", COL_WHITE);
+        draw_lfb.hex(lrow, 37, ebp, COL_YELLOW);
+        draw_lfb.str(lrow, 48, "ESP:", COL_WHITE);
+        draw_lfb.hex(lrow, 53, esp, COL_YELLOW);
+        lrow += 1;
+        // Row 3: EIP CS ERR FLG
+        draw_lfb.str(lrow, 0, "EIP:", COL_WHITE);
+        draw_lfb.hex(lrow, 5, eip, COL_YELLOW);
+        draw_lfb.str(lrow, 16, "CS: ", COL_WHITE);
+        draw_lfb.hex(lrow, 21, cs, COL_YELLOW);
+        draw_lfb.str(lrow, 32, "ERR:", COL_WHITE);
+        draw_lfb.hex(lrow, 37, err, COL_YELLOW);
+        draw_lfb.str(lrow, 48, "FLG:", COL_WHITE);
+        draw_lfb.hex(lrow, 53, eflags, COL_YELLOW);
+        lrow += 1;
+        // Row 4: DS ES FS GS
+        draw_lfb.str(lrow, 0, "DS: ", COL_WHITE);
+        draw_lfb.hex(lrow, 5, ds, COL_YELLOW);
+        draw_lfb.str(lrow, 16, "ES: ", COL_WHITE);
+        draw_lfb.hex(lrow, 21, es, COL_YELLOW);
+        draw_lfb.str(lrow, 32, "FS: ", COL_WHITE);
+        draw_lfb.hex(lrow, 37, fs, COL_YELLOW);
+        draw_lfb.str(lrow, 48, "GS: ", COL_WHITE);
+        draw_lfb.hex(lrow, 53, gs, COL_YELLOW);
+        lrow += 1;
+        // Row 5: SS CR2 CR3
+        draw_lfb.str(lrow, 0, "SS: ", COL_WHITE);
+        draw_lfb.hex(lrow, 5, ss, COL_YELLOW);
+        draw_lfb.str(lrow, 16, "CR2:", COL_WHITE);
+        draw_lfb.hex(lrow, 21, cr2, COL_YELLOW);
+        draw_lfb.str(lrow, 32, "CR3:", COL_WHITE);
+        draw_lfb.hex(lrow, 37, cr3, COL_YELLOW);
+        lrow += 2;
+
+        if (esp != 0) {
+            draw_lfb.str(lrow, 0, "STACK DUMP:", COL_WHITE);
+            lrow += 1;
+            const stack_ptr: [*]u32 = @ptrFromInt(esp);
+            var sc: u32 = 0;
+            for (0..6) |si| {
+                const addr = esp + (si * 4);
+                if (memory.is_ptr_present(addr)) {
+                    draw_lfb.hex(lrow, sc, stack_ptr[si], COL_YELLOW);
+                } else {
+                    draw_lfb.str(lrow, sc, "??????????", COL_WHITE);
+                }
+                sc += 11;
             }
-            col += 14;
+            lrow += 2;
+
+            draw_lfb.str(lrow, 0, "BACKTRACE:", COL_WHITE);
+            lrow += 1;
+            var cur_ebp = ebp;
+            var bc: u32 = 0;
+            var bframes: usize = 0;
+            while (cur_ebp != 0 and bframes < 6) : (bframes += 1) {
+                if (!memory.is_ptr_present(cur_ebp) or !memory.is_ptr_present(cur_ebp + 4)) break;
+                const fp: [*]u32 = @ptrFromInt(cur_ebp);
+                draw_lfb.hex(lrow, bc, fp[1], COL_YELLOW);
+                bc += 11;
+                const prev = fp[0];
+                if (prev <= cur_ebp) break;
+                cur_ebp = prev;
+            }
+            lrow += 2;
         }
-        row += 2;
 
-        print_at(row, 2, "BACKTRACE:", bg_red);
-        row += 1;
-        var current_ebp = ebp;
-        var col_bt: usize = 2;
-        var frames: usize = 0;
-        while (current_ebp != 0 and frames < 6) : (frames += 1) {
-            // Check if current_ebp and current_ebp + 4 are readable
-            if (!memory.is_ptr_present(current_ebp) or !memory.is_ptr_present(current_ebp + 4)) break;
-
-            const frame_ptr: [*]u32 = @ptrFromInt(current_ebp);
-            const return_addr = frame_ptr[1];
-            print_hex_at(row, col_bt, return_addr, bg_red);
-            col_bt += 14;
-
-            const prev_ebp = frame_ptr[0];
-            if (prev_ebp <= current_ebp) break; // Defensive: stack grows down
-            current_ebp = prev_ebp;
-        }
-        row += 2;
-    }
-
-    if (config.ENABLE_RSOD_REBOOT) {
-        print_at(row, 2, "SYSTEM HALTED. Press ENTER to reboot.", bg_red);
+        draw_lfb.str(lrow, 0, "SYSTEM HALTED. Press ENTER to reboot.", COL_WHITE);
     } else {
-        print_at(row, 2, "SYSTEM HALTED.", bg_red);
+        // VGA text fallback
+        print_at(row, 2, "EAX: ", bg_red);
+        print_hex_at(row, 7, eax, bg_red);
+        print_at(row, 22, "EBX: ", bg_red);
+        print_hex_at(row, 27, ebx, bg_red);
+        print_at(row, 42, "ECX: ", bg_red);
+        print_hex_at(row, 47, ecx, bg_red);
+        print_at(row, 62, "EDX: ", bg_red);
+        print_hex_at(row, 67, edx, bg_red);
+        row += 1;
+        print_at(row, 2, "ESI: ", bg_red);
+        print_hex_at(row, 7, esi, bg_red);
+        print_at(row, 22, "EDI: ", bg_red);
+        print_hex_at(row, 27, edi, bg_red);
+        print_at(row, 42, "EBP: ", bg_red);
+        print_hex_at(row, 47, ebp, bg_red);
+        print_at(row, 62, "ESP: ", bg_red);
+        print_hex_at(row, 67, esp, bg_red);
+        row += 1;
+        print_at(row, 2, "EIP: ", bg_red);
+        print_hex_at(row, 7, eip, bg_red);
+        print_at(row, 22, "CS : ", bg_red);
+        print_hex_at(row, 27, cs, bg_red);
+        print_at(row, 42, "ERR: ", bg_red);
+        print_hex_at(row, 47, err, bg_red);
+        print_at(row, 62, "FLG: ", bg_red);
+        print_hex_at(row, 67, eflags, bg_red);
+        row += 1;
+        print_at(row, 2, "DS : ", bg_red);
+        print_hex_at(row, 7, ds, bg_red);
+        print_at(row, 22, "ES : ", bg_red);
+        print_hex_at(row, 27, es, bg_red);
+        print_at(row, 42, "FS : ", bg_red);
+        print_hex_at(row, 47, fs, bg_red);
+        print_at(row, 62, "GS : ", bg_red);
+        print_hex_at(row, 67, gs, bg_red);
+        row += 1;
+        print_at(row, 2, "SS : ", bg_red);
+        print_hex_at(row, 7, ss, bg_red);
+        row += 1;
+        print_at(row, 2, "CR2: ", bg_red);
+        print_hex_at(row, 7, cr2, bg_red);
+        print_at(row, 22, "CR3: ", bg_red);
+        print_hex_at(row, 27, cr3, bg_red);
+        row += 2;
+
+        if (esp != 0) {
+            print_at(row, 2, "STACK DUMP:", bg_red);
+            row += 1;
+            const stack_ptr: [*]u32 = @ptrFromInt(esp);
+            var col: usize = 2;
+            for (0..6) |i| {
+                const addr = esp + (i * 4);
+                if (memory.is_ptr_present(addr)) {
+                    print_hex_at(row, col, stack_ptr[i], bg_red);
+                } else {
+                    print_at(row, col, "??          ", bg_red);
+                }
+                col += 14;
+            }
+            row += 2;
+
+            print_at(row, 2, "BACKTRACE:", bg_red);
+            row += 1;
+            var current_ebp = ebp;
+            var col_bt: usize = 2;
+            var frames: usize = 0;
+            while (current_ebp != 0 and frames < 6) : (frames += 1) {
+                if (!memory.is_ptr_present(current_ebp) or !memory.is_ptr_present(current_ebp + 4)) break;
+                const fp: [*]u32 = @ptrFromInt(current_ebp);
+                print_hex_at(row, col_bt, fp[1], bg_red);
+                col_bt += 14;
+                const prev_ebp = fp[0];
+                if (prev_ebp <= current_ebp) break;
+                current_ebp = prev_ebp;
+            }
+            row += 2;
+        }
+
+        if (config.ENABLE_RSOD_REBOOT) {
+            print_at(row, 2, "SYSTEM HALTED. Press ENTER to reboot.", bg_red);
+        } else {
+            print_at(row, 2, "SYSTEM HALTED.", bg_red);
+        }
     }
 
-    // Serial output
-    serial.serial_print_str("\r\n*** KERNEL PANIC ***\r\n");
-    serial.serial_print_str("EXCEPTION: ");
+    // Serial output - clean formatted panic
+    serial.serial_print_str("\r\n\r\n");
+    serial.serial_print_str("\x1b[41;1;37m"); // ANSI: red bg, bold white
+    serial.serial_print_str("============================================================\r\n");
+    serial.serial_print_str("                      *** KERNEL PANIC ***                  \r\n");
+    serial.serial_print_str("============================================================\r\n");
+    serial.serial_print_str("\x1b[0m"); // reset
+    serial.serial_print_str("EXCEPTION : ");
     serial.serial_print_str(name);
     serial.serial_print_str("\r\n");
     if (msg) |m| {
-        serial.serial_print_str("REASON: ");
+        serial.serial_print_str("REASON    : ");
         serial.serial_print_str(m);
         serial.serial_print_str("\r\n");
     }
+    serial.serial_print_str("------------------------------------------------------------\r\n");
     serial.serial_print_str("EAX: ");
     serial_print_hex(eax);
-    serial.serial_print_str(" EBX: ");
+    serial.serial_print_str("  EBX: ");
     serial_print_hex(ebx);
-    serial.serial_print_str(" ECX: ");
+    serial.serial_print_str("  ECX: ");
     serial_print_hex(ecx);
-    serial.serial_print_str(" EDX: ");
+    serial.serial_print_str("  EDX: ");
     serial_print_hex(edx);
     serial.serial_print_str("\r\n");
     serial.serial_print_str("ESI: ");
     serial_print_hex(esi);
-    serial.serial_print_str(" EDI: ");
+    serial.serial_print_str("  EDI: ");
     serial_print_hex(edi);
-    serial.serial_print_str(" EBP: ");
+    serial.serial_print_str("  EBP: ");
     serial_print_hex(ebp);
-    serial.serial_print_str(" ESP: ");
+    serial.serial_print_str("  ESP: ");
     serial_print_hex(esp);
     serial.serial_print_str("\r\n");
     serial.serial_print_str("EIP: ");
     serial_print_hex(eip);
-    serial.serial_print_str(" CS : ");
+    serial.serial_print_str("  CS : ");
     serial_print_hex(cs);
-    serial.serial_print_str(" ERR: ");
+    serial.serial_print_str("  ERR: ");
     serial_print_hex(err);
-    serial.serial_print_str(" FLG: ");
+    serial.serial_print_str("  FLG: ");
     serial_print_hex(eflags);
     serial.serial_print_str("\r\n");
     serial.serial_print_str("DS : ");
     serial_print_hex(ds);
-    serial.serial_print_str(" ES : ");
+    serial.serial_print_str("  ES : ");
     serial_print_hex(es);
-    serial.serial_print_str(" FS : ");
+    serial.serial_print_str("  FS : ");
     serial_print_hex(fs);
-    serial.serial_print_str(" GS : ");
+    serial.serial_print_str("  GS : ");
     serial_print_hex(gs);
     serial.serial_print_str("\r\n");
     serial.serial_print_str("SS : ");
     serial_print_hex(ss);
-    serial.serial_print_str(" CR2: ");
+    serial.serial_print_str("  CR2: ");
     serial_print_hex(cr2);
-    serial.serial_print_str(" CR3: ");
+    serial.serial_print_str("  CR3: ");
     serial_print_hex(cr3);
     serial.serial_print_str("\r\n");
+    serial.serial_print_str("------------------------------------------------------------\r\n");
     if (esp != 0) {
         serial.serial_print_str("STACK DUMP: ");
         const stack_ptr: [*]u32 = @ptrFromInt(esp);
         for (0..8) |i| {
-            serial_print_hex(stack_ptr[i]);
+            const addr = esp + (i * 4);
+            if (memory.is_ptr_present(addr)) {
+                serial_print_hex(stack_ptr[i]);
+            } else {
+                serial.serial_print_str("??????????  ");
+            }
             serial.serial_print_str(" ");
         }
         serial.serial_print_str("\r\n");
     }
+    serial.serial_print_str("============================================================\r\n");
     if (config.ENABLE_RSOD_REBOOT) {
         serial.serial_print_str("SYSTEM HALTED. Press ENTER to reboot.\r\n");
     } else {
-        serial.serial_print_str("HALTED.\r\n");
+        serial.serial_print_str("SYSTEM HALTED.\r\n");
     }
+    serial.serial_print_str("============================================================\r\n");
 
     if (config.ENABLE_RSOD_REBOOT) {
         // Clear keyboard and serial buffers

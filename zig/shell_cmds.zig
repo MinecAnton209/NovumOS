@@ -808,53 +808,45 @@ pub export fn cmd_mem(args_ptr: [*]const u8, args_len: u32) void {
 
         const size = @as(usize, @intCast(mb_size)) * 1024 * 1024;
 
-        if (memory.heap.alloc(size)) |ptr| {
-            common.printZ("Allocation successful at ");
-            common.printHex(@as(u32, @intCast(@intFromPtr(ptr))));
+        // Use a fixed user-space virtual address well above kernel area.
+        // Syscall 15 (MemoryMapRange) allocates fresh PMM frames for us,
+        // so the pages are user-accessible (not supervisor-only like kernel heap).
+        const test_vaddr: usize = 0x1000000; // 16 MB — safe above kernel
 
-            common.printZ("\nPre-mapping memory (Zero CPU Exceptions)... ");
-            memory.map_range(@intFromPtr(ptr), size, false);
-            common.printZ("Done.\n");
+        common.printZ("Mapping user memory at ");
+        common.printHex(@intCast(test_vaddr));
+        common.printZ("...\n");
 
-            common.printZ("Filling memory...\n");
+        memory.map_range(test_vaddr, size, false);
 
-            var aborted = false;
-            var i: usize = 0;
-            var check_counter: u32 = 0;
-            while (i < size) : (i += 4096) {
-                // Check Ctrl+C every 1024 iterations (4MB) to improve performance
-                check_counter += 1;
-                if (check_counter >= 1024) {
-                    check_counter = 0;
-                    if (keyboard_isr.check_ctrl_c()) {
-                        common.printZ("\nAborted by user!\n");
-                        aborted = true;
-                        break;
-                    }
+        common.printZ("Pre-mapping done. Filling memory...\n");
+
+        const ptr: [*]u8 = @ptrFromInt(test_vaddr);
+        var aborted = false;
+        var i: usize = 0;
+        var check_counter: u32 = 0;
+        while (i < size) : (i += 4096) {
+            check_counter += 1;
+            if (check_counter >= 1024) {
+                check_counter = 0;
+                if (keyboard_isr.check_ctrl_c()) {
+                    common.printZ("\nAborted by user!\n");
+                    aborted = true;
+                    break;
                 }
-                ptr[i] = @as(u8, @intCast(i % 255));
             }
-
-            if (!aborted) {
-                // Final byte
-                ptr[size - 1] = 0xAA;
-                common.printZ("Memory fill complete.\n");
-            }
-
-            const end_pf = memory.pf_count;
-            common.printZ("Quiet Page Faults handled: ");
-            common.printNum(@intCast(end_pf - start_pf));
-            common.printZ("\n");
-
-            // In NovumOS, we often keep the allocation for testing or free it
-            // Let's at least trigger GC to show it works
-            memory.heap.free(ptr);
-            memory.heap.garbage_collect();
-        } else {
-            common.printError("Error: Failed to allocate ");
-            common.printNum(mb_size);
-            common.printZ("MB.\n");
+            ptr[i] = @as(u8, @intCast(i % 255));
         }
+
+        if (!aborted) {
+            ptr[size - 1] = 0xAA;
+            common.printZ("Memory fill complete.\n");
+        }
+
+        const end_pf = memory.pf_count;
+        common.printZ("Page faults handled: ");
+        common.printNum(@intCast(end_pf - start_pf));
+        common.printZ("\n");
     } else {
         common.printZ("Usage: mem --test [MB]\n");
     }

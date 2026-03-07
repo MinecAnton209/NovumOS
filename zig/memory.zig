@@ -21,6 +21,7 @@ extern const idt_start: anyopaque;
 // We'll allocate a fixed-size bitmap for up to 4GB (128KB bitmap)
 var bitmap: [131072]u8 align(4096) linksection(".system") = [_]u8{0} ** 131072;
 var last_free_page: u32 = 0;
+var pmm_lock: u32 = 0;
 
 /// Public alias to the kernel's BSS end symbol (used by user.zig for kernel_end)
 pub const ebss_sym: *const anyopaque = &ebss;
@@ -43,6 +44,14 @@ pub const pmm = struct {
     }
 
     pub fn alloc_page() ?usize {
+        const smp = @import("smp.zig");
+        const eflags = interrupts_save();
+        smp.spin_lock(&pmm_lock);
+        defer {
+            smp.spin_unlock(&pmm_lock);
+            interrupts_restore(eflags);
+        }
+
         var i = last_free_page;
         while (i < TOTAL_PAGES) : (i += 1) {
             if (!is_page_busy(i)) {
@@ -55,6 +64,14 @@ pub const pmm = struct {
     }
 
     pub fn free_page(addr: usize) void {
+        const smp = @import("smp.zig");
+        const eflags = interrupts_save();
+        smp.spin_lock(&pmm_lock);
+        defer {
+            smp.spin_unlock(&pmm_lock);
+            interrupts_restore(eflags);
+        }
+
         const idx = @as(u32, @intCast(addr / PAGE_SIZE));
         clear_page_busy(idx);
         if (idx < last_free_page) last_free_page = idx;
@@ -138,6 +155,41 @@ pub const PageTable = [1024]u32;
 // Paging structures - MUST be 4096-byte aligned for the CPU
 pub var page_directory: PageDirectory align(4096) linksection(".system") = [_]u32{0} ** 1024;
 pub var page_tables: [1024]?*PageTable linksection(".system") = [_]?*PageTable{null} ** 1024;
+
+inline fn interrupts_save() u32 {
+    var eflags: u32 = undefined;
+    asm volatile (
+        \\pushfl
+        \\popl %[eflags]
+        : [eflags] "=r" (eflags),
+    );
+    // CLI is a privileged instruction — only execute it in Ring 0 (CPL=0).
+    // In Ring 3 the spinlock is sufficient for concurrency (no local IRQ masking).
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) {
+        asm volatile ("cli");
+    }
+    return eflags;
+}
+
+inline fn interrupts_restore(eflags: u32) void {
+    // Only restore IF via popfl in Ring 0; in Ring 3 it's a no-op.
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) {
+        asm volatile (
+            \\pushl %[eflags]
+            \\popfl
+            :
+            : [eflags] "r" (eflags),
+            : "memory");
+    }
+}
 
 // Statically allocate enough page tables to safely cover the first 16MB (Kernel, stack, IDT)
 var first_16mb_pts: [4]PageTable align(4096) linksection(".system") = [_]PageTable{[_]u32{0} ** 1024} ** 4;
@@ -433,6 +485,8 @@ pub fn is_user_ptr(addr: usize) bool {
 }
 
 pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
+    if (size == 0) return;
+
     var cs: u16 = 0;
     asm volatile ("mov %%cs, %[cs]"
         : [cs] "=r" (cs),
@@ -448,17 +502,23 @@ pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
         return;
     }
 
+    const end_aligned = (vaddr + (size - 1)) & 0xFFFFF000;
     var addr = vaddr & 0xFFFFF000;
-    const end = vaddr + size;
-    while (addr < end) {
+
+    while (true) {
         const pd_idx = addr >> 22;
         if ((page_directory[pd_idx] & 0x80) != 0) {
             // Huge page: map it and jump to next 4MB
             _ = map_page(addr, is_user);
-            addr = (addr + 0x400000) & 0xFFC00000;
+            const next_pd, const overflow = @addWithOverflow(addr & 0xFFC00000, @as(usize, 0x400000));
+            if (overflow != 0 or next_pd > end_aligned) break;
+            addr = next_pd;
         } else {
             _ = map_page(addr, is_user);
-            addr += PAGE_SIZE;
+            if (addr >= end_aligned) break;
+            const next_addr, const overflow = @addWithOverflow(addr, @as(usize, PAGE_SIZE));
+            if (overflow != 0) break;
+            addr = next_addr;
         }
     }
 }
@@ -471,6 +531,7 @@ const BlockHeader = struct {
 };
 
 var first_block: ?*BlockHeader = null;
+var heap_lock: u32 = 0;
 
 pub const heap = struct {
     pub fn init() void {
@@ -485,6 +546,14 @@ pub const heap = struct {
     }
 
     pub fn alloc(size: usize) ?[*]u8 {
+        const smp = @import("smp.zig");
+        const eflags = interrupts_save();
+        smp.spin_lock(&heap_lock);
+        defer {
+            smp.spin_unlock(&heap_lock);
+            interrupts_restore(eflags);
+        }
+
         // Align to 8 bytes
         const aligned_size = (size + 7) & ~@as(usize, 7);
 
@@ -542,6 +611,14 @@ pub const heap = struct {
     }
 
     pub fn free(ptr: [*]u8) void {
+        const smp = @import("smp.zig");
+        const eflags = interrupts_save();
+        smp.spin_lock(&heap_lock);
+        defer {
+            smp.spin_unlock(&heap_lock);
+            interrupts_restore(eflags);
+        }
+
         const header_ptr = @intFromPtr(ptr) - @sizeOf(BlockHeader);
         const header = @as(*BlockHeader, @ptrFromInt(header_ptr));
         header.is_free = true;
@@ -553,6 +630,9 @@ pub const heap = struct {
     /// Garbage Collector / Memory Cleaner
     /// Merges adjacent free blocks to prevent fragmentation
     pub fn garbage_collect() void {
+        const eflags = interrupts_save();
+        defer interrupts_restore(eflags);
+
         if (!config.USE_GARBAGE_COLLECTOR) return;
 
         common.printZ("GC: Running memory cleanup...\n");
