@@ -14,7 +14,7 @@ fn is_updating() bool {
     return (inb(CMOS_DATA) & 0x80) != 0;
 }
 
-pub const DateTime = struct {
+pub const DateTime = extern struct {
     year: u16,
     month: u8,
     day: u8,

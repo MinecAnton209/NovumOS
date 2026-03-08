@@ -19,28 +19,37 @@ cd sdk/examples/hello_world
 ```
 
 ## API Reference
-
+ 
 ### System Calls
-
+ 
 All system calls are exposed through `<novum.h>`. Available functions:
-
-#### `void nv_exit(int code)`
-Exit the current program with the given exit code.
-
-#### `void nv_print(const char* str)`
-Print a null-terminated string to the console.
-
-#### `char nv_getchar(void)`
-Wait for and return a single character from keyboard input.
-
-#### `void nv_set_cursor(uint8_t row, uint8_t col)`
-Set the cursor position on screen (0-indexed).
-
-#### `void nv_get_cursor(uint8_t* row, uint8_t* col)`
-Get the current cursor position.
-
-#### `void nv_clear_screen(void)`
-Clear the screen and reset cursor to (0,0).
+ 
+#### Process & System
+- `void nv_exit(int code)`: Exit the current program.
+- `void nv_sleep(uint32_t ms)`: Sleep for N milliseconds.
+- `uint32_t nv_get_ticks(void)`: Get system timer ticks since boot.
+- `void nv_shutdown(void)`: Power off the system.
+- `void nv_reboot(void)`: Reboot the system.
+ 
+#### Console I/O
+- `void nv_print(const char* str)`: Print a null-terminated string.
+- `char nv_getchar(void)`: Wait for keyboard input.
+- `void nv_set_cursor(uint8_t row, uint8_t col)`: Move cursor.
+- `void nv_get_cursor(uint8_t* row, uint8_t* col)`: Get cursor position.
+- `void nv_clear_screen(void)`: Clear display.
+- `void nv_draw_char_at(uint8_t r, uint8_t c, uint8_t ch, uint16_t attr)`: Direct VGA draw.
+ 
+#### Hardware & Time
+- `uint8_t nv_inb(uint16_t port)` / `void nv_outb(uint16_t port, uint8_t val)`: I/O Port access.
+- `void nv_get_datetime(nv_datetime_t* dt)`: Get RTC time and date.
+ 
+#### Memory Management
+- `void* nv_malloc(uint32_t size)`: Allocate heap memory.
+- `void nv_free(void* ptr)`: Free heap memory.
+- `void nv_mmap_range(uint32_t vaddr, uint32_t size)`: Map virtual memory.
+ 
+#### Utilities
+- `int nv_check_ctrl_c(void)`: Check for Ctrl+C interrupt.
 
 ## Examples
 
