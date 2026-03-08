@@ -235,11 +235,12 @@ pub fn init_paging() void {
                 if (addr == 0) {
                     pt[j] = 0x0 | 0x2; // NULL protection (P=0)
                 }
-                // Critical System Structures (PD/PMM/PT) - User-accessible if part of shell binary
+                // Critical System Structures (PD/PMM/PT) and IDT
+                // MUST NOT be user-accessible to prevent privilege escalation.
                 else if ((addr >= system_start and addr < system_end) or
                     (addr >= (idt_addr & 0xFFFFF000) and addr < (idt_addr & 0xFFFFF000) + 4096))
                 {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
+                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, USER=0 (Supervisor Only)
                 }
                 // All kernel code - User Read/Execute Only
                 // NOTE: Ring 3 needs this because Nova/Shell runs inside the kernel binary.
@@ -257,11 +258,18 @@ pub fn init_paging() void {
                     pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
                 }
                 // (Static User Stack Area removed to support dynamic per-process stacks)
-                // Everything else (VGA, BIOS, Heap pool) - User Read/Write
-                // This is required because NovumOS runs its shell directly from kernel binary
-                // and the heap pool starts immediately after the kernel.
+                // Everything else (BIOS, Heap, hardware areas)
+                // We keep VGA buffer user-accessible for the shell, but protect BIOS/Hardware areas.
                 else {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
+                    const is_vga = (addr >= 0xB8000 and addr < 0xC0000);
+                    // The shell and Nova need access to the heap (shared for simplicity for now)
+                    const is_heap = (addr >= @intFromPtr(&ebss_sym) and addr < 16 * 1024 * 1024);
+
+                    if (is_vga or is_heap) {
+                        pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
+                    } else {
+                        pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, USER=0 (Supervisor)
+                    }
                 }
             }
         }
@@ -277,9 +285,11 @@ pub fn init_paging() void {
             const addr = i * coverage;
             // 16-64MB present, rest demand
             if (addr < 64 * 1024 * 1024) {
-                page_directory[i] = addr | 0x87; // PS=1, RW=1, P=1, USER=1
+                // Identity map physical RAM to kernel as Supervisor
+                page_directory[i] = addr | 0x83; // PS=1, RW=1, P=1, USER=0 (Supervisor Only)
             } else {
-                page_directory[i] = addr | 0x86; // PS=1, RW=1, P=0, USER=1
+                // Demand paging for the rest of physical memory
+                page_directory[i] = addr | 0x82; // PS=1, RW=1, P=0, USER=0 (Supervisor Only)
             }
         } else {
             page_directory[i] = 0;
@@ -336,6 +346,7 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
         const pt = &first_16mb_pts[pd_idx];
         page_tables[pd_idx] = pt;
         // The first 16MB (indices 0-3) MUST have USER bit set in PDE to allow user access to kernel binary (Nova/Shell).
+        // For higher indices, we keep them as Supervisor-only; map_page will upgrade if needed.
         const attr: u32 = if (pd_idx < 4) 0x7 else 0x3;
         page_directory[pd_idx] = @as(u32, @intCast(@intFromPtr(pt))) | attr;
         return pt;
