@@ -40,6 +40,18 @@ jobs:
     - name: Setup NASM
       uses: ilammy/setup-nasm@v1
 
+    - name: Cache Zig
+      uses: actions/cache@v4
+      with:
+        path: |
+          .zig-cache
+          zig/.zig-cache
+          ~/.cache/zig
+        key: ${{ runner.os }}-zig-codeql-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-zig-codeql-
+          ${{ runner.os }}-zig-
+
     # We need to compile the C files so CodeQL can trace the build
     - name: Build SDK C apps
       run: |

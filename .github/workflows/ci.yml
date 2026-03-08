@@ -20,6 +20,17 @@ jobs:
     - name: Setup NASM
       uses: ilammy/setup-nasm@v1
 
+    - name: Cache Zig
+      uses: actions/cache@v4
+      with:
+        path: |
+          .zig-cache
+          zig/.zig-cache
+          ~\AppData\Local\zig
+        key: ${{ runner.os }}-zig-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-zig-
+
     - name: Build NovumOS (Windows)
       run: .\build.bat
 
@@ -49,6 +60,17 @@ jobs:
 
     - name: Setup NASM
       uses: ilammy/setup-nasm@v1
+
+    - name: Cache Zig
+      uses: actions/cache@v4
+      with:
+        path: |
+          .zig-cache
+          zig/.zig-cache
+          ~/.cache/zig
+        key: ${{ runner.os }}-zig-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-zig-
 
     - name: Build NovumOS (Linux)
       run: |
@@ -84,6 +106,17 @@ jobs:
 
     - name: Setup NASM
       uses: ilammy/setup-nasm@v1
+
+    - name: Cache Zig
+      uses: actions/cache@v4
+      with:
+        path: |
+          zig/.zig-cache
+          ~/.cache/zig
+        key: ${{ runner.os }}-zig-test-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-zig-test-
+          ${{ runner.os }}-zig-
 
     - name: Build Zig modules
       run: |
