@@ -1394,3 +1394,18 @@ pub export fn cmd_res(args_ptr: [*]const u8, args_len: u32) void {
         common.printZ("Error: BGA not available or resolution not supported.\n");
     }
 }
+
+pub export fn cmd_kill(args_ptr: [*]const u8, args_len: u32) void {
+    var argv: [8][]const u8 = undefined;
+    const argc = common.parseArgs(args_ptr[0..args_len], &argv);
+    if (argc == 0) {
+        common.printZ("Usage: kill <pid>\n");
+        return;
+    }
+    const pid = @as(u32, @intCast(common.parse_int(argv[0]) orelse 0));
+    if (scheduler.terminate_process(pid)) {
+        common.printZ("Process terminated.\n");
+    } else {
+        common.printZ("Error: Could not terminate process.\n");
+    }
+}

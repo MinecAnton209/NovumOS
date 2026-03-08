@@ -80,6 +80,10 @@ pub fn create_process(name: []const u8, entry_point: usize, is_user: bool) !*Pro
         stack_top[1] = 0xA3; // CS
         stack_top[0] = entry_point;
     } else {
+        // Kernel Mode: Push Return Address for RET
+        stack_top -= 1;
+        stack_top[0] = @intFromPtr(&process_return_stub);
+
         // Kernel Mode IRET Frame: [EFLAGS, CS, EIP]
         stack_top -= 3;
         stack_top[2] = 0x202; // EFLAGS
@@ -102,15 +106,46 @@ pub fn create_process(name: []const u8, entry_point: usize, is_user: bool) !*Pro
     p.esp = @intFromPtr(stack_top);
     p.cr3 = memory.get_current_pd(); // Inherit kernel page directory for now
 
-    // Add to list
+    // Add to list (reuse terminated slots or find empty)
     for (0..64) |idx| {
-        if (processes[idx] == null) {
+        if (processes[idx] == null or (processes[idx].?.state == .Terminated and processes[idx].?.id != 0)) {
+            if (processes[idx]) |old| {
+                // Free old process memory if not kernel
+                if (old.stack.len > 0) memory.heap.free(old.stack.ptr);
+                memory.heap.free(@ptrCast(@constCast(old)));
+            }
             processes[idx] = p;
             break;
         }
     }
 
     return p;
+}
+
+pub fn terminate_process(pid: u32) bool {
+    if (pid == 0) return false; // Don't kill kernel
+    for (processes) |maybe_p| {
+        if (maybe_p) |p| {
+            if (p.id == pid) {
+                p.state = .Terminated;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+pub fn exit_process() noreturn {
+    if (current_process) |p| {
+        p.state = .Terminated;
+    }
+    // Yield
+    asm volatile ("int $0x20");
+    while (true) {}
+}
+
+fn process_return_stub() noreturn {
+    exit_process();
 }
 
 pub fn schedule(current_esp: u32) u32 {

@@ -38,6 +38,10 @@ const Command = struct {
     handler: *const fn ([]const u8) void,
 };
 
+fn cmd_handler_kill(args: []const u8) void {
+    shell_cmds.cmd_kill(args.ptr, @intCast(args.len));
+}
+
 fn cmd_handler_ps(args: []const u8) void {
     _ = args;
     shell_cmds.cmd_ps();
@@ -52,6 +56,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "nova", .help = "Start Nova Scripting Interpreter", .handler = cmd_handler_nova },
     .{ .name = "top", .help = "Real-time CPU and Task Monitor", .handler = cmd_handler_top },
     .{ .name = "ps", .help = "List active system processes", .handler = cmd_handler_ps },
+    .{ .name = "kill", .help = "kill <pid> - Terminate a running process", .handler = cmd_handler_kill },
     .{ .name = "uptime", .help = "Show system runtime and RTC time", .handler = cmd_handler_uptime },
     .{ .name = "reboot", .help = "Safely restart the system", .handler = cmd_handler_reboot },
     .{ .name = "shutdown", .help = "Safely turn off the system (ACPI)", .handler = cmd_handler_shutdown },
