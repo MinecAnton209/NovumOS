@@ -1,5 +1,6 @@
 const common = @import("commands/common.zig");
 const config = @import("config.zig");
+const logger = @import("logger.zig");
 
 pub const PAGE_SIZE = 4096;
 pub var MAX_MEMORY: usize = 128 * 1024 * 1024; // Default to 128MB, updated at boot
@@ -400,9 +401,9 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
         const is_kernel_image = is_kernel_code or is_rodata or is_data or is_system_area;
         if (!is_vga and !is_allowed_mmio and !is_kernel_image) {
             if (vaddr < kernel_end or vaddr >= MAX_MEMORY) {
-                common.printError("[Security] User-mode tried to map unauthorized memory: ");
-                common.printHex(@intCast(vaddr));
-                common.printZ("\n");
+                logger.security("User-mode unauthorized memory map attempt");
+                var buf: [16]u8 = undefined;
+                logger.debug(common.intToHex(@intCast(vaddr), &buf));
                 return false;
             }
         }
@@ -718,7 +719,7 @@ pub const heap = struct {
 
         if (!config.USE_GARBAGE_COLLECTOR) return;
 
-        common.printZ("GC: Running memory cleanup...\n");
+        logger.info("GC: Running memory cleanup...");
         coalesce();
     }
 

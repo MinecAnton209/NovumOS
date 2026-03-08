@@ -159,16 +159,16 @@ pub fn draw_char(c: u8, x: u32, y: u32, fg: u32, bg: u32, scale: u32) void {
     }
 }
 
-pub fn draw_string(s: []const u8, x: u32, y: u32, color: u32, scale: u32) void {
+pub fn draw_string(s: []const u8, x: u32, y: u32, fg: u32, bg: u32, scale: u32) void {
     if (!initialized) return;
     var cx = x;
     var cy = y;
-    for (s) |c| {
-        if (c == '\n') {
+    for (s) |ch| {
+        if (ch == '\n') {
             cx = x;
             cy += font.FONT_HEIGHT * scale;
         } else {
-            draw_char(c, cx, cy, color, scale);
+            draw_char(ch, cx, cy, fg, bg, scale);
             cx += font.FONT_WIDTH * scale;
         }
     }

@@ -5,6 +5,7 @@ const keyboard = @import("keyboard_isr.zig");
 const vga = @import("drivers/vga.zig");
 const timer = @import("drivers/timer.zig");
 const memory = @import("memory.zig");
+const logger = @import("logger.zig");
 const ata = @import("drivers/ata.zig");
 const rtc = @import("drivers/rtc.zig");
 
@@ -34,6 +35,14 @@ pub fn get_is_user_mode() bool {
 
 pub fn set_is_user_mode(val: bool) void {
     smp.cores[exceptions.get_core_index()].is_user_mode = val;
+}
+
+pub fn get_is_privileged() bool {
+    return smp.cores[exceptions.get_core_index()].is_privileged;
+}
+
+pub fn set_is_privileged(val: bool) void {
+    smp.cores[exceptions.get_core_index()].is_privileged = val;
 }
 
 // Constant for maximum allowed string length in syscalls
@@ -101,19 +110,29 @@ fn is_io_port_allowed(port: u16) bool {
     return true;
 }
 
+fn checkPrivilege(regs: *Registers, action: []const u8) bool {
+    _ = regs;
+    if (!get_is_privileged()) {
+        logger.security(action); // Log the unauthorized action
+        return false;
+    }
+    return true;
+}
+
 // System call handler exported for linker
 export fn handle_syscall_zig(regs: *Registers) void {
+    var buf: [32]u8 = undefined;
     switch (regs.eax) {
         0 => { // Exit
-            common.printZ("[Kernel] User mode process exited. Returning to Shell...\n");
-            jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop));
+            logger.info("User mode process exited. Returning to Shell...");
+            jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true); // Shell is privileged
         },
         1 => { // PrintZ(EBX = string_ptr)
             const ptr = @as([*]const u8, @ptrFromInt(regs.ebx));
             if (safe_strlen_user(ptr, MAX_SYSCALL_STR_LEN)) |len| {
                 common.printZ(ptr[0..len]);
             } else {
-                common.printError("[Security Fault] Invalid user string provided in syscall 1\n");
+                logger.security("Invalid user string in syscall 1");
             }
         },
         2 => { // GetChar() -> EAX
@@ -135,9 +154,8 @@ export fn handle_syscall_zig(regs: *Registers) void {
             if (is_io_port_allowed(port)) {
                 regs.eax = common.inb(port);
             } else {
-                common.printError("[Security Fault] Unauthorized InB to port ");
-                common.printHex(port);
-                common.printZ("\n");
+                logger.security("Unauthorized InB to port");
+                logger.debug(common.intToHex(port, &buf));
                 regs.eax = 0xFF;
             }
         },
@@ -146,9 +164,8 @@ export fn handle_syscall_zig(regs: *Registers) void {
             if (is_io_port_allowed(port)) {
                 common.outb(port, @intCast(regs.ecx));
             } else {
-                common.printError("[Security Fault] Unauthorized OutB to port ");
-                common.printHex(port);
-                common.printZ("\n");
+                logger.security("Unauthorized OutB to port");
+                logger.debug(common.intToHex(port, &buf));
             }
         },
         8 => { // InW(EBX = port) -> EAX
@@ -156,9 +173,8 @@ export fn handle_syscall_zig(regs: *Registers) void {
             if (is_io_port_allowed(port)) {
                 regs.eax = common.inw(port);
             } else {
-                common.printError("[Security Fault] Unauthorized InW to port ");
-                common.printHex(port);
-                common.printZ("\n");
+                logger.security("Unauthorized InW to port");
+                logger.debug(common.intToHex(port, &buf));
                 regs.eax = 0xFFFF;
             }
         },
@@ -167,9 +183,8 @@ export fn handle_syscall_zig(regs: *Registers) void {
             if (is_io_port_allowed(port)) {
                 common.outw(port, @intCast(regs.ecx));
             } else {
-                common.printError("[Security Fault] Unauthorized OutW to port ");
-                common.printHex(port);
-                common.printZ("\n");
+                logger.security("Unauthorized OutW to port");
+                logger.debug(common.intToHex(port, &buf));
             }
         },
         10 => { // Sleep(EBX = ms)
@@ -184,9 +199,11 @@ export fn handle_syscall_zig(regs: *Registers) void {
             jump_to_ring3_entry(regs.ebx, user_esp);
         },
         13 => { // Shutdown
+            if (!checkPrivilege(regs, "Shutdown")) return;
             common.shutdown();
         },
         14 => { // Reboot
+            if (!checkPrivilege(regs, "Reboot")) return;
             common.reboot();
         },
         15 => { // MemoryMapRange(EBX=vaddr, ECX=size)
@@ -199,7 +216,7 @@ export fn handle_syscall_zig(regs: *Registers) void {
             const kernel_end = @intFromPtr(&memory.ebss_sym);
             // Validate virtual address range
             if (vaddr < kernel_end or size == 0 or size > 64 * 1024 * 1024) {
-                common.printError("[Security] Invalid MemoryMapRange request\n");
+                logger.security("Invalid MemoryMapRange request");
             } else {
                 var addr = vaddr & 0xFFFFF000;
                 const end = vaddr + size;
@@ -229,9 +246,8 @@ export fn handle_syscall_zig(regs: *Registers) void {
             if (is_io_port_allowed(port)) {
                 regs.eax = common.inl(port);
             } else {
-                common.printError("[Security Fault] Unauthorized InL to port ");
-                common.printHex(port);
-                common.printZ("\n");
+                logger.security("Unauthorized InL to port");
+                logger.debug(common.intToHex(port, &buf));
                 regs.eax = 0xFFFFFFFF;
             }
         },
@@ -240,9 +256,8 @@ export fn handle_syscall_zig(regs: *Registers) void {
             if (is_io_port_allowed(port)) {
                 common.outl(port, regs.ecx);
             } else {
-                common.printError("[Security Fault] Unauthorized OutL to port ");
-                common.printHex(port);
-                common.printZ("\n");
+                logger.security("Unauthorized OutL to port");
+                logger.debug(common.intToHex(port, &buf));
             }
         },
         18 => { // DrawCharAt(EBX=row, ECX=col, EDX=char, ESI=attr)
@@ -256,14 +271,16 @@ export fn handle_syscall_zig(regs: *Registers) void {
             if (is_user_ptr(regs.ebx) and is_user_ptr(regs.ebx + @sizeOf(rtc.DateTime) - 1)) {
                 dt_ptr.* = rtc.get_datetime();
             } else {
-                common.printError("[Security Fault] Invalid DateTime pointer for GetDateTime\n");
+                logger.security("Invalid DateTime pointer for GetDateTime");
             }
         },
         20 => { // ATA_IDENTIFY(EBX = drive) -> EAX
+            if (!checkPrivilege(regs, "ATA Identify")) return;
             const drive: ata.Drive = @enumFromInt(@as(u1, @intCast(regs.ebx & 1)));
             regs.eax = ata.identify(drive);
         },
         21 => { // ATA_READ_SECTOR(EBX = drive, ECX = lba, EDX = buf)
+            if (!checkPrivilege(regs, "ATA Read Sector")) return;
             const drive: ata.Drive = @enumFromInt(@as(u1, @intCast(regs.ebx & 1)));
             const lba: u32 = regs.ecx;
             const ptr = @as([*]u8, @ptrFromInt(regs.edx));
@@ -271,10 +288,11 @@ export fn handle_syscall_zig(regs: *Registers) void {
             if (is_user_ptr(regs.edx) and is_user_ptr(regs.edx + 511)) {
                 ata.read_sector(drive, lba, ptr);
             } else {
-                common.printError("[Security Fault] Invalid buffer pointer for ATA Read\n");
+                logger.security("Invalid buffer pointer for ATA Read");
             }
         },
         22 => { // ATA_WRITE_SECTOR(EBX = drive, ECX = lba, EDX = data)
+            if (!checkPrivilege(regs, "ATA Write Sector")) return;
             const drive: ata.Drive = @enumFromInt(@as(u1, @intCast(regs.ebx & 1)));
             const lba: u32 = regs.ecx;
             const ptr = @as([*]const u8, @ptrFromInt(regs.edx));
@@ -282,7 +300,7 @@ export fn handle_syscall_zig(regs: *Registers) void {
             if (is_user_ptr(regs.edx) and is_user_ptr(regs.edx + 511)) {
                 ata.write_sector(drive, lba, ptr);
             } else {
-                common.printError("[Security Fault] Invalid data pointer for ATA Write\n");
+                logger.security("Invalid data pointer for ATA Write");
             }
         },
         30 => { // Malloc(EBX = size) -> EAX
@@ -302,9 +320,8 @@ export fn handle_syscall_zig(regs: *Registers) void {
             regs.eax = if (keyboard.check_ctrl_c_kernel()) 1 else 0;
         },
         else => {
-            common.printError("[Syscall Fault] Unknown syscall: ");
-            common.printNum(@intCast(regs.eax));
-            common.printZ("\n");
+            logger.err("Unknown syscall");
+            logger.debug(common.intToString(@intCast(regs.eax), &buf));
         },
     }
 }
@@ -351,11 +368,12 @@ pub fn user_free(ptr: ?[*]u8) void {
 extern fn jump_to_ring3_entry(entry: usize, stack: usize) noreturn;
 
 pub fn jump_to_user_mode() noreturn {
-    jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop));
+    jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true);
 }
 
-pub fn jump_to_user_mode_with_entry(entry: usize) noreturn {
+pub fn jump_to_user_mode_with_entry(entry: usize, privileged: bool) noreturn {
     set_is_user_mode(true);
+    set_is_privileged(privileged);
 
     // Ensure current core's TSS is ready for interrupts coming from user-space
     const core_idx = exceptions.get_core_index();

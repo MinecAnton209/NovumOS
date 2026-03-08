@@ -77,7 +77,7 @@ export fn kmain() void {
     smp.init();
 
     // Jump to Shell in Ring 3 (User Mode)
-    user.jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop));
+    user.jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true);
 }
 
 /// Main Kernel Loop - Exported for re-entry from User Mode

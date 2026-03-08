@@ -46,6 +46,9 @@ pub var current_color: u16 = DEFAULT_ATTR;
 
 pub export var cursor_row: u8 = 0;
 pub export var cursor_col: u8 = 0;
+pub var prev_cursor_row: u8 = 0;
+pub var prev_cursor_col: u8 = 0;
+pub var cursor_visible: bool = false;
 
 var screen_buffer: [256 * 160]u16 = undefined;
 var saved_cursor_row: u16 = 0;
@@ -98,6 +101,7 @@ pub export fn clear_screen() void {
 
     cursor_row = 0;
     cursor_col = 0;
+    cursor_visible = false;
 }
 
 pub export fn zig_set_cursor(row: u8, col: u8) void {
@@ -324,15 +328,9 @@ pub export fn clear_prompt_area(start_row: u8, start_col: u8) void {
         VIDEO_MEMORY[idx] = DEFAULT_ATTR | ' ';
 
         if (lfb.initialized) {
-            const bx = @as(u32, @intCast(col)) * 8;
-            const by = @as(u32, @intCast(row)) * 14;
-            var r: u32 = 0;
-            while (r < 14) : (r += 1) {
-                var c: u32 = 0;
-                while (c < 8) : (c += 1) {
-                    lfb.put_pixel(bx + c, by + r, 0x000000);
-                }
-            }
+            const bx = @as(u32, col) * 8;
+            const by = @as(u32, row) * 14;
+            lfb.draw_char(' ', bx, by, 0x000000, 0x000000, 1); // Fast clear pixel area
         }
 
         col += 1;
@@ -370,12 +368,72 @@ pub export fn draw_indicator(col: u8, attr: u16, c: u8) void {
     }
 }
 
+// Internal version that assumes lock is already held
+fn erase_vga_cursor_internal() void {
+    if (!vga_initialized or !cursor_visible) return;
+    const r = prev_cursor_row;
+    const c = prev_cursor_col;
+    if (r >= MAX_ROWS or c >= MAX_COLS) return;
+
+    const idx = @as(usize, r) * MAX_COLS + c;
+    const attr_char = VIDEO_MEMORY[idx];
+    const char = @as(u8, @intCast(attr_char & 0xFF));
+    const attr = attr_char & 0xFF00;
+
+    if (lfb.initialized) {
+        const bx = @as(u32, c) * 8;
+        const by = @as(u32, r) * 14;
+        lfb.draw_char(char, bx, by, vga_attr_to_rgb(attr), vga_attr_to_rgb(attr >> 4), 1);
+    }
+    cursor_visible = false;
+}
+
 pub export fn erase_vga_cursor() void {
-    // Disabled stateful cursor erasing to prevent visual glitches
+    const eflags = interrupts_save_vga();
+    spin_lock_vga(&vga_lock);
+    defer {
+        spin_unlock_vga(&vga_lock);
+        interrupts_restore_vga(eflags);
+    }
+    erase_vga_cursor_internal();
 }
 
 pub export fn update_vga_cursor() void {
-    // Disabled stateful cursor drawing to prevent visual glitches
+    if (!vga_initialized) return;
+
+    // Use lock to prevent racing with other core draws
+    const eflags = interrupts_save_vga();
+    spin_lock_vga(&vga_lock);
+    defer {
+        spin_unlock_vga(&vga_lock);
+        interrupts_restore_vga(eflags);
+    }
+
+    if (cursor_visible) erase_vga_cursor_internal();
+
+    const r = cursor_row;
+    const c = cursor_col;
+    if (r >= MAX_ROWS or c >= MAX_COLS) return;
+
+    const idx = @as(usize, r) * MAX_COLS + c;
+    const attr_char = VIDEO_MEMORY[idx];
+    var char = @as(u8, @intCast(attr_char & 0xFF));
+
+    // Draw inverted cursor
+    if (lfb.initialized) {
+        const bx = @as(u32, c) * 8;
+        const by = @as(u32, r) * 14;
+
+        // If char is non-printable, draw a block (char 219 often works, or just solid)
+        if (char < 32) char = ' '; // Fallback to space for drawing inverted block
+
+        // Invert foreground and background for the cursor block
+        lfb.draw_char(char, bx, by, 0x000000, 0xFFFFFF, 1);
+    }
+
+    prev_cursor_row = r;
+    prev_cursor_col = c;
+    cursor_visible = true;
 }
 
 pub export fn update_hardware_cursor() void {

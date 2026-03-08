@@ -2,6 +2,7 @@
 const common = @import("commands/common.zig");
 const memory = @import("memory.zig");
 const user = @import("user.zig");
+const logger = @import("logger.zig");
 
 pub const Elf32_Addr = u32;
 pub const Elf32_Off = u32;
@@ -56,15 +57,12 @@ pub fn load_and_run(data: []const u8) !noreturn {
         return error.UnsupportedArchitecture;
     }
 
-    common.printZ("[Kernel] Loading ELF entry at ");
-    var buf: [16]u8 = undefined;
-    common.printZ(common.intToHex(header.entry, &buf));
-    common.printZ("\n");
+    logger.info("Loading ELF executable...");
 
     // Validate Program Headers table fits in data
     const ph_table_end = @as(usize, header.phoff) + (@as(usize, header.phnum) * @as(usize, header.phentsize));
     if (ph_table_end > data.len) {
-        common.printError("[Kernel] ELF Error: Program Headers out of bounds\n");
+        logger.err("ELF Error: Program Headers out of bounds");
         return error.InvalidProgramHeaders;
     }
 
@@ -75,30 +73,27 @@ pub fn load_and_run(data: []const u8) !noreturn {
         if (ph.ptype == PT_LOAD) {
             // Security: Validate offsets and sizes
             if (ph.filesz > ph.memsz) {
-                common.printError("[Kernel] ELF Error: filesz > memsz\n");
+                logger.err("ELF Error: filesz > memsz");
                 return error.InvalidSegmentSize;
             }
             if (@as(usize, ph.offset) + @as(usize, ph.filesz) > data.len) {
-                common.printError("[Kernel] ELF Error: Segment data exceeds file size\n");
+                logger.err("ELF Error: Segment data exceeds file size");
                 return error.SegmentOutOfBounds;
             }
 
             // Security: Validate virtual address boundaries
             const end_vaddr = @as(usize, ph.vaddr) + @as(usize, ph.memsz);
             if (end_vaddr < ph.vaddr) { // Check for overflow
-                common.printError("[Kernel] ELF Error: Virtual address overflow\n");
+                logger.err("ELF Error: Virtual address overflow");
                 return error.VirtualAddressOverflow;
             }
             if (end_vaddr > 64 * 1024 * 1024) { // 64MB arbitrary limit based on generic user mapping
-                common.printError("[Kernel] ELF Error: Virtual address too high\n");
+                logger.err("ELF Error: Virtual address too high");
                 return error.VirtualAddressTooHigh;
             }
 
-            common.printZ("  Phdr: Mapping segment at ");
-            common.printZ(common.intToHex(ph.vaddr, &buf));
-            common.printZ(" size ");
-            common.printZ(common.intToString(@intCast(ph.memsz), &buf));
-            common.printZ("\n");
+            // Phdr: Mapping Segment...
+            logger.debug("Mapping ELF Segment");
 
             const dest = @as([*]u8, @ptrFromInt(ph.vaddr));
             @memcpy(dest[0..ph.filesz], data[ph.offset .. ph.offset + ph.filesz]);
@@ -124,6 +119,6 @@ pub fn load_and_run(data: []const u8) !noreturn {
         }
     }
 
-    common.printZ("[Kernel] Jumping to ELF entry...\n");
+    logger.info("Jumping to Ring 3 ELF...");
     user.jump_to_user_mode_with_entry(header.entry, false);
 }

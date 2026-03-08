@@ -1,6 +1,8 @@
 const acpi = @import("drivers/acpi.zig");
 const memory = @import("memory.zig");
 const common = @import("commands/common.zig");
+const logger = @import("logger.zig");
+const config = @import("config.zig");
 
 const TRAMPOLINE_ADDR = 0x8000;
 const FLAG_ADDR = 0x9000;
@@ -22,6 +24,7 @@ pub const CoreData = struct {
     total_tasks: u32 = 0,
     is_busy: bool = false,
     is_user_mode: bool = false,
+    is_privileged: bool = false,
     id: u8 = 0,
 };
 
@@ -50,9 +53,9 @@ pub fn spin_lock(lock: *volatile u32) void {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        common.printError("\n[RING3 FAULT] Spinlock held by User! Addr: ");
-        common.printHex(@intFromPtr(lock));
-        common.printZ("\n");
+        logger.err("STALL: Spinlock held by User!");
+        var buf: [16]u8 = undefined;
+        logger.debug(common.intToHex(@intFromPtr(lock), &buf));
         @panic("Spinlock in Ring 3");
     }
 
@@ -221,9 +224,9 @@ pub export fn ap_kernel_entry() noreturn {
             cores[my_idx].total_tasks += 1;
         } else if (steal_task(my_idx)) |task| {
             lock_print();
-            common.printZ(" [SMP] Core ");
-            common.printNum(@intCast(my_idx));
-            common.printZ(" stole a task!\n");
+            var buf: [16]u8 = undefined;
+            logger.debug("Core stole a task");
+            logger.debug(common.intToString(@intCast(my_idx), &buf));
             unlock_print();
 
             cores[my_idx].is_busy = true;
@@ -321,7 +324,7 @@ pub fn get_cpu_info() CpuInfo {
 }
 
 pub fn init() void {
-    // common.printZ("SMP: Initializing Balancing SMP...\n");
+    logger.info("SMP: Initializing Balancing SMP...");
 
     const tramp_ptr = @as([*]u8, @ptrFromInt(TRAMPOLINE_ADDR));
     @memcpy(tramp_ptr[0..trampoline_bin.len], trampoline_bin);
@@ -337,14 +340,14 @@ pub fn init() void {
     var lapic_base = acpi.lapic_addr;
     if (lapic_base == 0) {
         lapic_base = 0xFEE00000;
-        // common.printZ("SMP: MADT not found, using default 0xFEE00000\n");
+        logger.warn("SMP: MADT not found, using default 0xFEE00000");
         detected_cores = 1;
     } else {
         detected_cores = acpi.madt_core_count;
     }
 
     if (!memory.map_page(lapic_base, false)) {
-        // common.printZ("SMP: Failed to map LAPIC memory!\n");
+        logger.err("SMP: Failed to map LAPIC memory!");
         return;
     }
 
@@ -368,11 +371,7 @@ pub fn init() void {
 
         const last_flag = flag_ptr.*;
 
-        // common.printZ("SMP: Booting Core Index ");
-        // common.printNum(@intCast(ap_count + 1));
-        // common.printZ(" (LAPIC ID ");
-        // common.printNum(@intCast(id));
-        // common.printZ(")...\n");
+        logger.info("Booting secondary core...");
 
         lapic[0x310 / 4] = @as(u32, id) << 24;
         lapic[0x300 / 4] = 0x00004608;
@@ -388,8 +387,5 @@ pub fn init() void {
         }
     }
 
-    // const online = get_online_cores();
-    // common.printZ("SMP: Status: ");
-    // common.printNum(@intCast(online));
-    // common.printZ(" cores integrated.\n");
+    logger.success("SMP: All cores integrated.");
 }

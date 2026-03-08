@@ -34,5 +34,5 @@ pub export fn nova_start(arg_ptr: [*]const u8, arg_len: usize) void {
     }
 
     // Jump to Ring 3 and start Nova there at the specified entry point
-    user.jump_to_user_mode_with_entry(@intFromPtr(&nova_ring3_entry));
+    user.jump_to_user_mode_with_entry(@intFromPtr(&nova_ring3_entry), false);
 }

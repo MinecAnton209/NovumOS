@@ -28,6 +28,7 @@ const elf = @import("elf.zig");
 const pci_cmds = @import("commands/pci_cmds.zig");
 const lfb = @import("drivers/lfb.zig");
 const calc = @import("commands/calc.zig");
+const logger = @import("logger.zig");
 
 pub export fn cmd_calc(args: [*]const u8, args_len: u32) void {
     calc.execute(args, args_len);
@@ -45,13 +46,10 @@ pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
     if (config.ENABLE_EMBEDDED_ELFS) {
         if (common.std_mem_eql(name, "hello.elf") or common.std_mem_eql(name, "hello")) {
             const data = @embedFile("embedded/hello.elf");
-            common.printZ("[Kernel] Running embedded ELF: ");
-            common.printZ(name);
-            common.printZ("\n");
+            logger.info("Running embedded ELF...");
             elf.load_and_run(data) catch |err| {
-                common.printError("Error loading embedded ELF: ");
-                common.printZ(@errorName(err));
-                common.printZ("\n");
+                logger.err("Error loading embedded ELF");
+                logger.debug(@errorName(err));
             };
             return;
         }
@@ -96,9 +94,8 @@ pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
 
     // Try to load and run
     elf.load_and_run(buffer) catch |err| {
-        common.printZ("Error loading ELF: ");
-        common.printZ(@errorName(err));
-        common.printZ("\n");
+        logger.err("Error loading ELF");
+        logger.debug(@errorName(err));
     };
 
     // Clean up if it fails (unreachable if success)

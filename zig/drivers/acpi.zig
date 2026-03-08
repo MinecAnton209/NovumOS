@@ -1,6 +1,7 @@
 // ACPI (Advanced Configuration and Power Interface) Driver
 // Features dynamic AML parsing for S5 (Shutdown) state values
 const common = @import("../commands/common.zig");
+const logger = @import("../logger.zig");
 
 var pm1a_control_block: u16 = 0;
 var pm1b_control_block: u16 = 0;
@@ -67,9 +68,9 @@ pub fn init() bool {
             // 3. Find DSDT and parse _S5 state
             const dsdt_addr = read_u32(table_addr + 40);
             if (parse_s5(dsdt_addr)) {
-                //common.printZ("ACPI: Found _S5 package in DSDT\n");
+                //logger.info("ACPI: Found _S5 package in DSDT");
             } else {
-                common.printZ("ACPI: _S5 not found, using failsafe values\n");
+                logger.warn("ACPI: _S5 not found, using failsafe values");
                 slp_typa = 5 << 10;
                 slp_typb = 5 << 10;
             }

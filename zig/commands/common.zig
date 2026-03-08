@@ -7,6 +7,7 @@ const timer = @import("../drivers/timer.zig");
 const acpi = @import("../drivers/acpi.zig");
 
 const serial = @import("../drivers/serial.zig");
+const logger = @import("../logger.zig");
 
 // --- Global State ---
 pub var selected_disk: i8 = -1; // -1 means RAM FS
@@ -363,7 +364,7 @@ pub fn reboot() noreturn {
         while (true) {}
     }
 
-    printZ("Rebooting...\r\n");
+    logger.info("Rebooting...");
     // Pulse CPU reset line (FE code to command port 64h)
     outb(0x64, 0xFE);
     while (true) {}
@@ -383,7 +384,7 @@ pub fn shutdown() noreturn {
         while (true) {}
     }
 
-    printZ("Shutting down...\r\n");
+    logger.info("Shutting down...");
     acpi.shutdown();
 }
 

@@ -6,3 +6,4 @@ pub const ENABLE_DEBUG_CRASH_COMMANDS = true;
 pub const ENABLE_DEBUG_COMMANDS = true;
 pub const ENABLE_RSOD_REBOOT = true;
 pub const ENABLE_EMBEDDED_ELFS = true;
+pub const ENABLE_KERNEL_LOGGING = true; // Toggle for informative kernel logs
