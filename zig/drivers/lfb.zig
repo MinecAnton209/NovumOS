@@ -107,7 +107,7 @@ pub fn init() void {
     memory.user_mmio_start = fb_phys_base;
     memory.user_mmio_end = fb_phys_base + fb_mapped_size;
 
-    memory.map_range(fb_phys_base, fb_mapped_size, false);
+    memory.map_range(fb_phys_base, fb_mapped_size, true);
     framebuffer = @ptrFromInt(fb_phys_base);
     ensure_backbuffer(fb_mapped_size);
     initialized = true;
@@ -137,13 +137,13 @@ pub fn init_bga(w: u16, h: u16) bool {
         memory.user_mmio_start = fb_phys_base;
         memory.user_mmio_end = fb_phys_base + fb_mapped_size;
 
-        memory.map_range(fb_phys_base, fb_mapped_size, false);
+        memory.map_range(fb_phys_base, fb_mapped_size, true);
         framebuffer = @ptrFromInt(fb_phys_base);
         ensure_backbuffer(new_size);
         initialized = true;
     } else if (new_size > fb_mapped_size) {
         // Map more memory if resolution increased
-        memory.map_range(fb_phys_base + @as(u32, @intCast(fb_mapped_size)), new_size - fb_mapped_size, false);
+        memory.map_range(fb_phys_base + @as(u32, @intCast(fb_mapped_size)), new_size - fb_mapped_size, true);
         fb_mapped_size = new_size;
         memory.user_mmio_end = fb_phys_base + fb_mapped_size;
         ensure_backbuffer(new_size);
