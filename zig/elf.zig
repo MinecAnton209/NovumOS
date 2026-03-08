@@ -39,6 +39,7 @@ pub const Phdr = extern struct {
 pub const PT_LOAD = 1;
 
 pub fn load_and_run(data: []const u8) !noreturn {
+    user.set_is_privileged(false);
     if (data.len < @sizeOf(Header)) return error.InvalidElfHeader;
 
     // Ensure alignment for the Header struct
@@ -102,13 +103,27 @@ pub fn load_and_run(data: []const u8) !noreturn {
             const dest = @as([*]u8, @ptrFromInt(ph.vaddr));
             @memcpy(dest[0..ph.filesz], data[ph.offset .. ph.offset + ph.filesz]);
 
-            // Zero out remaining memsz (BSS)
+            // Zero out remaining memsz (BSS) - Step by step per page
             if (ph.memsz > ph.filesz) {
-                @memset(dest[ph.filesz..ph.memsz], 0);
+                const bss_start = ph.vaddr + ph.filesz;
+                const bss_size = ph.memsz - ph.filesz;
+                var offset: usize = 0;
+
+                while (offset < bss_size) {
+                    const addr = bss_start + offset;
+                    const page_addr = addr & 0xFFFFF000;
+
+                    // Map if not already present
+                    _ = memory.map_page_at(page_addr, memory.pmm.alloc_page() orelse @panic("OOM in ELF BSS"), true);
+
+                    const to_zero = @min(bss_size - offset, memory.PAGE_SIZE - (addr % 4096));
+                    @memset(@as([*]u8, @ptrFromInt(addr))[0..to_zero], 0);
+                    offset += to_zero;
+                }
             }
         }
     }
 
     common.printZ("[Kernel] Jumping to ELF entry...\n");
-    user.jump_to_user_mode_with_entry(header.entry);
+    user.jump_to_user_mode_with_entry(header.entry, false);
 }

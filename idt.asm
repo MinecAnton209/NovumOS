@@ -169,7 +169,9 @@ common_exception_handler:
     add esp, 4              ; Clean up argument
     popad
     
-    ; Register Hygiene: Zero XMM registers
+    ; Register Hygiene: Zero XMM only if returning to Ring 3
+    test dword [esp + 20], 3    ; Check CS after popad
+    jz .exception_skip_hygiene
     pxor xmm0, xmm0
     pxor xmm1, xmm1
     pxor xmm2, xmm2
@@ -178,6 +180,7 @@ common_exception_handler:
     pxor xmm5, xmm5
     pxor xmm6, xmm6
     pxor xmm7, xmm7
+.exception_skip_hygiene:
 
     pop ds
     pop es
@@ -263,7 +266,9 @@ isr_keyboard_wrapper:
     out 0x20, al
     popad
     
-    ; Register Hygiene: Zero XMM registers
+    ; Register Hygiene: Zero XMM only if returning to Ring 3
+    test dword [esp + 20], 3    ; Check CS (it's at esp+20 after popad)
+    jz .keyboard_skip_hygiene
     pxor xmm0, xmm0
     pxor xmm1, xmm1
     pxor xmm2, xmm2
@@ -272,6 +277,8 @@ isr_keyboard_wrapper:
     pxor xmm5, xmm5
     pxor xmm6, xmm6
     pxor xmm7, xmm7
+.keyboard_skip_hygiene:
+
     pop ds                  ; Restore segments
     pop es
     pop fs
@@ -296,7 +303,9 @@ isr_timer_wrapper:
     out 0x20, al
     popad
     
-    ; Register Hygiene: Zero XMM registers
+    ; Register Hygiene: Zero XMM only if returning to Ring 3
+    test dword [esp + 20], 3    ; Check CS (it's at esp+20 after popad)
+    jz .timer_skip_hygiene
     pxor xmm0, xmm0
     pxor xmm1, xmm1
     pxor xmm2, xmm2
@@ -305,6 +314,8 @@ isr_timer_wrapper:
     pxor xmm5, xmm5
     pxor xmm6, xmm6
     pxor xmm7, xmm7
+.timer_skip_hygiene:
+
     pop ds                  ; Restore segments
     pop es
     pop fs
@@ -334,11 +345,6 @@ syscall_handler:
     call handle_syscall_zig
     add esp, 4
     
-    ; Defensive Zeroing: Clear scratch GPRs (ECX, EDX) on stack
-    ; EAX is the return value, others are callee-saved (preserved).
-    mov dword [esp + 24], 0 ; ECX offset in pushad frame
-    mov dword [esp + 20], 0 ; EDX offset in pushad frame
-
     popad
     
     ; Defensive Zeroing: Clear SSE/XMM registers to prevent leakage 
