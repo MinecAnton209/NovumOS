@@ -399,8 +399,6 @@ fn readLine() void {
                 refreshLine();
             }
         } else if (key == 0xB) { // KEY_LEFT (approx, use common constants if available)
-            // Wait, I need to know the scancodes/keys. In keyboard_isr they are defined.
-            // Since we are using common.get_char(), it returns ASCII or special codes.
         } else if (key == 0xC) { // KEY_RIGHT
         } else {
             // Check for special keys from keyboard_isr

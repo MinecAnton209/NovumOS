@@ -27,6 +27,7 @@ idt_end:
 section .text
 align 4
 ; IDT Pointer for LIDT instruction
+global idt_descriptor
 idt_descriptor:
     dw idt_end - idt_start - 1
     dd idt_start
@@ -298,7 +299,11 @@ isr_timer_wrapper:
     mov fs, ax
     mov gs, ax
     cld
+
+    push esp                ; Pass current stack pointer to isr_timer
     call isr_timer
+    mov esp, eax            ; Use returned stack pointer (from scheduler)
+
     mov al, 0x20
     out 0x20, al
     popad

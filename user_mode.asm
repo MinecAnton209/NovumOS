@@ -12,11 +12,12 @@ jump_to_ring3_entry:
     cli
     mov ebp, [esp + 4]   ; Get entry point address
     mov ecx, [esp + 8]   ; Get stack address
+    mov edx, [esp + 12]  ; Get EFLAGS
     
     ; Setup IRET frame
     push 0xAB           ; SS
     push ecx            ; ESP
-    push 0x202          ; EFLAGS (IF=1)
+    push edx            ; EFLAGS
     push 0xA3           ; CS
     push ebp            ; EIP
     

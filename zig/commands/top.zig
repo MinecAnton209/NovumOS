@@ -52,6 +52,8 @@ pub fn cmd_top() void {
             common.printZ("\n");
         }
 
+        vga.vga_flush();
+
         // Delay for a bit
         timer.sleep(250);
 

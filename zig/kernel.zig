@@ -15,6 +15,8 @@ const vga = @import("drivers/vga.zig");
 const exceptions = @import("exceptions.zig");
 const smp = @import("smp.zig");
 const libc_stubs = @import("libc_stubs.zig");
+const logger = @import("logger.zig");
+const user = @import("user.zig");
 
 // Ensure all modules are included in the compilation
 comptime {
@@ -46,7 +48,7 @@ export fn kernel_panic(msg_ptr: [*]const u8, msg_len: usize) noreturn {
 pub fn panic(msg: []const u8, _: ?*@import("std").builtin.StackTrace, _: ?usize) noreturn {
     exceptions.panic(msg);
 }
-const user = @import("user.zig");
+const scheduler = @import("scheduler.zig");
 
 // --- Kernel Entry Point ---
 export fn kmain() void {
@@ -73,6 +75,15 @@ export fn kmain() void {
     // Print welcome banner in LFB
     messages.print_welcome();
 
+    // Initialize Scheduler
+    scheduler.init();
+    // Get current ESP to bootstrap
+    var current_esp: u32 = undefined;
+    asm volatile ("mov %%esp, %[esp]"
+        : [esp] "=r" (current_esp),
+    );
+    scheduler.bootstrap(current_esp);
+
     // Initialize Dumb SMP (Kick Core 1)
     smp.init();
 
@@ -87,5 +98,6 @@ pub export fn kernel_loop() noreturn {
     while (true) {
         read_command();
         execute_command();
+        vga.vga_flush();
     }
 }

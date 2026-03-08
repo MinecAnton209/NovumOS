@@ -817,3 +817,16 @@ pub fn get_free_memory() usize {
 pub fn get_used_memory() usize {
     return MAX_MEMORY - get_free_memory();
 }
+
+pub fn get_current_pd() u32 {
+    return asm volatile ("mov %%cr3, %[ret]"
+        : [ret] "=r" (-> u32),
+    );
+}
+
+pub fn switch_page_directory(pd_addr: u32) void {
+    asm volatile ("mov %[pd], %%cr3"
+        :
+        : [pd] "r" (pd_addr),
+        : "memory");
+}

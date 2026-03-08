@@ -29,6 +29,11 @@ const pci_cmds = @import("commands/pci_cmds.zig");
 const lfb = @import("drivers/lfb.zig");
 const calc = @import("commands/calc.zig");
 const logger = @import("logger.zig");
+const scheduler = @import("scheduler.zig");
+
+pub export fn cmd_ps() void {
+    scheduler.list_processes();
+}
 
 pub export fn cmd_calc(args: [*]const u8, args_len: u32) void {
     calc.execute(args, args_len);
@@ -877,9 +882,12 @@ pub export fn cmd_fetch() void {
 }
 
 fn test_task(arg: usize) void {
-    common.printZ(" [TASK] Core reporting! Argument: ");
-    common.printNum(@intCast(arg));
-    common.printZ("\n");
+    var buf: [16]u8 = undefined;
+    smp.lock_print();
+    common.printZ(" [TASK] Core #");
+    common.printZ(common.intToString(@intCast(arg), &buf));
+    common.printZ(" done!\n");
+    smp.unlock_print();
 }
 
 pub export fn cmd_smp_test() void {

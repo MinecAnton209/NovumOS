@@ -196,7 +196,8 @@ export fn handle_syscall_zig(regs: *Registers) void {
         12 => { // JumpToUser(EBX = entry)
             // Reset to the standard user stack location
             const user_esp = 0x3FF000 + 4096 - 16;
-            jump_to_ring3_entry(regs.ebx, user_esp);
+            const eflags: u32 = if (get_is_privileged()) 0x3202 else 0x0202;
+            jump_to_ring3_entry(regs.ebx, user_esp, eflags);
         },
         13 => { // Shutdown
             if (!checkPrivilege(regs, "Shutdown")) return;
@@ -366,7 +367,7 @@ pub fn user_free(ptr: ?[*]u8) void {
 }
 
 // Link to the assembly implementation
-extern fn jump_to_ring3_entry(entry: usize, stack: usize) noreturn;
+extern fn jump_to_ring3_entry(entry: usize, stack: usize, eflags: u32) noreturn;
 
 pub fn jump_to_user_mode() noreturn {
     jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true);
@@ -428,6 +429,8 @@ pub fn jump_to_user_mode_with_entry(entry: usize, privileged: bool) noreturn {
     // Top of stack (16-byte aligned for entry point)
     const user_esp = stack_vaddr + memory.PAGE_SIZE - 16;
 
-    // Call the stable assembly transition with entry and stack
-    jump_to_ring3_entry(entry, user_esp);
+    // Call the stable assembly transition with entry, stack and eflags
+    // Privileged processes get IOPL=3 (0x3000)
+    const eflags: u32 = if (privileged) 0x3202 else 0x0202;
+    jump_to_ring3_entry(entry, user_esp, eflags);
 }
