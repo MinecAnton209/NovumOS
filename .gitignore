@@ -35,3 +35,4 @@ Thumbs.db
 # SDK
 sdk/**/*.elf
 sdk/**/*.o
+*.a
