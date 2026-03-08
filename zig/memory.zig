@@ -1,6 +1,6 @@
-// NovumOS Memory Management Module - Advanced Edition
 const common = @import("commands/common.zig");
 const config = @import("config.zig");
+const logger = @import("logger.zig");
 
 pub const PAGE_SIZE = 4096;
 pub var MAX_MEMORY: usize = 128 * 1024 * 1024; // Default to 128MB, updated at boot
@@ -11,13 +11,23 @@ pub var BITMAP_SIZE: usize = 0;
 extern const ebss: anyopaque;
 extern const _code_start: anyopaque;
 extern const _code_end: anyopaque;
+extern const _rodata_start: anyopaque;
+extern const _rodata_end: anyopaque;
 extern const _data_start: anyopaque;
 extern const _data_end: anyopaque;
+extern const _system_start: anyopaque;
+extern const _system_end: anyopaque;
 extern const idt_start: anyopaque;
 
 // We'll allocate a fixed-size bitmap for up to 4GB (128KB bitmap)
-var bitmap: [131072]u8 = [_]u8{0} ** 131072;
+var bitmap: [131072]u8 align(4096) linksection(".system") = [_]u8{0} ** 131072;
 var last_free_page: u32 = 0;
+var pmm_lock: u32 = 0;
+var paging_lock: u32 = 0;
+const smp = @import("smp.zig");
+
+/// Public alias to the kernel's BSS end symbol (used by user.zig for kernel_end)
+pub const ebss_sym: *const anyopaque = &ebss;
 
 /// Physical Memory Manager (PMM)
 pub const pmm = struct {
@@ -37,6 +47,13 @@ pub const pmm = struct {
     }
 
     pub fn alloc_page() ?usize {
+        const eflags = interrupts_save();
+        smp.spin_lock(&pmm_lock);
+        defer {
+            smp.spin_unlock(&pmm_lock);
+            interrupts_restore(eflags);
+        }
+
         var i = last_free_page;
         while (i < TOTAL_PAGES) : (i += 1) {
             if (!is_page_busy(i)) {
@@ -49,6 +66,13 @@ pub const pmm = struct {
     }
 
     pub fn free_page(addr: usize) void {
+        const eflags = interrupts_save();
+        smp.spin_lock(&pmm_lock);
+        defer {
+            smp.spin_unlock(&pmm_lock);
+            interrupts_restore(eflags);
+        }
+
         const idx = @as(u32, @intCast(addr / PAGE_SIZE));
         clear_page_busy(idx);
         if (idx < last_free_page) last_free_page = idx;
@@ -57,7 +81,16 @@ pub const pmm = struct {
 
 pub fn set_page_busy(idx: u32) void {
     if (idx >= TOTAL_PAGES) return;
-    bitmap[idx / 8] |= @as(u8, 1) << @as(u3, @intCast(idx % 8));
+    const bit_idx: u3 = @intCast(idx % 8);
+    const mask = @as(u8, 1) << bit_idx;
+    _ = @atomicRmw(u8, &bitmap[idx / 8], .Or, mask, .seq_cst);
+}
+
+pub fn clear_page_busy(idx: u32) void {
+    if (idx >= TOTAL_PAGES) return;
+    const bit_idx: u3 = @intCast(idx % 8);
+    const mask = ~(@as(u8, 1) << bit_idx);
+    _ = @atomicRmw(u8, &bitmap[idx / 8], .And, mask, .seq_cst);
 }
 
 fn read_cmos(reg: u8) u8 {
@@ -115,14 +148,9 @@ fn detect_max_memory() void {
     }
 }
 
-fn clear_page_busy(idx: u32) void {
-    if (idx >= TOTAL_PAGES) return;
-    bitmap[idx / 8] &= ~(@as(u8, 1) << @as(u3, @intCast(idx % 8)));
-}
-
 fn is_page_busy(idx: u32) bool {
     if (idx >= TOTAL_PAGES) return true;
-    return (bitmap[idx / 8] & (@as(u8, 1) << @as(u3, @intCast(idx % 8)))) != 0;
+    return (@atomicLoad(u8, &bitmap[idx / 8], .seq_cst) & (@as(u8, 1) << @as(u3, @intCast(idx % 8)))) != 0;
 }
 
 // Paging structures
@@ -130,13 +158,52 @@ pub const PageDirectory = [1024]u32;
 pub const PageTable = [1024]u32;
 
 // Paging structures - MUST be 4096-byte aligned for the CPU
-pub var page_directory: PageDirectory align(4096) = [_]u32{0} ** 1024;
-pub var page_tables: [1024]?*PageTable = [_]?*PageTable{null} ** 1024;
+pub var page_directory: PageDirectory align(4096) linksection(".system") = [_]u32{0} ** 1024;
+pub var page_tables: [1024]?*PageTable linksection(".system") = [_]?*PageTable{null} ** 1024;
+
+inline fn interrupts_save() u32 {
+    var eflags: u32 = undefined;
+    asm volatile (
+        \\pushfl
+        \\popl %[eflags]
+        : [eflags] "=r" (eflags),
+    );
+    // CLI is a privileged instruction — only execute it in Ring 0 (CPL=0).
+    // In Ring 3 the spinlock is sufficient for concurrency (no local IRQ masking).
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) {
+        asm volatile ("cli");
+    }
+    return eflags;
+}
+
+inline fn interrupts_restore(eflags: u32) void {
+    // Only restore IF via popfl in Ring 0; in Ring 3 it's a no-op.
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) {
+        asm volatile (
+            \\pushl %[eflags]
+            \\popfl
+            :
+            : [eflags] "r" (eflags),
+            : "memory");
+    }
+}
 
 // Statically allocate enough page tables to safely cover the first 16MB (Kernel, stack, IDT)
-var first_16mb_pts: [4]PageTable align(4096) = [_]PageTable{[_]u32{0} ** 1024} ** 4;
+var first_16mb_pts: [4]PageTable align(4096) linksection(".system") = [_]PageTable{[_]u32{0} ** 1024} ** 4;
 
 pub var pf_count: usize = 0;
+
+// Whitelisted MMIO regions for User-mode (e.g., LFB)
+pub var user_mmio_start: usize = 0;
+pub var user_mmio_end: usize = 0;
 
 pub fn init_paging() void {
     // 1. Disable Interrupts during this transition
@@ -151,7 +218,11 @@ pub fn init_paging() void {
 
     const code_start = @intFromPtr(&_code_start);
     const code_end = @intFromPtr(&_code_end);
+    const rodata_start = @intFromPtr(&_rodata_start);
+    const rodata_end = @intFromPtr(&_rodata_end);
     const data_start = @intFromPtr(&_data_start);
+    const system_start = @intFromPtr(&_system_start);
+    const system_end = @intFromPtr(&_system_end);
     const idt_addr = @intFromPtr(&idt_start);
 
     // 3. Setup Page Directory Index 0-3 (0-16MB) using 4KB pages
@@ -164,34 +235,41 @@ pub fn init_paging() void {
                 if (addr == 0) {
                     pt[j] = 0x0 | 0x2; // NULL protection (P=0)
                 }
-                // VGA Text Mode Buffer - Temporarily allow User access
-                // TODO: Migrate all VGA writes to use syscalls, then make this Supervisor-only
-                else if (addr == 0xB8000) {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
+                // Critical System Structures (PD/PMM/PT) and IDT
+                // MUST NOT be user-accessible to prevent privilege escalation.
+                else if ((addr >= system_start and addr < system_end) or
+                    (addr >= (idt_addr & 0xFFFFF000) and addr < (idt_addr & 0xFFFFF000) + 4096))
+                {
+                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, USER=0 (Supervisor Only)
                 }
-                // Kernel/Shell Code Section - User Read-Only
+                // All kernel code - User Read/Execute Only
+                // NOTE: Ring 3 needs this because Nova/Shell runs inside the kernel binary.
+                // The .system section above protects the most critical structures.
                 else if (addr >= code_start and addr < code_end) {
                     pt[j] = @as(u32, @intCast(addr)) | 0x5; // P=1, RW=0, USER=1
                 }
-                // IDT Protection - Supervisor Only
-                else if (addr >= (idt_addr & 0xFFFFF000) and addr < (idt_addr & 0xFFFFF000) + 4096) {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
+                // Read-Only Data (constants, strings)
+                else if (addr >= rodata_start and addr < rodata_end) {
+                    pt[j] = @as(u32, @intCast(addr)) | 0x5; // P=1, RW=0, USER=1
                 }
-                // Kernel/Shell Data Section & User Stack (Generous 256KB+ area)
-                // We allow Read-Write access from the start of data up to the end of the first 4MB
-                else if (addr >= data_start and addr < 0x400000) {
+                // Kernel Data and BSS - User Read-Write
+                // Nova interpreter and Shell store state here
+                else if (addr >= data_start and addr < @intFromPtr(&ebss)) {
                     pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
                 }
-                // Kernel Stack Area (around 0x500000) - Supervisor Only
-                else if (addr >= 0x500000 and addr < 0x501000) {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
-                }
-                // Reserved for System / Supervisor
-                else if (addr < 0x100000) {
-                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
-                } else {
-                    // Default to Supervisor for other unknown regions in the first 16MB
-                    pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, Supervisor
+                // (Static User Stack Area removed to support dynamic per-process stacks)
+                // Everything else (BIOS, Heap, hardware areas)
+                // We keep VGA buffer user-accessible for the shell, but protect BIOS/Hardware areas.
+                else {
+                    const is_vga = (addr >= 0xB8000 and addr < 0xC0000);
+                    // The shell and Nova need access to the heap (shared for simplicity for now)
+                    const is_heap = (addr >= @intFromPtr(&ebss_sym) and addr < 16 * 1024 * 1024);
+
+                    if (is_vga or is_heap) {
+                        pt[j] = @as(u32, @intCast(addr)) | 0x7; // P=1, RW=1, USER=1
+                    } else {
+                        pt[j] = @as(u32, @intCast(addr)) | 0x3; // P=1, RW=1, USER=0 (Supervisor)
+                    }
                 }
             }
         }
@@ -207,9 +285,11 @@ pub fn init_paging() void {
             const addr = i * coverage;
             // 16-64MB present, rest demand
             if (addr < 64 * 1024 * 1024) {
-                page_directory[i] = addr | 0x87; // PS=1, RW=1, P=1, USER
+                // Identity map physical RAM to kernel as Supervisor
+                page_directory[i] = addr | 0x83; // PS=1, RW=1, P=1, USER=0 (Supervisor Only)
             } else {
-                page_directory[i] = addr | 0x82; // PS=1, RW=1, P=0
+                // Demand paging for the rest of physical memory
+                page_directory[i] = addr | 0x82; // PS=1, RW=1, P=0, USER=0 (Supervisor Only)
             }
         } else {
             page_directory[i] = 0;
@@ -235,6 +315,25 @@ pub fn init_paging() void {
     asm volatile ("sti");
 }
 
+pub fn enable_paging_on_current_core() void {
+    const pd_addr = @intFromPtr(&page_directory);
+
+    asm volatile (
+        \\mov %%cr4, %%eax
+        \\or $0x10, %%eax
+        \\mov %%eax, %%cr4
+        \\wbinvd
+        \\mov %[pd], %%cr3
+        \\mov %%cr0, %%eax
+        \\or $0x80010000, %%eax
+        \\mov %%eax, %%cr0
+        \\jmp 1f
+        \\1:
+        :
+        : [pd] "r" (pd_addr),
+    );
+}
+
 /// create_page_table ensures a page table exists for a directory entry.
 /// It MUST only be called if we are sure it won't trigger a recursive fault,
 /// or if it allocates from an already identity-mapped region.
@@ -246,7 +345,10 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
     if (pd_idx < 4) {
         const pt = &first_16mb_pts[pd_idx];
         page_tables[pd_idx] = pt;
-        page_directory[pd_idx] = @as(u32, @intCast(@intFromPtr(pt))) | 0x7; // P=1, RW=1, USER=1
+        // The first 16MB (indices 0-3) MUST have USER bit set in PDE to allow user access to kernel binary (Nova/Shell).
+        // For higher indices, we keep them as Supervisor-only; map_page will upgrade if needed.
+        const attr: u32 = if (pd_idx < 4) 0x7 else 0x3;
+        page_directory[pd_idx] = @as(u32, @intCast(@intFromPtr(pt))) | attr;
         return pt;
     }
 
@@ -256,56 +358,125 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
         for (pt) |*entry| entry.* = 0;
 
         page_tables[pd_idx] = pt;
-        page_directory[pd_idx] = @as(u32, @intCast(pt_addr)) | 0x7; // P=1, RW=1, USER=1
+        // Start as Supervisor; map_page will upgrade to USER if needed
+        page_directory[pd_idx] = @as(u32, @intCast(pt_addr)) | 0x3;
         return pt;
     }
     return null;
 }
 
 /// map_page handles demand paging and discovery of high-memory tables (ACPI, BIOS, MMIO).
-pub fn map_page(vaddr: usize) bool {
+/// If is_user is true, it verifies that the address is within allowed user-mode memory boundaries.
+pub fn map_page(vaddr: usize, is_user: bool) bool {
+    // Address 0x0 and Poison addresses are protected
+    if (vaddr < 4096) return false;
+    if (vaddr >= 0xDEAD0000 and vaddr <= 0xDEADFFFF) return false;
+
+    const pd_idx = vaddr >> 22;
+
+    // --- Restore Huge Page (4MB) Activation ---
+    const pde = &page_directory[pd_idx];
+    if ((pde.* & 0x80) != 0) {
+        // If not present or (if user request) user bit missing
+        if ((pde.* & 1) == 0 or (is_user and (pde.* & 4) == 0)) {
+            pde.* |= 0x1; // Mark Present
+            if (is_user) pde.* |= 0x4; // User-mode access
+
+            asm volatile ("invlpg (%[vaddr])"
+                :
+                : [vaddr] "r" (vaddr),
+                : "memory");
+            pf_count += 1;
+            return true;
+        }
+        return true; // Already present
+    }
+
+    // Security check for User Mode requests
+    if (is_user) {
+        // User Mode can only map:
+        // 1. RAM within [kernel_end, MAX_MEMORY)
+        // 2. Whitelisted MMIO (like LFB)
+        // 3. Legacy VGA text buffer (0xB8000)
+        const kernel_end = @intFromPtr(&ebss);
+
+        const is_vga = (vaddr >= 0xB8000 and vaddr < 0xC0000);
+        const is_kernel_code = (vaddr >= @intFromPtr(&_code_start) and vaddr < @intFromPtr(&_code_end));
+        const is_rodata = (vaddr >= @intFromPtr(&_rodata_start) and vaddr < @intFromPtr(&_rodata_end));
+        const is_data = (vaddr >= @intFromPtr(&_data_start) and vaddr < @intFromPtr(&ebss));
+        const is_system_area = (vaddr >= @intFromPtr(&_system_start) and vaddr < @intFromPtr(&_system_end));
+
+        const is_allowed_mmio = (user_mmio_start != 0 and vaddr >= user_mmio_start and vaddr < user_mmio_end);
+
+        // For general demand paging (identity mapping), we check boundaries.
+        const is_kernel_image = is_kernel_code or is_rodata or is_data or is_system_area;
+        if (!is_vga and !is_allowed_mmio and !is_kernel_image) {
+            if (vaddr < kernel_end or vaddr >= MAX_MEMORY) {
+                logger.security("User-mode unauthorized memory map attempt");
+                var buf: [16]u8 = undefined;
+                logger.debug(common.intToHex(@intCast(vaddr), &buf));
+                return false;
+            }
+        }
+    }
+
+    const eflags = interrupts_save();
+    smp.spin_lock(&paging_lock);
+    defer {
+        smp.spin_unlock(&paging_lock);
+        interrupts_restore(eflags);
+    }
+
+    return map_page_at(vaddr, vaddr & 0xFFFFF000, is_user);
+}
+
+/// map_page_at maps a specific virtual address to a specific physical address with requested permissions.
+pub fn map_page_at(vaddr: usize, paddr_in: usize, is_user: bool) bool {
     const pd_idx = vaddr >> 22;
     const pt_idx = (vaddr >> 12) & 0x3FF;
 
     if (pd_idx >= 1024) return false;
 
-    // Address 0x0 and Poison addresses are protected
+    // Address 0x0 and Poison addresses are protected from mapping (except maybe kernel?)
     if (vaddr < 4096) return false;
-    if (vaddr >= 0xDEAD0000 and vaddr <= 0xDEADFFFF) return false;
 
-    // Check for HUGE PAGE (Bit 7)
-    const pde = &page_directory[pd_idx];
-    if ((pde.* & 0x80) != 0) {
-        if ((pde.* & 1) == 0) {
-            pde.* |= 0x5; // Mark Present and User
-            var cs: u16 = 0;
-            asm volatile ("mov %%cs, %[cs]"
-                : [cs] "=r" (cs),
-            );
-            if ((cs & 3) == 0) {
-                asm volatile ("invlpg (%[vaddr])"
-                    :
-                    : [vaddr] "r" (vaddr),
-                    : "memory");
-            }
-            pf_count += 1;
+    // Check for HUGE PAGE (Bit 7) in the directory
+    if ((page_directory[pd_idx] & 0x80) != 0) {
+        // If it's a huge page, ensure it has the requested permissions
+        var huge_attr: u32 = 0x81; // P=1, PS=1
+        if (is_user) {
+            huge_attr |= 0x06; // RW=1, US=1
+        } else {
+            huge_attr |= 0x02; // RW=1
         }
+
+        page_directory[pd_idx] |= huge_attr;
+
+        // Invalidate TLB for this range
+        asm volatile ("invlpg (%[vaddr])"
+            :
+            : [vaddr] "r" (vaddr),
+            : "memory");
         return true;
     }
 
     const pt = create_page_table(@as(u32, @intCast(pd_idx))) orelse return false;
+
+    // Ensure the PDE has USER and RW bits set if this is a user-mode request
+    if (is_user) {
+        page_directory[pd_idx] |= 0x06; // USER=1, RW=1
+    }
+
     const pte = &pt[pt_idx];
+    const target_attr: u32 = if (is_user) 0x07 else 0x03; // P+RW(+US)
 
-    // If not present
-    if ((pte.* & 1) == 0) {
-        var paddr: usize = 0;
+    // If not present or if permissions are insufficient (missing USER or RW)
+    if ((pte.* & 1) == 0 or (pte.* & target_attr) != target_attr) {
+        var paddr: usize = paddr_in;
 
+        // If a physical address was pre-assigned in the PTE, use it.
         if ((pte.* & 0xFFFFF000) != 0) {
-            // Use pre-assigned physical address (for 32MB - RAM range)
             paddr = pte.* & 0xFFFFF000;
-        } else {
-            // Identity map for discovery (BIOS, ACPI, MMIO)
-            paddr = vaddr & 0xFFFFF000;
         }
 
         // Mark as busy if it's in our RAM range
@@ -313,17 +484,26 @@ pub fn map_page(vaddr: usize) bool {
             set_page_busy(@as(u32, @intCast(paddr / PAGE_SIZE)));
         }
 
-        pte.* = @as(u32, @intCast(paddr)) | 0x7; // P=1, RW=1, USER=1
-        var cs: u16 = 0;
-        asm volatile ("mov %%cs, %[cs]"
-            : [cs] "=r" (cs),
-        );
-        if ((cs & 3) == 0) {
-            asm volatile ("invlpg (%[vaddr])"
-                :
-                : [vaddr] "r" (vaddr),
-                : "memory");
+        // Set attributes based on requester and region
+        var attr: u32 = if (is_user) 0x7 else 0x3;
+
+        // Security: Restrict permissions for specific regions
+        if (vaddr >= @intFromPtr(&_code_start) and vaddr < @intFromPtr(&_code_end)) {
+            attr = if (is_user) 0x5 else 0x1; // Code is Read/Execute
+        } else if (vaddr >= @intFromPtr(&_rodata_start) and vaddr < @intFromPtr(&_rodata_end)) {
+            attr = if (is_user) 0x5 else 0x1; // RoData is Read-only
+        } else if (vaddr >= @intFromPtr(&_system_start) and vaddr < @intFromPtr(&_system_end)) {
+            attr = 0x7; // Allowed for shell/nova for now
         }
+
+        // Apply new attributes while keeping the physical address
+        pte.* = @as(u32, @intCast(paddr)) | attr;
+
+        // Invalidate TLB
+        asm volatile ("invlpg (%[vaddr])"
+            :
+            : [vaddr] "r" (vaddr),
+            : "memory");
 
         pf_count += 1;
         return true;
@@ -331,12 +511,53 @@ pub fn map_page(vaddr: usize) bool {
     return false;
 }
 
-pub fn map_range(vaddr: usize, size: usize) void {
+/// Helper to check if an address is mapped and present in the page directory/tables.
+pub fn is_ptr_present(addr: usize) bool {
+    const pd_idx = addr >> 22;
+    const pt_idx = (addr >> 12) & 0x3FF;
+
+    const pde = page_directory[pd_idx];
+    if ((pde & 0x01) == 0) return false;
+    if ((pde & 0x80) != 0) return true; // Huge page is present
+
+    if (page_tables[pd_idx]) |pt| {
+        return (pt[pt_idx] & 0x01) != 0;
+    }
+    return false;
+}
+
+/// Helper to check if an address is mapped for User-mode (P=1 and USER=1)
+pub fn is_user_ptr(addr: usize) bool {
+    const pd_idx = addr >> 22;
+    const pt_idx = (addr >> 12) & 0x3FF;
+
+    const pde = page_directory[pd_idx];
+    if ((pde & 0x01) == 0 or (pde & 0x04) == 0) return false;
+    if ((pde & 0x80) != 0) return true; // Huge page is present and user
+
+    if (page_tables[pd_idx]) |pt| {
+        const pte = pt[pt_idx];
+        return (pte & 0x01) != 0 and (pte & 0x04) != 0;
+    }
+    return false;
+}
+
+pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
+    const eflags = interrupts_save();
+    smp.spin_lock(&paging_lock);
+    defer {
+        smp.spin_unlock(&paging_lock);
+        interrupts_restore(eflags);
+    }
+
+    if (size == 0) return;
+
     var cs: u16 = 0;
     asm volatile ("mov %%cs, %[cs]"
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
+        // Redirect to syscall if called from user-mode code directly
         asm volatile ("int $0x80"
             :
             : [sys] "{eax}" (@as(u32, 15)),
@@ -346,35 +567,46 @@ pub fn map_range(vaddr: usize, size: usize) void {
         return;
     }
 
+    const end_aligned = (vaddr + (size - 1)) & 0xFFFFF000;
     var addr = vaddr & 0xFFFFF000;
-    const end = vaddr + size;
-    while (addr < end) {
+
+    while (true) {
         const pd_idx = addr >> 22;
         if ((page_directory[pd_idx] & 0x80) != 0) {
             // Huge page: map it and jump to next 4MB
-            _ = map_page(addr);
-            addr = (addr + 0x400000) & 0xFFC00000;
+            _ = map_page_at(addr, addr & 0xFFC00000, is_user);
+            const res = @addWithOverflow(addr & 0xFFC00000, @as(usize, 0x400000));
+            if (res[1] != 0 or res[0] > end_aligned) break;
+            addr = res[0];
         } else {
-            _ = map_page(addr);
-            addr += PAGE_SIZE;
+            _ = map_page_at(addr, addr & 0xFFFFF000, is_user);
+            if (addr >= end_aligned) break;
+            const res = @addWithOverflow(addr, @as(usize, PAGE_SIZE));
+            if (res[1] != 0) break;
+            addr = res[0];
         }
     }
 }
 
 /// --- Linked List Heap Allocator ---
+const HEAP_MAGIC = 0x48454150; // "HEAP" in ASCII
+
 const BlockHeader = struct {
+    magic: u32,
     size: usize,
     is_free: bool,
     next: ?*BlockHeader,
 };
 
 var first_block: ?*BlockHeader = null;
+var heap_lock: u32 = 0;
 
 pub const heap = struct {
     pub fn init() void {
         if (pmm.alloc_page()) |addr| {
             first_block = @as(*BlockHeader, @ptrFromInt(addr));
             first_block.?.* = .{
+                .magic = HEAP_MAGIC,
                 .size = PAGE_SIZE - @sizeOf(BlockHeader),
                 .is_free = true,
                 .next = null,
@@ -383,6 +615,13 @@ pub const heap = struct {
     }
 
     pub fn alloc(size: usize) ?[*]u8 {
+        const eflags = interrupts_save();
+        smp.spin_lock(&heap_lock);
+        defer {
+            smp.spin_unlock(&heap_lock);
+            interrupts_restore(eflags);
+        }
+
         // Align to 8 bytes
         const aligned_size = (size + 7) & ~@as(usize, 7);
 
@@ -397,6 +636,7 @@ pub const heap = struct {
                         const next_ptr = @intFromPtr(block) + @sizeOf(BlockHeader) + aligned_size;
                         const new_block = @as(*BlockHeader, @ptrFromInt(next_ptr));
                         new_block.* = .{
+                            .magic = HEAP_MAGIC,
                             .size = block.size - aligned_size - @sizeOf(BlockHeader),
                             .is_free = true,
                             .next = block.next,
@@ -413,6 +653,7 @@ pub const heap = struct {
             if (pmm.alloc_page()) |addr| {
                 const new_block = @as(*BlockHeader, @ptrFromInt(addr));
                 new_block.* = .{
+                    .magic = HEAP_MAGIC,
                     .size = PAGE_SIZE - @sizeOf(BlockHeader),
                     .is_free = true,
                     .next = null,
@@ -440,20 +681,105 @@ pub const heap = struct {
     }
 
     pub fn free(ptr: [*]u8) void {
-        const header_ptr = @intFromPtr(ptr) - @sizeOf(BlockHeader);
+        const res = free_internal(ptr, false);
+        if (!res) {
+            // This should only happen if called from kernel with bad logic
+            @panic("Heap: Internal free failed (bad pointer, magic or double-free)");
+        }
+    }
+
+    /// Syscall-safe free that returns success/failure instead of panicking
+    pub fn free_safe(ptr: [*]u8) bool {
+        return free_internal(ptr, true);
+    }
+
+    fn free_internal(ptr: [*]u8, safe: bool) bool {
+        const eflags = interrupts_save();
+        smp.spin_lock(&heap_lock);
+        defer {
+            smp.spin_unlock(&heap_lock);
+            interrupts_restore(eflags);
+        }
+
+        // 1. Basic pointer validation
+        const addr = @intFromPtr(ptr);
+        if (addr < 0x1000 or (addr & 7) != 0) {
+            if (safe) {
+                logger.security("Free: Invalid or unaligned pointer from User Mode");
+                return false;
+            }
+            @panic("Heap: Attempt to free invalid or unaligned pointer");
+        }
+
+        const header_ptr = addr - @sizeOf(BlockHeader);
         const header = @as(*BlockHeader, @ptrFromInt(header_ptr));
+
+        // 2. Magic number validation (prevents freeing non-heap memory)
+        if (header.magic != HEAP_MAGIC) {
+            if (safe) {
+                logger.security("Free: Corruption detected (invalid magic)");
+                return false;
+            }
+            @panic("Heap: Corruption detected (invalid magic)! Potential buffer overflow or invalid free.");
+        }
+
+        // 3. Double-free detection
+        if (header.is_free) {
+            if (safe) {
+                logger.security("Free: Double-free attempt from User Mode");
+                return false;
+            }
+            @panic("Heap: Double-free detected!");
+        }
+
+        // 4. Sanity check on size
+        if (header.size > 128 * 1024 * 1024) {
+            if (safe) {
+                logger.security("Free: Insane block size detected");
+                return false;
+            }
+            @panic("Heap: Corruption detected (implausible block size)!");
+        }
+
+        // --- Deep Validation ---
+        // Verify that this block ACTUALLY exists in our linked list.
+        // This prevents 'fake' headers created in user-space from being processed.
+        var found = false;
+        var current = first_block;
+        while (current) |block| : (current = block.next) {
+            if (@intFromPtr(block) == header_ptr) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            if (safe) {
+                logger.security("Free: Valid-looking header but NOT in heap list (fake block attempt)");
+            }
+            return false;
+        }
+
         header.is_free = true;
 
         // Simple immediate coalescing with next block
         coalesce();
+        return true;
     }
 
     /// Garbage Collector / Memory Cleaner
     /// Merges adjacent free blocks to prevent fragmentation
     pub fn garbage_collect() void {
+        const eflags = interrupts_save();
+        smp.spin_lock(&heap_lock);
+        defer {
+            smp.spin_unlock(&heap_lock);
+            interrupts_restore(eflags);
+        }
+
         if (!config.USE_GARBAGE_COLLECTOR) return;
 
-        common.printZ("GC: Running memory cleanup...\n");
+        logger.info("GC: Running memory cleanup...");
         coalesce();
     }
 
@@ -490,4 +816,17 @@ pub fn get_free_memory() usize {
 
 pub fn get_used_memory() usize {
     return MAX_MEMORY - get_free_memory();
+}
+
+pub fn get_current_pd() u32 {
+    return asm volatile ("mov %%cr3, %[ret]"
+        : [ret] "=r" (-> u32),
+    );
+}
+
+pub fn switch_page_directory(pd_addr: u32) void {
+    asm volatile ("mov %[pd], %%cr3"
+        :
+        : [pd] "r" (pd_addr),
+        : "memory");
 }

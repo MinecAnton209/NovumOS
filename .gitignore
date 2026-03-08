@@ -1,6 +1,8 @@
-# Build output
+# Build output (general)
 build/
 *.bin
+!zig/fonts/*.bin
+!zig/trampoline.bin
 *.o
 *.elf
 os.img
@@ -35,3 +37,4 @@ Thumbs.db
 # SDK
 sdk/**/*.elf
 sdk/**/*.o
+*.a

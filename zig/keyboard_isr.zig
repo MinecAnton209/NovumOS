@@ -6,6 +6,37 @@ const BUFFER_SIZE = 256;
 var keyboard_buffer: [BUFFER_SIZE]u8 = undefined;
 var buffer_head: usize = 0;
 var buffer_tail: usize = 0;
+var keyboard_lock: u32 = 0;
+
+// Re-using the memory.zig interrupt helpers or defining them here if needed.
+// Given the project structure, it's better to define local safety helpers to avoid
+// complex circular dependencies if memory.zig depends on smp.
+fn interrupts_save() u32 {
+    var eflags: u32 = undefined;
+    asm volatile (
+        \\pushfl
+        \\popl %[eflags]
+        : [eflags] "=r" (eflags),
+    );
+    // CLI is a privileged instruction - only execute in Ring 0
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) {
+        asm volatile ("cli");
+    }
+    return eflags;
+}
+
+fn interrupts_restore(eflags: u32) void {
+    asm volatile (
+        \\pushl %[eflags]
+        \\popfl
+        :
+        : [eflags] "r" (eflags),
+        : "memory");
+}
 
 // Extended keys constants (matches kernel32.asm)
 pub const KEY_UP = 0x80;
@@ -172,8 +203,10 @@ pub export fn isr_keyboard() void {
                 scancode[scancode_byte];
 
             if (ctrl_pressed) {
-                if (ascii == 'c' or ascii == 'C') {
-                    ascii = 3;
+                // Ctrl+Letter generates ASCII control code (letter - 'a' + 1)
+                const lower = if (ascii >= 'A' and ascii <= 'Z') ascii + 32 else ascii;
+                if (lower >= 'a' and lower <= 'z') {
+                    ascii = lower - 'a' + 1; // Ctrl+A=1, Ctrl+C=3, Ctrl+E=5, Ctrl+L=12, Ctrl+U=21, Ctrl+W=23
                 }
             }
 
@@ -257,33 +290,50 @@ pub fn serial_inject_char(c: u8) void {
 
 fn inject_into_buffer(ascii: u8) void {
     if (ascii == 0) return;
-    const head_ptr = @as(*volatile usize, &buffer_head);
-    const tail = @as(*volatile usize, &buffer_tail).*;
-    const next_head = (head_ptr.* + 1) % BUFFER_SIZE;
-    if (next_head != tail) {
-        keyboard_buffer[head_ptr.*] = ascii;
-        head_ptr.* = next_head;
+    const smp = @import("smp.zig");
+    const eflags = interrupts_save();
+    smp.spin_lock(&keyboard_lock);
+    defer {
+        smp.spin_unlock(&keyboard_lock);
+        interrupts_restore(eflags);
+    }
+
+    const next_head = (buffer_head + 1) % BUFFER_SIZE;
+    if (next_head != buffer_tail) {
+        keyboard_buffer[buffer_head] = ascii;
+        buffer_head = next_head;
     }
 }
 
 // Get character from buffer (non-blocking)
 pub export fn keyboard_getchar() u8 {
-    const head = @as(*volatile usize, &buffer_head).*;
-    const tail_ptr = @as(*volatile usize, &buffer_tail);
-    if (tail_ptr.* == head) {
+    const smp = @import("smp.zig");
+    const eflags = interrupts_save();
+    smp.spin_lock(&keyboard_lock);
+    defer {
+        smp.spin_unlock(&keyboard_lock);
+        interrupts_restore(eflags);
+    }
+
+    if (buffer_tail == buffer_head) {
         return 0; // Buffer empty
     }
 
-    const ch = keyboard_buffer[tail_ptr.*];
-    tail_ptr.* = (tail_ptr.* + 1) % BUFFER_SIZE;
+    const ch = keyboard_buffer[buffer_tail];
+    buffer_tail = (buffer_tail + 1) % BUFFER_SIZE;
     return ch;
 }
 
 // Check if buffer has data
 pub export fn keyboard_has_data() bool {
-    const head = @as(*volatile usize, &buffer_head).*;
-    const tail = @as(*volatile usize, &buffer_tail).*;
-    return tail != head;
+    const smp = @import("smp.zig");
+    const eflags = interrupts_save();
+    smp.spin_lock(&keyboard_lock);
+    defer {
+        smp.spin_unlock(&keyboard_lock);
+        interrupts_restore(eflags);
+    }
+    return buffer_tail != buffer_head;
 }
 
 pub export fn keyboard_get_caps_lock() bool {
@@ -327,12 +377,40 @@ pub export fn keyboard_wait_char() u8 {
     }
 }
 
-pub fn check_ctrl_c() bool {
-    if (keyboard_has_data()) {
-        if (keyboard_buffer[buffer_tail] == 3) {
-            _ = keyboard_getchar();
+pub fn check_ctrl_c_kernel() bool {
+    const smp = @import("smp.zig");
+    const eflags = interrupts_save();
+    smp.spin_lock(&keyboard_lock);
+    defer {
+        smp.spin_unlock(&keyboard_lock);
+        interrupts_restore(eflags);
+    }
+
+    var i = buffer_tail;
+    while (i != buffer_head) {
+        if (keyboard_buffer[i] == 3) {
+            buffer_tail = buffer_head;
             return true;
         }
+        i = (i + 1) % BUFFER_SIZE;
     }
     return false;
 }
+
+pub fn check_ctrl_c() bool {
+    var cs_val: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs_val),
+    );
+    if ((cs_val & 3) == 3) {
+        var res: u32 = 0;
+        asm volatile ("int $0x80"
+            : [ret] "={eax}" (res),
+            : [sys] "{eax}" (@as(u32, 32)),
+        );
+        return res != 0;
+    }
+    return check_ctrl_c_kernel();
+}
+
+// Temporary backwards compat if someone calls old check_ctrl_c implementation

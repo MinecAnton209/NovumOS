@@ -1,0 +1,67 @@
+name: Bug Report
+description: File a bug report for NovumOS.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping us make NovumOS better! Please fill out the form below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug. What did you expect to see, and what happened instead?
+      placeholder: Tell us about the demons on your screen...
+    validations:
+      required: true
+  - type: dropdown
+    id: version
+    attributes:
+      label: OS Version
+      description: Which version of NovumOS are you running?
+      options:
+        - v0.23-beta.6 (Current)
+        - v0.22-stable
+        - Other (please specify in description)
+      default: 0
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Where did it happen?
+      description: In which emulator or on what hardware did this occur?
+      multiple: true
+      options:
+        - QEMU (i386)
+        - Bochs
+        - VirtualBox
+        - VMware
+        - Real Hardware (PC)
+  - type: textarea
+    id: qemu-cmd
+    attributes:
+      label: Launch Command (if QEMU)
+      description: e.g., qemu-system-i386 -serial stdio ...
+      render: shell
+  - type: textarea
+    id: logs
+    attributes:
+      label: Serial (stdio) Logs
+      description: If there is output in the emulator console, please copy it here.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I tried running `.\build.bat` before filing this issue
+          required: true
+        - label: I checked if this bug was already reported
+          required: false
+  - type: upload
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If the bug is visual, please attach a screenshot.

@@ -6,54 +6,46 @@ extern handle_syscall_zig
 
 section .text
 
-; Function called from Zig: jump_to_ring3_entry(entry_address)
+; Function called from Zig: jump_to_ring3_entry(entry_address, stack_address)
+; Function called from Zig: jump_to_ring1_entry(entry_address, stack_address)
 jump_to_ring3_entry:
     cli
-    mov ebp, [esp + 4]   ; Get entry point address from argument
+    mov ebp, [esp + 4]   ; Get entry point address
+    mov ecx, [esp + 8]   ; Get stack address
+    mov edx, [esp + 12]  ; Get EFLAGS
     
-    ; Prepare stack for IRET:
-    ; [ESP + 16] SS
-    ; [ESP + 12] ESP
-    ; [ESP + 8]  EFLAGS
-    ; [ESP + 4]  CS
-    ; [ESP + 0]  EIP
+    ; Setup IRET frame
+    push 0xAB           ; SS
+    push ecx            ; ESP
+    push edx            ; EFLAGS
+    push 0xA3           ; CS
+    push ebp            ; EIP
     
-    push 0x33           ; SS (User Data Segment: 0x30 | 3)
-    push 0x3FFFF0       ; ESP (User Stack - 16-byte aligned)
-    push 0x202          ; EFLAGS (IF set)
-    push 0x2B           ; CS (User Code Segment: 0x28 | 3)
-    push ebp            ; EIP (Entry point passed as argument)
-    
-    ; Set segment registers to User Data
-    mov ax, 0x33
+    ; 1. Zero out segment registers for Ring 3
+    mov ax, 0xAB
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
-    
-    ; Jump!
+
+    ; 2. Zero out SSE registers to prevent information leak
+    pxor xmm0, xmm0
+    pxor xmm1, xmm1
+    pxor xmm2, xmm2
+    pxor xmm3, xmm3
+    pxor xmm4, xmm4
+    pxor xmm5, xmm5
+    pxor xmm6, xmm6
+    pxor xmm7, xmm7
+
+    ; 3. Zero out all GPRs (Sanitization)
+    xor eax, eax
+    xor ebx, ebx
+    xor ecx, ecx
+    xor edx, edx
+    xor esi, esi
+    xor edi, edi
+    xor ebp, ebp
+
+    ; All set. Jump to Ring 3!
     iret
-
-; Original test entry point (just in case)
-global jump_to_ring3
-jump_to_ring3:
-    push user_test_entry
-    call jump_to_ring3_entry
-    ret
-
-user_test_entry:
-    mov ebx, user_msg   ; Pointer to message
-.loop:
-    mov eax, 1          ; Syscall 1: Print
-    int 0x80            ; Invoke kernel!
-    
-    ; Simple delay loop
-    mov ecx, 0x1000000
-.delay:
-    nop
-    loop .delay
-    
-    jmp .loop
-
-section .data
-user_msg db "Hello from ASM Ring 3 via syscall!", 10, 0

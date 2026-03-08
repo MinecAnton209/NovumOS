@@ -13,6 +13,8 @@ const config = @import("config.zig");
 const nova_interpreter = @import("nova/interpreter.zig");
 const nova_commands = @import("nova/commands.zig");
 const top_cmd = @import("commands/top.zig");
+const lfb = @import("drivers/lfb.zig");
+const rtc = @import("drivers/rtc.zig");
 
 // Embedded Nova Scripts
 const EmbeddedScript = struct {
@@ -36,6 +38,15 @@ const Command = struct {
     handler: *const fn ([]const u8) void,
 };
 
+fn cmd_handler_kill(args: []const u8) void {
+    shell_cmds.cmd_kill(args.ptr, @intCast(args.len));
+}
+
+fn cmd_handler_ps(args: []const u8) void {
+    _ = args;
+    shell_cmds.cmd_ps();
+}
+
 const SHELL_COMMANDS = [_]Command{
     .{ .name = "help", .help = "Show this help message (Tip: help 2)", .handler = cmd_handler_help },
     .{ .name = "?", .help = "Alias for help", .handler = cmd_handler_help },
@@ -44,6 +55,8 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "about", .help = "Show legal information & credits", .handler = cmd_handler_about },
     .{ .name = "nova", .help = "Start Nova Scripting Interpreter", .handler = cmd_handler_nova },
     .{ .name = "top", .help = "Real-time CPU and Task Monitor", .handler = cmd_handler_top },
+    .{ .name = "ps", .help = "List active system processes", .handler = cmd_handler_ps },
+    .{ .name = "kill", .help = "kill <pid> - Terminate a running process", .handler = cmd_handler_kill },
     .{ .name = "uptime", .help = "Show system runtime and RTC time", .handler = cmd_handler_uptime },
     .{ .name = "reboot", .help = "Safely restart the system", .handler = cmd_handler_reboot },
     .{ .name = "shutdown", .help = "Safely turn off the system (ACPI)", .handler = cmd_handler_shutdown },
@@ -85,6 +98,8 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall },
     .{ .name = "ring3", .help = "Switch to Ring 3 (User Mode) test", .handler = cmd_handler_ring3 },
     .{ .name = "run", .help = "run <elf> - Execute an ELF executable in Ring 3", .handler = cmd_handler_run },
+    .{ .name = "calc", .help = "Evaluate math & bitwise expressions (e.g. 1 << 8)", .handler = cmd_handler_calc },
+    .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = cmd_handler_res },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
     .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = cmd_handler_panic },
     .{ .name = "abort", .help = "Trigger a manual kernel panic", .handler = cmd_handler_abort },
@@ -126,6 +141,10 @@ var auto_prefix_len: usize = 0;
 var auto_match_index: usize = 0;
 var auto_start_pos: u16 = 0;
 
+var shell_cursor_visible: bool = true;
+var last_shell_cursor_row: u16 = 0;
+var last_shell_cursor_col: u16 = 0;
+
 /// Read a command from input
 pub export fn read_command() void {
     vga.reset_color();
@@ -141,6 +160,7 @@ pub export fn read_command() void {
     display_prompt();
     prompt_row = vga.zig_get_cursor_row();
     prompt_col = vga.zig_get_cursor_col();
+    shell_cursor_visible = true;
     refresh_line(); // Initial draw of status bar
 
     while (true) {
@@ -160,6 +180,8 @@ pub export fn read_command() void {
         if (char != 9) auto_cycling = false;
 
         if (char == 10) { // Enter
+            shell_cursor_visible = false;
+            refresh_line();
             break;
         } else if (char == 8 or char == 127) { // Backspace
             if (cmd_pos > 0) {
@@ -225,6 +247,43 @@ pub export fn read_command() void {
             }
             autocomplete();
             refresh_line();
+        } else if (char == 12) { // Ctrl+L - clear screen
+            vga.clear_screen();
+            messages.print_welcome();
+            common.printZ("\n");
+            display_prompt();
+            prompt_row = vga.zig_get_cursor_row();
+            prompt_col = vga.zig_get_cursor_col();
+            shell_cursor_visible = true;
+            refresh_line();
+        } else if (char == 1) { // Ctrl+A - jump to beginning
+            cmd_pos = 0;
+            move_screen_cursor();
+        } else if (char == 5) { // Ctrl+E - jump to end
+            cmd_pos = cmd_len;
+            move_screen_cursor();
+        } else if (char == 23) { // Ctrl+W - delete word backwards
+            if (cmd_pos > 0) {
+                // Skip trailing spaces
+                var pos = cmd_pos;
+                while (pos > 0 and cmd_buffer[pos - 1] == ' ') pos -= 1;
+                // Skip the word
+                while (pos > 0 and cmd_buffer[pos - 1] != ' ') pos -= 1;
+                const deleted = cmd_pos - pos;
+                var i: usize = pos;
+                while (i < cmd_len - deleted) : (i += 1) {
+                    cmd_buffer[i] = cmd_buffer[i + deleted];
+                }
+                while (i < cmd_len) : (i += 1) cmd_buffer[i] = 0;
+                cmd_len -= deleted;
+                cmd_pos = pos;
+                refresh_line();
+            }
+        } else if (char == 21) { // Ctrl+U - clear entire line
+            for (&cmd_buffer) |*b| b.* = 0;
+            cmd_len = 0;
+            cmd_pos = 0;
+            refresh_line();
         } else if (char >= 32 and char <= 126) { // Printable characters
             if (cmd_len < 1023) {
                 if (insert_mode) {
@@ -245,7 +304,10 @@ pub export fn read_command() void {
                 refresh_line();
             }
         }
+        vga.vga_flush();
     }
+
+    // Do not explicitly erase, refresh_line clears prompt directly
 
     if (cmd_len > 0) {
         save_to_history();
@@ -310,27 +372,12 @@ fn load_history_from_disk() void {
 fn refresh_line() void {
     const saved_pos = cmd_pos;
 
-    // 1. VGA Update (Silent clear to avoid triggering scrolls during clear)
-    {
-        var row = prompt_row;
-        var col = prompt_col;
-        var cleared: usize = 0;
-        // Clear up to 2 lines or until end of screen
-        while (cleared < 160) : (cleared += 1) {
-            if (row >= 25) break;
-            const idx = @as(usize, row) * 80 + col;
-            vga.VIDEO_MEMORY[idx] = vga.DEFAULT_ATTR | ' ';
-            col += 1;
-            if (col >= 80) {
-                col = 0;
-                row += 1;
-            }
-        }
-    }
+    // 1. VGA Update (Clear to avoid trailing characters when line length decreases)
+    vga.clear_prompt_area(prompt_row, prompt_col);
 
-    // Draw text on VGA. We use zig_print_char to allow natural wrapping.
-    // If it scrolls, we need to detect it.
-    vga.zig_set_cursor(prompt_row, prompt_col);
+    // Set cursor silently to avoid flashing the cursor at the prompt start
+    vga.cursor_row = prompt_row;
+    vga.cursor_col = prompt_col;
     for (cmd_buffer[0..cmd_len]) |c| {
         const row_before_char = vga.zig_get_cursor_row();
         vga.zig_print_char(c);
@@ -364,31 +411,38 @@ fn refresh_line() void {
     serial.serial_show_cursor();
 
     // Update status indicator in top-right corner
-    vga.VIDEO_MEMORY[80 - 14] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'C';
-    vga.VIDEO_MEMORY[80 - 13] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'A';
-    vga.VIDEO_MEMORY[80 - 12] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'P';
-    vga.VIDEO_MEMORY[80 - 11] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'S';
+    const cols = vga.MAX_COLS;
+    const caps_attr = if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800);
+    vga.draw_indicator(@intCast(cols - 14), caps_attr, 'C');
+    vga.draw_indicator(@intCast(cols - 13), caps_attr, 'A');
+    vga.draw_indicator(@intCast(cols - 12), caps_attr, 'P');
+    vga.draw_indicator(@intCast(cols - 11), caps_attr, 'S');
 
-    vga.VIDEO_MEMORY[80 - 9] = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'N';
-    vga.VIDEO_MEMORY[80 - 8] = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'U';
-    vga.VIDEO_MEMORY[80 - 7] = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'M';
+    const num_attr = if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800);
+    vga.draw_indicator(@intCast(cols - 9), num_attr, 'N');
+    vga.draw_indicator(@intCast(cols - 8), num_attr, 'U');
+    vga.draw_indicator(@intCast(cols - 7), num_attr, 'M');
 
-    const attr = @as(u16, 0x0E00); // Yellow on black
+    const ins_attr = @as(u16, 0x0E00); // Yellow on black
     const status = if (insert_mode) " INS " else " OVR ";
     for (status, 0..) |c, k| {
-        vga.VIDEO_MEMORY[80 - 5 + k] = attr | @as(u16, c);
+        vga.draw_indicator(@intCast(cols - 5 + k), ins_attr, c);
     }
 }
 
 fn move_screen_cursor() void {
     var new_col = @as(u16, prompt_col) + cmd_pos;
     var new_row = prompt_row;
+    const cols = vga.MAX_COLS;
 
-    while (new_col >= 80) {
-        new_col -= 80;
+    while (new_col >= cols) {
+        new_col -= @intCast(cols);
         new_row += 1;
     }
     vga.zig_set_cursor(@intCast(new_row), @intCast(new_col));
+
+    last_shell_cursor_row = new_row;
+    last_shell_cursor_col = new_col;
     serial.serial_set_cursor(@intCast(new_row), @intCast(new_col));
 }
 
@@ -646,6 +700,7 @@ fn autocomplete() void {
     var picked_name_buf: [256]u8 = [_]u8{0} ** 256; // Buffer to hold the picked name
     var picked_len: usize = 0;
     var is_cmd = false;
+    var picked_is_dir = false;
 
     if (auto_start_pos == 0) {
         for (SHELL_COMMANDS) |cmd| {
@@ -729,6 +784,7 @@ fn autocomplete() void {
                             if (current_match_idx == auto_match_index) {
                                 picked_len = @min(picked_name_buf.len, name_str.len);
                                 for (0..picked_len) |p| picked_name_buf[p] = name_str[p];
+                                picked_is_dir = (d_buf[j + 11] & 0x10) != 0;
                                 break :outer;
                             }
                             current_match_idx += 1;
@@ -810,6 +866,7 @@ fn autocomplete() void {
                                 if (current_match_idx == auto_match_index) {
                                     picked_len = @min(picked_name_buf.len, name_str.len);
                                     for (0..picked_len) |p| picked_name_buf[p] = name_str[p];
+                                    picked_is_dir = (d_buf[j + 11] & 0x10) != 0;
                                     break :outer;
                                 }
                                 current_match_idx += 1;
@@ -837,6 +894,11 @@ fn autocomplete() void {
         if (needs_quotes) {
             cmd_buffer[cmd_len] = '"';
             cmd_len += 1;
+        }
+
+        if (picked_is_dir and picked_len < picked_name_buf.len) {
+            picked_name_buf[picked_len] = '/';
+            picked_len += 1;
         }
 
         for (0..picked_len) |p| {
@@ -1382,6 +1444,14 @@ fn cmd_handler_mkdir(args: []const u8) void {
     }
 }
 
+fn cmd_handler_res(args: []const u8) void {
+    shell_cmds.cmd_res(args.ptr, @intCast(args.len));
+}
+
+fn cmd_handler_calc(args: []const u8) void {
+    shell_cmds.cmd_calc(args.ptr, @intCast(args.len));
+}
+
 fn cmd_handler_install(args: []const u8) void {
     // 1. Skip leading space
     var i: usize = 0;
@@ -1553,22 +1623,38 @@ fn cmd_handler_tree(_: []const u8) void {
 }
 
 fn display_prompt() void {
-    if (vga.zig_get_cursor_col() > 0) common.printZ("\n");
+    if (vga.zig_get_cursor_col() > 0) common.print_char('\n');
 
-    vga.set_color(10, 0); // Light Green
+    // 1. Clock [HH:MM:SS]
+    const now = rtc.get_datetime();
+    vga.set_color(8, 0); // Dark Gray
+    common.print_char('[');
+    vga.set_color(7, 0); // Gray
+    if (now.hour < 10) common.print_char('0');
+    common.printNum(now.hour);
+    common.print_char(':');
+    if (now.minute < 10) common.print_char('0');
+    common.printNum(now.minute);
+    common.print_char(':');
+    if (now.second < 10) common.print_char('0');
+    common.printNum(now.second);
+    vga.set_color(8, 0);
+    common.printZ("] ");
+
+    vga.set_color(10, 0); // Light Green for Drive
     if (common.selected_disk >= 0) {
         common.print_char(@intCast(@as(u8, @intCast(common.selected_disk)) + '0'));
-        common.print_char(':');
+        common.printZ(":");
     }
 
-    vga.set_color(11, 0); // Light Yellow/Cyan for path
+    vga.set_color(11, 0); // Light Cyan for path
     if (common.current_path_len == 0) {
         common.printZ("/");
     } else {
         common.printZ(common.current_path[0..common.current_path_len]);
     }
 
-    vga.set_color(15, 0); // White for bracket
+    vga.set_color(15, 0); // White for prompt
     common.printZ("> ");
     vga.reset_color();
 }

@@ -2,6 +2,7 @@
 const common = @import("commands/common.zig");
 const memory = @import("memory.zig");
 const user = @import("user.zig");
+const logger = @import("logger.zig");
 
 pub const Elf32_Addr = u32;
 pub const Elf32_Off = u32;
@@ -39,6 +40,7 @@ pub const Phdr = extern struct {
 pub const PT_LOAD = 1;
 
 pub fn load_and_run(data: []const u8) !noreturn {
+    user.set_is_privileged(false);
     if (data.len < @sizeOf(Header)) return error.InvalidElfHeader;
 
     // Ensure alignment for the Header struct
@@ -55,40 +57,68 @@ pub fn load_and_run(data: []const u8) !noreturn {
         return error.UnsupportedArchitecture;
     }
 
-    common.printZ("[Kernel] Loading ELF entry at ");
-    var buf: [16]u8 = undefined;
-    common.printZ(common.intToHex(header.entry, &buf));
-    common.printZ("\n");
+    logger.info("Loading ELF executable...");
+
+    // Validate Program Headers table fits in data
+    const ph_table_end = @as(usize, header.phoff) + (@as(usize, header.phnum) * @as(usize, header.phentsize));
+    if (ph_table_end > data.len) {
+        logger.err("ELF Error: Program Headers out of bounds");
+        return error.InvalidProgramHeaders;
+    }
 
     const ph_ptr = @as([*]const Phdr, @ptrCast(@alignCast(data.ptr + header.phoff)));
 
     for (0..header.phnum) |i| {
         const ph = ph_ptr[i];
         if (ph.ptype == PT_LOAD) {
-            common.printZ("  Phdr: Mapping segment at ");
-            common.printZ(common.intToHex(ph.vaddr, &buf));
-            common.printZ(" size ");
-            common.printZ(common.intToString(@intCast(ph.memsz), &buf));
-            common.printZ("\n");
+            // Security: Validate offsets and sizes
+            if (ph.filesz > ph.memsz) {
+                logger.err("ELF Error: filesz > memsz");
+                return error.InvalidSegmentSize;
+            }
+            if (@as(usize, ph.offset) + @as(usize, ph.filesz) > data.len) {
+                logger.err("ELF Error: Segment data exceeds file size");
+                return error.SegmentOutOfBounds;
+            }
 
-            // In a real OS, we'd allocate pages here.
-            // For now, we assume the program fits in our shared 64MB user space.
-            // We just copy the data to the virtual address.
+            // Security: Validate virtual address boundaries
+            const end_vaddr = @as(usize, ph.vaddr) + @as(usize, ph.memsz);
+            if (end_vaddr < ph.vaddr) { // Check for overflow
+                logger.err("ELF Error: Virtual address overflow");
+                return error.VirtualAddressOverflow;
+            }
+            if (end_vaddr > 64 * 1024 * 1024) { // 64MB arbitrary limit based on generic user mapping
+                logger.err("ELF Error: Virtual address too high");
+                return error.VirtualAddressTooHigh;
+            }
 
-            // SECURITY WARNING: This copies data directly to virtual addresses.
-            // We should ideally use map_page to ensure memory is allocated and user-accessible.
-            // Since our memory init already mapped 0-64MB as user-mode, we can copy.
+            // Phdr: Mapping Segment...
+            logger.debug("Mapping ELF Segment");
 
             const dest = @as([*]u8, @ptrFromInt(ph.vaddr));
             @memcpy(dest[0..ph.filesz], data[ph.offset .. ph.offset + ph.filesz]);
 
-            // Zero out remaining memsz (BSS)
+            // Zero out remaining memsz (BSS) - Step by step per page
             if (ph.memsz > ph.filesz) {
-                @memset(dest[ph.filesz..ph.memsz], 0);
+                const bss_start = ph.vaddr + ph.filesz;
+                const bss_size = ph.memsz - ph.filesz;
+                var offset: usize = 0;
+
+                while (offset < bss_size) {
+                    const addr = bss_start + offset;
+                    const page_addr = addr & 0xFFFFF000;
+
+                    // Map if not already present
+                    _ = memory.map_page_at(page_addr, memory.pmm.alloc_page() orelse @panic("OOM in ELF BSS"), true);
+
+                    const to_zero = @min(bss_size - offset, memory.PAGE_SIZE - (addr % 4096));
+                    @memset(@as([*]u8, @ptrFromInt(addr))[0..to_zero], 0);
+                    offset += to_zero;
+                }
             }
         }
     }
 
-    common.printZ("[Kernel] Jumping to ELF entry...\n");
-    user.jump_to_user_mode_with_entry(header.entry);
+    logger.info("Jumping to Ring 3 ELF...");
+    user.jump_to_user_mode_with_entry(header.entry, false);
 }

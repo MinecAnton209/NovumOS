@@ -67,11 +67,37 @@ pub fn parseInt(str: []const u8) i32 {
 
     if (str.len == 0) return 0;
 
-    // Handle whitespace? Assuming trimmed
-
     if (str[0] == '-') {
         sign = -1;
         i = 1;
+    }
+
+    if (i + 2 <= str.len and str[i] == '0') {
+        if (str[i + 1] == 'x' or str[i + 1] == 'X') {
+            i += 2;
+            while (i < str.len) : (i += 1) {
+                const c = str[i];
+                var digit: i32 = 0;
+                if (c >= '0' and c <= '9') {
+                    digit = c - '0';
+                } else if (c >= 'a' and c <= 'f') {
+                    digit = c - 'a' + 10;
+                } else if (c >= 'A' and c <= 'F') {
+                    digit = c - 'A' + 10;
+                } else break;
+                res = (res * 16) + digit;
+            }
+            return res * sign;
+        } else if (str[i + 1] == 'b' or str[i + 1] == 'B') {
+            i += 2;
+            while (i < str.len) : (i += 1) {
+                const c = str[i];
+                if (c == '0' or c == '1') {
+                    res = (res * 2) + @as(i32, c - '0');
+                } else break;
+            }
+            return res * sign;
+        }
     }
 
     while (i < str.len) : (i += 1) {
@@ -226,3 +252,9 @@ pub fn floatToString(val: f32, buf: []u8) []const u8 {
 
     return buf[0..total_i];
 }
+pub const get_char = common.get_char;
+pub const set_cursor = common.set_cursor;
+pub const get_cursor_row = common.get_cursor_row;
+pub const get_cursor_col = common.get_cursor_col;
+pub const clear_screen = common.clear_screen;
+pub const draw_char_at = common.draw_char_at;

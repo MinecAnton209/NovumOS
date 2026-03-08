@@ -1,6 +1,7 @@
 // Nova Language - Hash Table for Symbol Storage
 const common = @import("common.zig");
 const memory = @import("../memory.zig");
+const user = @import("../user.zig");
 
 pub const Entry = struct {
     key: []const u8,
@@ -29,7 +30,7 @@ pub const HashTable = struct {
     count: usize,
 
     pub fn init(initial_size: usize) HashTable {
-        const ptr = memory.heap.alloc(initial_size * @sizeOf(Entry)) orelse {
+        const ptr = user.user_malloc(initial_size * @sizeOf(Entry)) orelse {
             return .{ .entries = undefined, .size = 0, .count = 0 };
         };
         const entries: [*]Entry = @ptrCast(@alignCast(ptr));
@@ -68,7 +69,7 @@ pub const HashTable = struct {
 
         // Copy key to heap to ensure it's persistent
         // In a real VM, we might have a string pool. For now, we'll alloc.
-        const key_copy_ptr = memory.heap.alloc(key.len) orelse return;
+        const key_copy_ptr = user.user_malloc(key.len) orelse return;
         const key_copy = key_copy_ptr[0..key.len];
         common.copy(key_copy, key);
 
@@ -97,7 +98,7 @@ pub const HashTable = struct {
         const old_entries = self.entries;
         const old_size = self.size;
 
-        const ptr = memory.heap.alloc(new_size * @sizeOf(Entry)) orelse return;
+        const ptr = user.user_malloc(new_size * @sizeOf(Entry)) orelse return;
         self.entries = @ptrCast(@alignCast(ptr));
         self.size = new_size;
         self.count = 0;
@@ -112,7 +113,7 @@ pub const HashTable = struct {
             }
         }
 
-        memory.heap.free(@ptrCast(old_entries));
+        user.user_free(@ptrCast(old_entries));
     }
 
     // Put for resize - doesn't copy key again
@@ -132,10 +133,10 @@ pub const HashTable = struct {
             // We should also free the keys we allocated
             for (0..self.size) |i| {
                 if (self.entries[i].occupied) {
-                    memory.heap.free(@ptrCast(@constCast(self.entries[i].key.ptr)));
+                    user.user_free(@ptrCast(@constCast(self.entries[i].key.ptr)));
                 }
             }
-            memory.heap.free(@ptrCast(self.entries));
+            user.user_free(@ptrCast(self.entries));
         }
     }
 };

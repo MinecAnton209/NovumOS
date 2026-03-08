@@ -1,9 +1,13 @@
 const common = @import("commands/common.zig");
 const exceptions = @import("exceptions.zig");
+const smp = @import("smp.zig");
 const keyboard = @import("keyboard_isr.zig");
 const vga = @import("drivers/vga.zig");
 const timer = @import("drivers/timer.zig");
 const memory = @import("memory.zig");
+const logger = @import("logger.zig");
+const ata = @import("drivers/ata.zig");
+const rtc = @import("drivers/rtc.zig");
 
 // External jump target to return to kernel shell
 extern fn kernel_loop() noreturn;
@@ -24,8 +28,45 @@ pub const Registers = extern struct {
     gs: u32,
 };
 
-// Global flag to indicate if we are in user mode (for shared code)
-pub var is_user_mode: bool = false;
+// (is_user_mode now stored in smp.cores[id])
+pub fn get_is_user_mode() bool {
+    return smp.cores[exceptions.get_core_index()].is_user_mode;
+}
+
+pub fn set_is_user_mode(val: bool) void {
+    smp.cores[exceptions.get_core_index()].is_user_mode = val;
+}
+
+pub fn get_is_privileged() bool {
+    return smp.cores[exceptions.get_core_index()].is_privileged;
+}
+
+pub fn set_is_privileged(val: bool) void {
+    smp.cores[exceptions.get_core_index()].is_privileged = val;
+}
+
+// Constant for maximum allowed string length in syscalls
+pub const MAX_SYSCALL_STR_LEN = 4096;
+
+/// Helper function to check if a memory address is user-accessible in the current page table
+fn is_user_ptr(addr: usize) bool {
+    return memory.is_user_ptr(addr);
+}
+
+/// Safely scans a user-provided string for its length, checking page permissions along the way
+fn safe_strlen_user(ptr: [*]const u8, max_len: usize) ?usize {
+    var i: usize = 0;
+    while (i < max_len) {
+        const addr = @intFromPtr(ptr) + i;
+        // Optimization: check page permissions only on start and at page boundaries
+        if (i == 0 or (addr & 0xFFF) == 0) {
+            if (!is_user_ptr(addr)) return null;
+        }
+        if (ptr[i] == 0) return i;
+        i += 1;
+    }
+    return null; // Too long or not null-terminated within bounds
+}
 
 // Export strlen as it might be needed by the kernel for strings passed from Ring 3
 export fn strlen(s: [*]const u8) usize {
@@ -34,17 +75,65 @@ export fn strlen(s: [*]const u8) usize {
     return i;
 }
 
+/// Validates if a user-mode process is allowed to access a specific I/O port.
+/// Returns false for sensitive system ports.
+fn is_io_port_allowed(port: u16) bool {
+    // Whitelist approach: only allow safe ports if any.
+    // For now, we block most sensitive system ports.
+
+    // Blocking Programmable Interrupt Controller (PIC)
+    if (port == 0x20 or port == 0x21 or port == 0xA0 or port == 0xA1) return false;
+
+    // Blocking Programmable Interval Timer (PIT)
+    if (port >= 0x40 and port <= 0x43) return false;
+
+    // Blocking PS/2 Keyboard Controller
+    if (port == 0x60 or port == 0x64) return false;
+
+    // Blocking CMOS / RTC
+    if (port == 0x70 or port == 0x71) return false;
+
+    // Blocking DMA Controllers
+    if (port <= 0x1F or (port >= 0xC0 and port <= 0xDF)) return false;
+
+    // Blocking Primary/Secondary ATA (Hard Disk)
+    if (port >= 0x1F0 and port <= 0x1F7) return false;
+    if (port == 0x3F6) return false;
+
+    // Blocking PCI Configuration Ports
+    if (port == 0xCF8 or port == 0xCFC) return false;
+
+    // Blocking ACPI PM Ports (usually dynamic, but typical values)
+
+    // Allow everything else (VGA, Serial COM1/COM2 if not blocked)
+    // Note: In a production kernel, we would use a bitmap or a very strict whitelist.
+    return true;
+}
+
+fn checkPrivilege(regs: *Registers, action: []const u8) bool {
+    _ = regs;
+    if (!get_is_privileged()) {
+        logger.security(action); // Log the unauthorized action
+        return false;
+    }
+    return true;
+}
+
 // System call handler exported for linker
 export fn handle_syscall_zig(regs: *Registers) void {
+    var buf: [32]u8 = undefined;
     switch (regs.eax) {
         0 => { // Exit
-            common.printZ("[Kernel] User mode process exited. Returning to Shell...\n");
-            jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop));
+            logger.info("User mode process exited. Returning to Shell...");
+            jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true); // Shell is privileged
         },
         1 => { // PrintZ(EBX = string_ptr)
             const ptr = @as([*]const u8, @ptrFromInt(regs.ebx));
-            const len = strlen(ptr);
-            common.printZ(ptr[0..len]);
+            if (safe_strlen_user(ptr, MAX_SYSCALL_STR_LEN)) |len| {
+                common.printZ(ptr[0..len]);
+            } else {
+                logger.security("Invalid user string in syscall 1");
+            }
         },
         2 => { // GetChar() -> EAX
             regs.eax = keyboard.keyboard_wait_char();
@@ -61,16 +150,42 @@ export fn handle_syscall_zig(regs: *Registers) void {
             vga.clear_screen();
         },
         6 => { // InB(EBX = port) -> EAX
-            regs.eax = common.inb(@intCast(regs.ebx));
+            const port: u16 = @intCast(regs.ebx);
+            if (is_io_port_allowed(port)) {
+                regs.eax = common.inb(port);
+            } else {
+                logger.security("Unauthorized InB to port");
+                logger.debug(common.intToHex(port, &buf));
+                regs.eax = 0xFF;
+            }
         },
         7 => { // OutB(EBX = port, ECX = val)
-            common.outb(@intCast(regs.ebx), @intCast(regs.ecx));
+            const port: u16 = @intCast(regs.ebx);
+            if (is_io_port_allowed(port)) {
+                common.outb(port, @intCast(regs.ecx));
+            } else {
+                logger.security("Unauthorized OutB to port");
+                logger.debug(common.intToHex(port, &buf));
+            }
         },
         8 => { // InW(EBX = port) -> EAX
-            regs.eax = common.inw(@intCast(regs.ebx));
+            const port: u16 = @intCast(regs.ebx);
+            if (is_io_port_allowed(port)) {
+                regs.eax = common.inw(port);
+            } else {
+                logger.security("Unauthorized InW to port");
+                logger.debug(common.intToHex(port, &buf));
+                regs.eax = 0xFFFF;
+            }
         },
         9 => { // OutW(EBX = port, ECX = val)
-            common.outw(@intCast(regs.ebx), @intCast(regs.ecx));
+            const port: u16 = @intCast(regs.ebx);
+            if (is_io_port_allowed(port)) {
+                common.outw(port, @intCast(regs.ecx));
+            } else {
+                logger.security("Unauthorized OutW to port");
+                logger.debug(common.intToHex(port, &buf));
+            }
         },
         10 => { // Sleep(EBX = ms)
             common.sleep(@intCast(regs.ebx));
@@ -79,72 +194,209 @@ export fn handle_syscall_zig(regs: *Registers) void {
             regs.eax = @intCast(timer.get_ticks());
         },
         12 => { // JumpToUser(EBX = entry)
-            jump_to_ring3_entry(regs.ebx);
+            // Reset to the standard user stack location
+            const user_esp = 0x3FF000 + 4096 - 16;
+            const eflags: u32 = if (get_is_privileged()) 0x3202 else 0x0202;
+            jump_to_ring3_entry(regs.ebx, user_esp, eflags);
         },
         13 => { // Shutdown
+            if (!checkPrivilege(regs, "Shutdown")) return;
             common.shutdown();
         },
         14 => { // Reboot
+            if (!checkPrivilege(regs, "Reboot")) return;
             common.reboot();
         },
-        15 => { // MemoryMapRange(EBX=addr, ECX=size)
-            memory.map_range(regs.ebx, regs.ecx);
+        15 => { // MemoryMapRange(EBX=vaddr, ECX=size)
+            // Security: Do NOT identity-map user requests.
+            // Instead, allocate fresh physical frames from the PMM so the user
+            // cannot target a specific physical address (prevents cross-process
+            // frame snooping in future multi-process scenarios).
+            const vaddr = regs.ebx;
+            const size = regs.ecx;
+            const kernel_end = @intFromPtr(&memory.ebss_sym);
+            const res_end = @addWithOverflow(vaddr, size);
+            // Validate virtual address range and check for overflow
+            if (res_end[1] != 0 or vaddr < kernel_end or size == 0 or size > 64 * 1024 * 1024) {
+                logger.security("Invalid MemoryMapRange request (bad range or overflow)");
+            } else {
+                var addr = vaddr & 0xFFFFF000;
+                const end = res_end[0];
+                while (addr < end) : (addr += memory.PAGE_SIZE) {
+                    const pd_idx = addr >> 22;
+                    const pt_idx = (addr >> 12) & 0x3FF;
+                    if (memory.page_tables[pd_idx]) |pt| {
+                        if ((pt[pt_idx] & 1) == 0) {
+                            // Allocate a fresh physical frame
+                            if (memory.pmm.alloc_page()) |paddr| {
+                                pt[pt_idx] = @as(u32, @intCast(paddr)) | 0x7; // P=1, RW=1, USER=1
+                                memory.page_directory[pd_idx] |= 0x04; // ensure USER bit in PDE
+                                asm volatile ("invlpg (%[v])"
+                                    :
+                                    : [v] "r" (addr),
+                                    : "memory");
+                            }
+                        }
+                    } else {
+                        _ = memory.map_page(addr, true);
+                    }
+                }
+            }
         },
         16 => { // InL(EBX = port) -> EAX
-            regs.eax = common.inl(@intCast(regs.ebx));
+            const port: u16 = @intCast(regs.ebx);
+            if (is_io_port_allowed(port)) {
+                regs.eax = common.inl(port);
+            } else {
+                logger.security("Unauthorized InL to port");
+                logger.debug(common.intToHex(port, &buf));
+                regs.eax = 0xFFFFFFFF;
+            }
         },
         17 => { // OutL(EBX = port, ECX = val)
-            common.outl(@intCast(regs.ebx), regs.ecx);
+            const port: u16 = @intCast(regs.ebx);
+            if (is_io_port_allowed(port)) {
+                common.outl(port, regs.ecx);
+            } else {
+                logger.security("Unauthorized OutL to port");
+                logger.debug(common.intToHex(port, &buf));
+            }
+        },
+        18 => { // DrawCharAt(EBX=row, ECX=col, EDX=char, ESI=attr)
+            const old_color = vga.current_color;
+            vga.current_color = @intCast(regs.esi);
+            vga.zig_draw_char_at(@intCast(regs.ebx), @intCast(regs.ecx), @intCast(regs.edx));
+            vga.current_color = old_color;
+        },
+        19 => { // GetDateTime(EBX = ptr to DateTime)
+            const dt_ptr = @as(*rtc.DateTime, @ptrFromInt(regs.ebx));
+            if (is_user_ptr(regs.ebx) and is_user_ptr(regs.ebx + @sizeOf(rtc.DateTime) - 1)) {
+                dt_ptr.* = rtc.get_datetime();
+            } else {
+                logger.security("Invalid DateTime pointer for GetDateTime");
+            }
+        },
+        20 => { // ATA_IDENTIFY(EBX = drive) -> EAX
+            if (!checkPrivilege(regs, "ATA Identify")) return;
+            const drive: ata.Drive = @enumFromInt(@as(u1, @intCast(regs.ebx & 1)));
+            regs.eax = ata.identify(drive);
+        },
+        21 => { // ATA_READ_SECTOR(EBX = drive, ECX = lba, EDX = buf)
+            if (!checkPrivilege(regs, "ATA Read Sector")) return;
+            const drive: ata.Drive = @enumFromInt(@as(u1, @intCast(regs.ebx & 1)));
+            const lba: u32 = regs.ecx;
+            const ptr = @as([*]u8, @ptrFromInt(regs.edx));
+            // Validate user pointer (sector is 512 bytes)
+            if (is_user_ptr(regs.edx) and is_user_ptr(regs.edx + 511)) {
+                ata.read_sector(drive, lba, ptr);
+            } else {
+                logger.security("Invalid buffer pointer for ATA Read");
+            }
+        },
+        22 => { // ATA_WRITE_SECTOR(EBX = drive, ECX = lba, EDX = data)
+            if (!checkPrivilege(regs, "ATA Write Sector")) return;
+            const drive: ata.Drive = @enumFromInt(@as(u1, @intCast(regs.ebx & 1)));
+            const lba: u32 = regs.ecx;
+            const ptr = @as([*]const u8, @ptrFromInt(regs.edx));
+            // Validate user pointer (sector is 512 bytes)
+            if (is_user_ptr(regs.edx) and is_user_ptr(regs.edx + 511)) {
+                ata.write_sector(drive, lba, ptr);
+            } else {
+                logger.security("Invalid data pointer for ATA Write");
+            }
+        },
+        30 => { // Malloc(EBX = size) -> EAX
+            const size = regs.ebx;
+            if (memory.heap.alloc(size)) |ptr| {
+                regs.eax = @intFromPtr(ptr);
+            } else {
+                regs.eax = 0;
+            }
+        },
+        31 => { // Free(EBX = ptr)
+            if (regs.ebx != 0) {
+                _ = memory.heap.free_safe(@ptrFromInt(regs.ebx));
+            }
+        },
+        32 => { // CheckCtrlC() -> EAX (1/0)
+            regs.eax = if (keyboard.check_ctrl_c_kernel()) 1 else 0;
         },
         else => {
-            common.printZ("Unknown syscall from user mode\n");
+            logger.err("Unknown syscall");
+            logger.debug(common.intToString(@intCast(regs.eax), &buf));
         },
     }
+}
+
+/// Thread-safe and ISR-safe malloc for User and Kernel mode.
+/// If in Ring 3, it performs a syscall to transition to Ring 0.
+pub fn user_malloc(size: usize) ?[*]u8 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) return memory.heap.alloc(size); // Already in Ring 0
+
+    var res: usize = 0;
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (res),
+        : [sys] "{eax}" (@as(u32, 30)),
+          [arg1] "{ebx}" (size),
+        : "memory");
+    if (res == 0) return null;
+    return @ptrFromInt(res);
+}
+
+/// Thread-safe and ISR-safe free for User and Kernel mode.
+pub fn user_free(ptr: ?[*]u8) void {
+    const p = ptr orelse return;
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) {
+        memory.heap.free(p);
+        return;
+    }
+
+    asm volatile ("int $0x80"
+        :
+        : [sys] "{eax}" (@as(u32, 31)),
+          [arg1] "{ebx}" (@intFromPtr(p)),
+        : "memory");
 }
 
 // Link to the assembly implementation
-extern fn jump_to_ring3_entry(entry: usize) noreturn;
-extern fn jump_to_ring3() noreturn;
+extern fn jump_to_ring3_entry(entry: usize, stack: usize, eflags: u32) noreturn;
 
 pub fn jump_to_user_mode() noreturn {
-    is_user_mode = true;
-    exceptions.main_tss.ss0 = 0x10;
-    exceptions.main_tss.esp0 = 0x500000;
-
-    // Detect if we are already in Ring 3
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        // Already in Ring 3, just return to loop via syscall or jump
-        // For jump_to_user_mode (no entry), we can't easily jump to "nothing".
-        // Let's jump back to kernel_loop via syscall 12.
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 12)),
-              [ent] "{ebx}" (@intFromPtr(&kernel_loop)),
-        );
-        unreachable;
-    }
-
-    jump_to_ring3();
+    jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true);
 }
 
-pub fn jump_to_user_mode_with_entry(entry: usize) noreturn {
-    is_user_mode = true;
+pub fn jump_to_user_mode_with_entry(entry: usize, privileged: bool) noreturn {
+    set_is_user_mode(true);
+    set_is_privileged(privileged);
 
-    // Ensure TSS is ready for interrupts coming from Ring 3
-    exceptions.main_tss.ss0 = 0x10;
-    exceptions.main_tss.esp0 = 0x500000;
+    // Ensure current core's TSS is ready for interrupts coming from user-space
+    const core_idx = exceptions.get_core_index();
+    const tss = &exceptions.cores_tss[core_idx];
+    tss.ss0 = 0x10;
 
-    // Detect if we are already in Ring 3
-    var cs: u16 = 0;
+    // BSP uses 0x500000, APs use their respective allocated stacks
+    if (core_idx == 0) {
+        tss.esp0 = 0x500000;
+    } else {
+        const smp_mod = @import("smp.zig");
+        tss.esp0 = @intFromPtr(&smp_mod.ap_stacks[core_idx - 1]) + 8192;
+    }
+
+    // Check if we are already in Ring 3
+    var cs_reg: u16 = 0;
     asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
+        : [cs] "=r" (cs_reg),
     );
-    if ((cs & 3) == 3) {
-        // We are in Ring 3! Use syscall 12 to jump to a new entry point
+    if ((cs_reg & 3) == 3) {
+        // Use syscall 12 to jump to a new entry point
         asm volatile ("int $0x80"
             :
             : [sys] "{eax}" (@as(u32, 12)),
@@ -153,6 +405,32 @@ pub fn jump_to_user_mode_with_entry(entry: usize) noreturn {
         unreachable;
     }
 
-    // Call the stable assembly transition
-    jump_to_ring3_entry(entry);
+    // --- Dynamic User Stack Allocation ---
+    // We'll use 0x3FF000 as the virtual base for the stack page
+    const stack_vaddr = 0x3FF000;
+    const pd_idx = stack_vaddr >> 22;
+    const pt_idx = (stack_vaddr >> 12) & 0x3FF;
+
+    var stack_paddr: usize = 0;
+    if (memory.page_tables[pd_idx]) |pt| {
+        if ((pt[pt_idx] & 1) != 0) {
+            stack_paddr = pt[pt_idx] & 0xFFFFF000;
+        }
+    }
+
+    if (stack_paddr == 0) {
+        stack_paddr = memory.pmm.alloc_page() orelse @panic("OOM: Failed to allocate user stack page");
+        _ = memory.map_page_at(stack_vaddr, stack_paddr, true);
+    }
+
+    // Zero out the stack to avoid artifacts from previous runs
+    @memset(@as([*]u8, @ptrFromInt(stack_vaddr))[0..memory.PAGE_SIZE], 0);
+
+    // Top of stack (16-byte aligned for entry point)
+    const user_esp = stack_vaddr + memory.PAGE_SIZE - 16;
+
+    // Call the stable assembly transition with entry, stack and eflags
+    // Privileged processes get IOPL=3 (0x3000)
+    const eflags: u32 = if (privileged) 0x3202 else 0x0202;
+    jump_to_ring3_entry(entry, user_esp, eflags);
 }

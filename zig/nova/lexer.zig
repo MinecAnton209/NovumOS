@@ -1,6 +1,7 @@
 // Nova Language - Lexer
 const common = @import("common.zig");
 const memory = @import("../memory.zig");
+const user = @import("../user.zig");
 
 pub const TokenType = enum {
     DEF,
@@ -32,6 +33,17 @@ pub const TokenType = enum {
     BREAK,
     CONTINUE,
     DOT,
+    AMPERSAND,
+    PIPE,
+    CARET,
+    TILDE,
+    PERCENT,
+    LESS_LESS,
+    GREATER_GREATER,
+    FOR,
+    RETURN,
+    PLUS_PLUS,
+    MINUS_MINUS,
     EOF,
     UNKNOWN,
 };
@@ -49,7 +61,7 @@ pub const TokenList = struct {
 
     pub fn init() TokenList {
         const initial_cap = 32;
-        const ptr = memory.heap.alloc(initial_cap * @sizeOf(Token)) orelse {
+        const ptr = user.user_malloc(initial_cap * @sizeOf(Token)) orelse {
             return .{ .tokens = undefined, .len = 0, .capacity = 0 };
         };
         return .{
@@ -63,7 +75,7 @@ pub const TokenList = struct {
         if (self.capacity == 0) return;
         if (self.len >= self.capacity) {
             const new_capacity = self.capacity * 2;
-            const new_ptr = memory.heap.alloc(new_capacity * @sizeOf(Token)) orelse return;
+            const new_ptr = user.user_malloc(new_capacity * @sizeOf(Token)) orelse return;
             const new_tokens: [*]Token = @ptrCast(@alignCast(new_ptr));
 
             for (0..self.len) |i| {
@@ -74,7 +86,7 @@ pub const TokenList = struct {
             // and we don't have a way to free the old pointer easily if we don't track it well.
             // But for a script execution, it might be fine for now.
             // Actually, we SHOULD free it if we can.
-            memory.heap.free(@ptrCast(self.tokens));
+            user.user_free(@ptrCast(self.tokens));
             self.tokens = new_tokens;
             self.capacity = new_capacity;
         }
@@ -84,7 +96,7 @@ pub const TokenList = struct {
 
     pub fn deinit(self: *TokenList) void {
         if (self.capacity > 0) {
-            memory.heap.free(@ptrCast(self.tokens));
+            user.user_free(@ptrCast(self.tokens));
         }
     }
 };
@@ -181,23 +193,68 @@ pub fn tokenize(source: []const u8) TokenList {
             continue;
         }
         if (c == '<') {
-            list.append(.{ .ttype = .LESS, .value = source[i .. i + 1], .line = line_num });
-            i += 1;
+            if (i + 1 < source.len and source[i + 1] == '<') {
+                list.append(.{ .ttype = .LESS_LESS, .value = source[i .. i + 2], .line = line_num });
+                i += 2;
+            } else {
+                list.append(.{ .ttype = .LESS, .value = source[i .. i + 1], .line = line_num });
+                i += 1;
+            }
             continue;
         }
         if (c == '>') {
-            list.append(.{ .ttype = .GREATER, .value = source[i .. i + 1], .line = line_num });
+            if (i + 1 < source.len and source[i + 1] == '>') {
+                list.append(.{ .ttype = .GREATER_GREATER, .value = source[i .. i + 2], .line = line_num });
+                i += 2;
+            } else {
+                list.append(.{ .ttype = .GREATER, .value = source[i .. i + 1], .line = line_num });
+                i += 1;
+            }
+            continue;
+        }
+        if (c == '&') {
+            list.append(.{ .ttype = .AMPERSAND, .value = source[i .. i + 1], .line = line_num });
+            i += 1;
+            continue;
+        }
+        if (c == '|') {
+            list.append(.{ .ttype = .PIPE, .value = source[i .. i + 1], .line = line_num });
+            i += 1;
+            continue;
+        }
+        if (c == '^') {
+            list.append(.{ .ttype = .CARET, .value = source[i .. i + 1], .line = line_num });
+            i += 1;
+            continue;
+        }
+        if (c == '~') {
+            list.append(.{ .ttype = .TILDE, .value = source[i .. i + 1], .line = line_num });
+            i += 1;
+            continue;
+        }
+        if (c == '%') {
+            list.append(.{ .ttype = .PERCENT, .value = source[i .. i + 1], .line = line_num });
             i += 1;
             continue;
         }
         if (c == '+') {
-            list.append(.{ .ttype = .PLUS, .value = source[i .. i + 1], .line = line_num });
-            i += 1;
+            if (i + 1 < source.len and source[i + 1] == '+') {
+                list.append(.{ .ttype = .PLUS_PLUS, .value = source[i .. i + 2], .line = line_num });
+                i += 2;
+            } else {
+                list.append(.{ .ttype = .PLUS, .value = source[i .. i + 1], .line = line_num });
+                i += 1;
+            }
             continue;
         }
         if (c == '-') {
-            list.append(.{ .ttype = .MINUS, .value = source[i .. i + 1], .line = line_num });
-            i += 1;
+            if (i + 1 < source.len and source[i + 1] == '-') {
+                list.append(.{ .ttype = .MINUS_MINUS, .value = source[i .. i + 2], .line = line_num });
+                i += 2;
+            } else {
+                list.append(.{ .ttype = .MINUS, .value = source[i .. i + 1], .line = line_num });
+                i += 1;
+            }
             continue;
         }
         if (c == '*') {
@@ -227,6 +284,20 @@ pub fn tokenize(source: []const u8) TokenList {
         // Numbers
         if (c >= '0' and c <= '9') {
             const start = i;
+            if (c == '0' and i + 1 < source.len) {
+                const next = source[i + 1];
+                if (next == 'x' or next == 'X') {
+                    i += 2;
+                    while (i < source.len and ((source[i] >= '0' and source[i] <= '9') or (source[i] >= 'A' and source[i] <= 'F') or (source[i] >= 'a' and source[i] <= 'f'))) : (i += 1) {}
+                    list.append(.{ .ttype = .NUMBER, .value = source[start..i], .line = line_num });
+                    continue;
+                } else if (next == 'b' or next == 'B') {
+                    i += 2;
+                    while (i < source.len and (source[i] == '0' or source[i] == '1')) : (i += 1) {}
+                    list.append(.{ .ttype = .NUMBER, .value = source[start..i], .line = line_num });
+                    continue;
+                }
+            }
             var has_dot = false;
             while (i < source.len) : (i += 1) {
                 const cur = source[i];
@@ -269,6 +340,10 @@ pub fn tokenize(source: []const u8) TokenList {
                 ttype = .BREAK;
             } else if (common.streq(value, "continue")) {
                 ttype = .CONTINUE;
+            } else if (common.streq(value, "for")) {
+                ttype = .FOR;
+            } else if (common.streq(value, "return")) {
+                ttype = .RETURN;
             }
 
             list.append(.{ .ttype = ttype, .value = value, .line = line_num });

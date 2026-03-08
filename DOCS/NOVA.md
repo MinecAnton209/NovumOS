@@ -11,7 +11,7 @@ Nova is a statement-based interpreted language for the NovumOS kernel. It provid
 
 ## 🚀 1. Variable Management
 
-Nova uses the `set` keyword or direct assignment. Typing is dynamic, but you can use optional type hints for code clarity.
+Nova uses direct assignment, type hints, or the optional `set` keyword. Typing is dynamic.
 
 ### Types
 - **Integer (`int`)**: 32-bit signed values (e.g. `42`, `-10`).
@@ -20,9 +20,9 @@ Nova uses the `set` keyword or direct assignment. Typing is dynamic, but you can
 
 ### Examples
 ```nova
-set int x = 10;
-set float pi = 3.14159;
-set string msg = "System Ready";
+int x = 10;
+float pi = 3.14159;
+string msg = "System Ready";
 
 y = x * 2.5; // Result will be float
 ```
@@ -54,6 +54,12 @@ print("Precise: " + ftemp);           // "Precise: 36.600"
 | `sys.exec(cmd)` | Alias for shell command | `sys.exec("reboot");` |
 | `sys.reboot()` | Reboots the system | `sys.reboot();` |
 | `sys.shutdown()` | Shuts down the system | `sys.shutdown();` |
+| `sys.whoami()` | Returns current user name | `print(sys.whoami());` |
+| `sys.uname()` | Returns OS name and arch | `print(sys.uname());` |
+| `sys.uptime()` | Returns uptime in seconds | `set u = sys.uptime();` |
+| `sys.get_res_x()`| Returns display width (px)| `print(sys.get_res_x());`|
+| `sys.get_res_y()`| Returns display height (px)| `print(sys.get_res_y());`|
+| `sys.cls()` | Clears the console screen | `sys.cls();` |
 | `exit()` | Terminate script or REPL (Global) | `exit();` |
 
 ### Filesystem
@@ -78,8 +84,14 @@ print("Precise: " + ftemp);           // "Precise: 36.600"
 | `math.min(a, b)`| Minimum of two values | `math.min(10, 20); // 10` |
 | `math.max(a, b)`| Maximum of two values | `math.max(-1, 5); // 5` |
 | `math.random(l, h)`| Pseudo-random integer | `math.random(1, 100);` |
+| `math.pi()` | Returns Pi constant | `math.pi(); // 3.14159` |
 | `math.sin(v)` | Sine (Float) | Precision: Bhaskara I |
 | `math.cos(v)` | Cosine (Float) | Respects `math.set_angles` |
+| `math.sqrt(n)` | Square root (Float) | `math.sqrt(16); // 4.0` |
+| `math.pow(b, e)`| Base to the power of Exp| `math.pow(2, 3); // 8.0` |
+| `math.floor(n)` | Round down to integer | `math.floor(3.8); // 3` |
+| `math.ceil(n)` | Round up to integer | `math.ceil(3.1); // 4` |
+| `math.round(n)` | Round to nearest string | `math.round(3.5); // 4` |
 | `math.set_angles(m)`| Set mode: `rad` or `deg` | `math.set_angles("rad");` |
 | `math.rad(deg)` | Degrees to Radians | `math.rad(180); // 3.141...` |
 | `math.deg(rad)` | Radians to Degrees | `math.deg(3.141); // 180.0` |
@@ -135,16 +147,75 @@ if x > 10 {
 ```nova
 set i = 0;
 while i < 10 {
-    i = i + 1;
-    if i == 5 { continue; }
-    if i == 8 { break; }
     print(i);
+}
+```
+
+### For Loops
+Nova supports classic C-style `for` loops.
+```nova
+for (i = 0; i < 10; i++) {
+    print("Iteration: " + i);
 }
 ```
 
 ---
 
-## 📝 5. Comments & Formatting
+## 🛠 5. User Functions
+Functions in Nova can take parameters and return values using the `return` keyword.
+
+```nova
+def calculate(a, b) {
+    res = (a * b) + 10;
+    return res;
+}
+
+val = calculate(5, 2);
+print("Result: " + val); // 20
+```
+
+---
+
+## 🔟 6. Bitwise & Boolean Operators
+
+Nova supports standard bitwise operators for integer values.
+
+| Operator | Description | Example | Result |
+|----------|-------------|---------|--------|
+| `&` | Bitwise AND | `0b1100 & 0b1010;` | `8` |
+| `\|` | Bitwise OR | `0b1100 \| 0b0011;` | `15` |
+| `^` | Bitwise XOR | `0b1100 ^ 0b1010;` | `6` |
+| `~` | Bitwise NOT (unary) | `~0;` | `-1` |
+| `<<` | Left shift | `1 << 4;` | `16` |
+| `>>` | Right shift | `256 >> 3;` | `32` |
+| `%` | Modulo (remainder) | `17 % 5;` | `2` |
+
+### Example: Working with Flags
+```nova
+set int FLAGS  = 0;
+set int READ   = 1;  // bit 0
+set int WRITE  = 2;  // bit 1
+set int EXEC   = 4;  // bit 2
+
+// Set READ and WRITE flags
+FLAGS = FLAGS | READ | WRITE;
+print("Flags: " + FLAGS);          // 3
+
+// Check if EXEC is set
+if (FLAGS & EXEC) == 1 {
+    print("Executable");
+} else {
+    print("Not executable");
+}
+
+// Clear WRITE flag
+FLAGS = FLAGS & (~WRITE);
+print("After clear: " + FLAGS);    // 1
+```
+
+---
+
+## 📝 7. Comments & Formatting
 Nova supports single-line (`//`) and multi-line (`/* ... */`) comments.
 
 ### ⌨️ Multi-line REPL
@@ -159,7 +230,7 @@ Hello World
 
 ---
 
-## 🎨 6. VGA Color Guide
+## 🎨 8. VGA Color Guide
 
 The `sys.color(fg, bg)` function uses standard 16-color VGA palette indices (0-15).
 
@@ -183,7 +254,46 @@ print("Warning: System Overload");
 
 ---
 
-## 💻 7. Technical Specifications
+## 🎭 9. Pangram Showcase
+Testing all core features in one script:
+
+```nova
+// Nova "Modern" Pangram
+import sys;
+
+def check_bit(val, index) {
+    mask = (1 << index);
+    if (val & mask) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+name = "NovumOS";
+version = 0.6;
+x = 0x10; 
+y = 0b1010;
+
+print("--- " + name + " v" + version + " ---");
+
+// Bitwise magic
+magic = (x << 2) | y; 
+print("Magic value: " + magic); 
+
+for (i = 0; i < 8; i++) {
+    if check_bit(magic, i) == 1 {
+        print("Bit " + i + " is active!");
+    }
+}
+
+sys.color(10, 0); 
+print("Nova Pangram executed successfully!");
+sys.color(15, 0); 
+```
+
+---
+
+## 💻 10. Technical Specifications
 - **Execution**: Recursive block-based interpreter with dynamic heap allocation.
 - **Math Engine**: High-speed fixed-approximation trigonometry optimized for x86 kernel space.
 - **FS Support**: Full integration with NovumOS FAT driver (v0.22.0).

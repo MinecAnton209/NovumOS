@@ -7,7 +7,7 @@ const PIT_CHANNEL0 = 0x40;
 
 // PIT Frequency
 const PIT_FREQ = 1193182;
-const TARGET_FREQ = 1000; // 1 tick = 1ms
+const TARGET_FREQ = 100; // 1 tick = 10ms
 
 var ticks: usize = 0;
 
@@ -24,7 +24,7 @@ pub fn init() void {
 }
 
 /// IRQ0 Timer Handler (called from ASM)
-pub export fn isr_timer() void {
+pub export fn isr_timer(esp: u32) u32 {
     const ptr = @as(*volatile usize, &ticks);
     ptr.* += 1;
 
@@ -37,12 +37,15 @@ pub export fn isr_timer() void {
             keyboard.serial_inject_char(c);
         }
     }
+
+    const scheduler = @import("../scheduler.zig");
+    return scheduler.schedule(esp);
 }
 
 /// Get elapsed seconds since boot
 pub fn get_uptime() usize {
     const ptr = @as(*volatile usize, &ticks);
-    return ptr.* / 1000;
+    return ptr.* / TARGET_FREQ;
 }
 
 /// Get elapsed ticks (ms) since boot
@@ -67,7 +70,10 @@ pub fn sleep(ms: usize) void {
 
     const ptr = @as(*volatile usize, &ticks);
     const start_ticks = ptr.*;
-    while (ptr.* - start_ticks < ms) {
+    const ms_per_tick = 1000 / TARGET_FREQ;
+    const ticks_to_wait = (ms + ms_per_tick - 1) / ms_per_tick;
+
+    while (ptr.* - start_ticks < ticks_to_wait) {
         // Wait for next interrupt
         asm volatile ("sti");
         asm volatile ("hlt");

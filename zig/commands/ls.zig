@@ -23,11 +23,11 @@ pub fn execute() void {
         // Determine Color
         var color: u8 = 15;
         if (common.endsWithIgnoreCase(name, ".nv")) {
-            color = 10;
+            color = 10; // Light Green
         } else if (common.endsWithIgnoreCase(name, ".bin") or common.endsWithIgnoreCase(name, ".o")) {
-            color = 12;
+            color = 12; // Light Red
         } else if (name.len > 0 and name[0] == '.') {
-            color = 8;
+            color = 8; // Dark Grey
         }
 
         common.vga.set_color(color, 0);

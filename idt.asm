@@ -27,6 +27,7 @@ idt_end:
 section .text
 align 4
 ; IDT Pointer for LIDT instruction
+global idt_descriptor
 idt_descriptor:
     dw idt_end - idt_start - 1
     dd idt_start
@@ -48,7 +49,7 @@ idt_init:
 
     ; 2. Set Task Gate for Double Fault (Vector 8)
     ; Selector 0x20 is DF TSS (defined in kernel32.asm GDT)
-    mov eax, 0x20
+    mov eax, 0x98
     mov ebx, 8
     call idt_set_task_gate
 
@@ -168,6 +169,20 @@ common_exception_handler:
     ; If it ever returns:
     add esp, 4              ; Clean up argument
     popad
+    
+    ; Register Hygiene: Zero XMM only if returning to Ring 3
+    test dword [esp + 20], 3    ; Check CS after popad
+    jz .exception_skip_hygiene
+    pxor xmm0, xmm0
+    pxor xmm1, xmm1
+    pxor xmm2, xmm2
+    pxor xmm3, xmm3
+    pxor xmm4, xmm4
+    pxor xmm5, xmm5
+    pxor xmm6, xmm6
+    pxor xmm7, xmm7
+.exception_skip_hygiene:
+
     pop ds
     pop es
     pop fs
@@ -251,6 +266,20 @@ isr_keyboard_wrapper:
     mov al, 0x20
     out 0x20, al
     popad
+    
+    ; Register Hygiene: Zero XMM only if returning to Ring 3
+    test dword [esp + 20], 3    ; Check CS (it's at esp+20 after popad)
+    jz .keyboard_skip_hygiene
+    pxor xmm0, xmm0
+    pxor xmm1, xmm1
+    pxor xmm2, xmm2
+    pxor xmm3, xmm3
+    pxor xmm4, xmm4
+    pxor xmm5, xmm5
+    pxor xmm6, xmm6
+    pxor xmm7, xmm7
+.keyboard_skip_hygiene:
+
     pop ds                  ; Restore segments
     pop es
     pop fs
@@ -270,10 +299,28 @@ isr_timer_wrapper:
     mov fs, ax
     mov gs, ax
     cld
+
+    push esp                ; Pass current stack pointer to isr_timer
     call isr_timer
+    mov esp, eax            ; Use returned stack pointer (from scheduler)
+
     mov al, 0x20
     out 0x20, al
     popad
+    
+    ; Register Hygiene: Zero XMM only if returning to Ring 3
+    test dword [esp + 20], 3    ; Check CS (it's at esp+20 after popad)
+    jz .timer_skip_hygiene
+    pxor xmm0, xmm0
+    pxor xmm1, xmm1
+    pxor xmm2, xmm2
+    pxor xmm3, xmm3
+    pxor xmm4, xmm4
+    pxor xmm5, xmm5
+    pxor xmm6, xmm6
+    pxor xmm7, xmm7
+.timer_skip_hygiene:
+
     pop ds                  ; Restore segments
     pop es
     pop fs
@@ -304,6 +351,18 @@ syscall_handler:
     add esp, 4
     
     popad
+    
+    ; Defensive Zeroing: Clear SSE/XMM registers to prevent leakage 
+    ; of kernel calculation state to User Mode.
+    pxor xmm0, xmm0
+    pxor xmm1, xmm1
+    pxor xmm2, xmm2
+    pxor xmm3, xmm3
+    pxor xmm4, xmm4
+    pxor xmm5, xmm5
+    pxor xmm6, xmm6
+    pxor xmm7, xmm7
+
     pop ds                  ; Restore segment registers
     pop es
     pop fs

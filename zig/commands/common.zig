@@ -7,6 +7,7 @@ const timer = @import("../drivers/timer.zig");
 const acpi = @import("../drivers/acpi.zig");
 
 const serial = @import("../drivers/serial.zig");
+const logger = @import("../logger.zig");
 
 // --- Global State ---
 pub var selected_disk: i8 = -1; // -1 means RAM FS
@@ -59,6 +60,112 @@ pub fn print_char(c: u8) void {
 
     vga.zig_print_char(c);
     serial.serial_print_char(c);
+}
+
+pub fn draw_char_at(row: u8, col: u8, c: u8, attr: u16) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+
+    if ((cs & 3) == 3) {
+        // Syscall 18: DrawCharAt
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 18)),
+              [r] "{ebx}" (@as(u32, row)),
+              [c] "{ecx}" (@as(u32, col)),
+              [chr] "{edx}" (@as(u32, c)),
+              [atr] "{esi}" (@as(u32, attr)),
+        );
+        return;
+    }
+
+    const old = vga.current_color;
+    vga.current_color = attr;
+    vga.zig_draw_char_at(row, col, c);
+    vga.current_color = old;
+}
+
+pub fn get_char() u8 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        var res: u32 = 0;
+        asm volatile ("int $0x80"
+            : [ret] "={eax}" (res),
+            : [sys] "{eax}" (@as(u32, 2)),
+        );
+        return @intCast(res);
+    }
+    const keyboard = @import("../keyboard_isr.zig");
+    return keyboard.keyboard_wait_char();
+}
+
+pub fn set_cursor(row: u8, col: u8) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 3)),
+              [r] "{ebx}" (@as(u32, row)),
+              [c] "{ecx}" (@as(u32, col)),
+        );
+        return;
+    }
+    vga.zig_set_cursor(row, col);
+}
+
+pub fn get_cursor_row() u8 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        var res: u32 = 0;
+        asm volatile ("int $0x80"
+            : [ret] "={eax}" (res),
+            : [sys] "{eax}" (@as(u32, 4)),
+        );
+        return @intCast(res >> 8);
+    }
+    return vga.zig_get_cursor_row();
+}
+
+pub fn get_cursor_col() u8 {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        var res: u32 = 0;
+        asm volatile ("int $0x80"
+            : [ret] "={eax}" (res),
+            : [sys] "{eax}" (@as(u32, 4)),
+        );
+        return @intCast(res & 0xFF);
+    }
+    return vga.zig_get_cursor_col();
+}
+
+pub fn clear_screen() void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 5)),
+        );
+        return;
+    }
+    vga.clear_screen();
 }
 
 /// Print a string slice to the console
@@ -257,7 +364,7 @@ pub fn reboot() noreturn {
         while (true) {}
     }
 
-    printZ("Rebooting...\r\n");
+    logger.info("Rebooting...");
     // Pulse CPU reset line (FE code to command port 64h)
     outb(0x64, 0xFE);
     while (true) {}
@@ -277,7 +384,7 @@ pub fn shutdown() noreturn {
         while (true) {}
     }
 
-    printZ("Shutting down...\r\n");
+    logger.info("Shutting down...");
     acpi.shutdown();
 }
 
@@ -407,12 +514,17 @@ pub fn copy(dest: []u8, src: []const u8) void {
 }
 
 /// Parse command line arguments with support for quoted strings
-pub fn parseArgs(input: []const u8, argv: *[8][]const u8) usize {
+pub fn parseArgs(input: []const u8, argv: anytype) usize {
+    const T = @TypeOf(argv);
+    const P = @typeInfo(T).pointer;
+    const A = @typeInfo(P.child).array;
+    const max_args = A.len;
+
     var count: usize = 0;
     var i: usize = 0;
-    while (i < input.len and count < 8) {
+    while (i < input.len and count < max_args) {
         // Skip leading spaces
-        while (i < input.len and input[i] == ' ') : (i += 1) {}
+        while (i < input.len and (input[i] == ' ' or input[i] == '\t')) : (i += 1) {}
         if (i >= input.len) break;
 
         if (input[i] == '"') {
@@ -424,7 +536,7 @@ pub fn parseArgs(input: []const u8, argv: *[8][]const u8) usize {
             if (i < input.len) i += 1; // Skip closing quote
         } else {
             const start = i;
-            while (i < input.len and input[i] != ' ') : (i += 1) {}
+            while (i < input.len and input[i] != ' ' and input[i] != '\t') : (i += 1) {}
             argv[count] = input[start..i];
             count += 1;
         }
@@ -516,6 +628,37 @@ pub fn parse_int(s: []const u8) ?i32 {
         i = 1;
     }
     if (i >= s.len) return null;
+
+    // Base detection
+    if (i + 2 <= s.len and s[i] == '0') {
+        const next = s[i + 1];
+        if (next == 'x' or next == 'X') {
+            i += 2;
+            while (i < s.len) : (i += 1) {
+                const c = s[i];
+                var digit: i32 = 0;
+                if (c >= '0' and c <= '9') {
+                    digit = c - '0';
+                } else if (c >= 'a' and c <= 'f') {
+                    digit = c - 'a' + 10;
+                } else if (c >= 'A' and c <= 'F') {
+                    digit = c - 'A' + 10;
+                } else break;
+                res = (res * 16) + digit;
+            }
+            return res * sign;
+        } else if (next == 'b' or next == 'B') {
+            i += 2;
+            while (i < s.len) : (i += 1) {
+                const c = s[i];
+                if (c == '0' or c == '1') {
+                    res = (res * 2) + @as(i32, c - '0');
+                } else break;
+            }
+            return res * sign;
+        }
+    }
+
     while (i < s.len) : (i += 1) {
         if (s[i] < '0' or s[i] > '9') return null;
         res = res * 10 + @as(i32, @intCast(s[i] - '0'));

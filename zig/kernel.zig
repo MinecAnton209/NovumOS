@@ -10,9 +10,13 @@ const messages = @import("messages.zig");
 const timer = @import("drivers/timer.zig");
 const acpi = @import("drivers/acpi.zig");
 const memory = @import("memory.zig");
+const lfb = @import("drivers/lfb.zig");
+const vga = @import("drivers/vga.zig");
 const exceptions = @import("exceptions.zig");
 const smp = @import("smp.zig");
 const libc_stubs = @import("libc_stubs.zig");
+const logger = @import("logger.zig");
+const user = @import("user.zig");
 
 // Ensure all modules are included in the compilation
 comptime {
@@ -41,10 +45,10 @@ export fn kernel_panic(msg_ptr: [*]const u8, msg_len: usize) noreturn {
 }
 
 /// Main Panic Handler - Stops execution and displays an error message
-pub fn panic(msg: []const u8) noreturn {
+pub fn panic(msg: []const u8, _: ?*@import("std").builtin.StackTrace, _: ?usize) noreturn {
     exceptions.panic(msg);
 }
-const user = @import("user.zig");
+const scheduler = @import("scheduler.zig");
 
 // --- Kernel Entry Point ---
 export fn kmain() void {
@@ -63,11 +67,28 @@ export fn kmain() void {
     // Initialize ACPI (for proper shutdown)
     _ = acpi.init();
 
+    // Initialize LFB and VGA dimensions
+    lfb.init();
+    vga.init_dimensions();
+    vga.clear_screen();
+
+    // Print welcome banner in LFB
+    messages.print_welcome();
+
+    // Initialize Scheduler
+    scheduler.init();
+    // Get current ESP to bootstrap
+    var current_esp: u32 = undefined;
+    asm volatile ("mov %%esp, %[esp]"
+        : [esp] "=r" (current_esp),
+    );
+    scheduler.bootstrap(current_esp);
+
     // Initialize Dumb SMP (Kick Core 1)
     smp.init();
 
     // Jump to Shell in Ring 3 (User Mode)
-    user.jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop));
+    user.jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true);
 }
 
 /// Main Kernel Loop - Exported for re-entry from User Mode
@@ -77,5 +98,6 @@ pub export fn kernel_loop() noreturn {
     while (true) {
         read_command();
         execute_command();
+        vga.vga_flush();
     }
 }

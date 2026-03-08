@@ -1,17 +1,23 @@
 const acpi = @import("drivers/acpi.zig");
 const memory = @import("memory.zig");
 const common = @import("commands/common.zig");
+const logger = @import("logger.zig");
+const config = @import("config.zig");
 
 const TRAMPOLINE_ADDR = 0x8000;
 const FLAG_ADDR = 0x9000;
 const MAILBOX_STACK = 0x7000;
 const MAILBOX_ENTRY = 0x7004;
-const MAILBOX_ID = 0x7008; // New: Mailbox for passing Core ID
+const MAILBOX_ID = 0x7008;
+const MAILBOX_ACK = 0x700C;
 
 pub const Task = struct {
     func: *const fn (usize) void,
     arg: usize,
 };
+
+extern const gdt_descriptor_kernel: anyopaque;
+extern const idt_descriptor: anyopaque;
 
 pub const CoreData = struct {
     lock: u32 = 0,
@@ -19,6 +25,8 @@ pub const CoreData = struct {
     task_count: u32 = 0,
     total_tasks: u32 = 0,
     is_busy: bool = false,
+    is_user_mode: bool = false,
+    is_privileged: bool = false,
     id: u8 = 0,
 };
 
@@ -28,7 +36,7 @@ pub var detected_map: [256]u8 = [_]u8{255} ** 256; // Maps LAPIC_ID -> Core Inde
 pub var detected_cores: u32 = 1;
 
 const trampoline_bin = @embedFile("trampoline.bin");
-var ap_stacks: [16][8192]u8 align(4096) = undefined;
+pub var ap_stacks: [16][8192]u8 align(4096) = undefined;
 
 pub const CpuInfo = struct {
     vendor: [13]u8,
@@ -38,14 +46,106 @@ pub const CpuInfo = struct {
     stepping: u32,
 };
 
-fn spin_lock(lock: *volatile u32) void {
+fn get_core_index_internal() u8 {
+    var eax: u32 = 1;
+    var ebx: u32 = undefined;
+    var ecx: u32 = undefined;
+    var edx: u32 = undefined;
+    asm volatile ("cpuid"
+        : [eax] "+{eax}" (eax),
+          [ebx] "={ebx}" (ebx),
+          [ecx] "={ecx}" (ecx),
+          [edx] "={edx}" (edx),
+    );
+    const initial_lapic_id = @as(u8, @intCast(ebx >> 24));
+    const idx = detected_map[initial_lapic_id];
+    return if (idx < 16) idx else 0;
+}
+
+pub fn spin_lock(lock: *volatile u32) void {
+    // Safety check: Spinlocks should NEVER be acquired from Ring 3 UNLESS privileged.
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        if (!cores[get_core_index_internal()].is_privileged) {
+            logger.err("STALL: Spinlock held by User!");
+            var buf: [16]u8 = undefined;
+            logger.debug(common.intToHex(@intFromPtr(lock), &buf));
+            @panic("Spinlock in Ring 3");
+        }
+    }
+
     while (@atomicRmw(u32, lock, .Xchg, 1, .acquire) == 1) {
         asm volatile ("pause");
     }
 }
 
-fn spin_unlock(lock: *volatile u32) void {
+pub fn spin_unlock(lock: *volatile u32) void {
     @atomicStore(u32, lock, 0, .release);
+}
+
+inline fn interrupts_save() u32 {
+    var eflags: u32 = undefined;
+    asm volatile ("pushfl; popl %[f]"
+        : [f] "=r" (eflags),
+    );
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    // If Ring 0 or privileged shell (IOPL=3), we can use CLI
+    if ((cs & 3) == 0 or cores[get_core_index_internal()].is_privileged) {
+        asm volatile ("cli");
+    }
+    return eflags;
+}
+
+inline fn interrupts_restore(f: u32) void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0 or cores[get_core_index_internal()].is_privileged) {
+        asm volatile ("pushl %[f]; popfl"
+            :
+            : [f] "r" (f),
+            : "memory");
+    }
+}
+
+pub fn load_ltr(selector: u16) void {
+    asm volatile ("ltr %[sel]"
+        :
+        : [sel] "r" (selector),
+    );
+}
+
+pub fn load_gdt(descriptor: *const anyopaque) void {
+    asm volatile ("lgdt (%[desc])"
+        :
+        : [desc] "r" (descriptor),
+    );
+}
+
+pub fn load_idt(descriptor: *const anyopaque) void {
+    asm volatile ("lidt (%[desc])"
+        :
+        : [desc] "r" (descriptor),
+    );
+}
+
+pub fn enable_fpu_sse() void {
+    asm volatile (
+        \\mov %cr0, %eax
+        \\and $0xFFFB, %ax
+        \\or $0x0002, %ax
+        \\mov %eax, %cr0
+        \\mov %cr4, %eax
+        \\or $0x0600, %ax
+        \\mov %eax, %cr4
+    );
 }
 
 pub fn lock_print() void {
@@ -72,8 +172,15 @@ pub fn push_task(func: *const fn (usize) void, arg: usize) bool {
     }
 
     const target = &cores[best_core];
+
+    // Safety: Disable interrupts on current core to prevent single-core deadlocks
+    // if an interrupt occurs while holding this core-specific lock.
+    const eflags = interrupts_save();
     spin_lock(&target.lock);
-    defer spin_unlock(&target.lock);
+    defer {
+        spin_unlock(&target.lock);
+        interrupts_restore(eflags);
+    }
 
     for (&target.tasks) |*slot| {
         if (slot.* == null) {
@@ -131,8 +238,39 @@ fn steal_task(my_idx: u32) ?Task {
 }
 
 pub export fn ap_kernel_entry() noreturn {
+    const serial = @import("drivers/serial.zig");
+    serial.serial_print_str("[ Kernel ] AP core starting...\n");
+
+    // 0. Load the REAL kernel GDT (trampoline had a tiny one)
+    load_gdt(&gdt_descriptor_kernel);
+
+    // Refresh segment registers for the new GDT
+    asm volatile (
+        \\mov $0x10, %ax
+        \\mov %ax, %ds
+        \\mov %ax, %es
+        \\mov %ax, %fs
+        \\mov %ax, %gs
+        \\mov %ax, %ss
+    );
+    // Load IDT so this core can handle interrupts
+    load_idt(&idt_descriptor);
+
     // Get my core index from mailbox
     const my_idx = @as(*volatile u32, @ptrFromInt(MAILBOX_ID)).*;
+
+    // ACK to BSP that we read the mailbox data
+    @as(*volatile u32, @ptrFromInt(MAILBOX_ACK)).* = 1;
+
+    serial.serial_print_str("[ Kernel ] AP core ready.\n");
+
+    // Load unique Task Register (TSS selector) for this core
+    // Selector starts at 0x18 and each is 8 bytes wide
+    const selector = @as(u16, 0x18) + (@as(u16, @intCast(my_idx)) * 8);
+    load_ltr(selector);
+
+    // Enable interrupts on this core
+    asm volatile ("sti");
 
     while (true) {
         if (pop_local_task(my_idx)) |task| {
@@ -141,11 +279,11 @@ pub export fn ap_kernel_entry() noreturn {
             cores[my_idx].is_busy = false;
             cores[my_idx].total_tasks += 1;
         } else if (steal_task(my_idx)) |task| {
-            lock_print();
-            common.printZ(" [SMP] Core ");
-            common.printNum(@intCast(my_idx));
-            common.printZ(" stole a task!\n");
-            unlock_print();
+            // lock_print();
+            // var buf: [16]u8 = undefined;
+            // logger.debug("Core stole a task");
+            // logger.debug(common.intToString(@intCast(my_idx), &buf));
+            // unlock_print();
 
             cores[my_idx].is_busy = true;
             task.func(task.arg);
@@ -242,7 +380,7 @@ pub fn get_cpu_info() CpuInfo {
 }
 
 pub fn init() void {
-    // common.printZ("SMP: Initializing Balancing SMP...\n");
+    logger.info("SMP: Initializing Balancing SMP...");
 
     const tramp_ptr = @as([*]u8, @ptrFromInt(TRAMPOLINE_ADDR));
     @memcpy(tramp_ptr[0..trampoline_bin.len], trampoline_bin);
@@ -250,22 +388,39 @@ pub fn init() void {
     const flag_ptr = @as(*volatile u32, @ptrFromInt(FLAG_ADDR));
     flag_ptr.* = 0;
 
+    // Initialize detected_map with current LAPIC IDs
+    // First, find the current core (BSP)
+    var eax_bsp: u32 = 1;
+    var ebx_bsp: u32 = undefined;
+    var ecx_bsp: u32 = undefined;
+    var edx_bsp: u32 = undefined;
+    asm volatile ("cpuid"
+        : [eax] "+{eax}" (eax_bsp),
+          [ebx] "={ebx}" (ebx_bsp),
+          [ecx] "={ecx}" (ecx_bsp),
+          [edx] "={edx}" (edx_bsp),
+    );
+    const bsp_lapic_id = @as(u8, @intCast(ebx_bsp >> 24));
+    detected_map[bsp_lapic_id] = 0;
+    cores[0].id = bsp_lapic_id;
+
     const mailbox_stack = @as(*volatile u32, @ptrFromInt(MAILBOX_STACK));
     const mailbox_entry = @as(*volatile u32, @ptrFromInt(MAILBOX_ENTRY));
     const mailbox_id = @as(*volatile u32, @ptrFromInt(MAILBOX_ID));
+    const mailbox_ack = @as(*volatile u32, @ptrFromInt(MAILBOX_ACK));
     mailbox_entry.* = @intFromPtr(&ap_kernel_entry);
 
     var lapic_base = acpi.lapic_addr;
     if (lapic_base == 0) {
         lapic_base = 0xFEE00000;
-        // common.printZ("SMP: MADT not found, using default 0xFEE00000\n");
+        logger.warn("SMP: MADT not found, using default 0xFEE00000");
         detected_cores = 1;
     } else {
         detected_cores = acpi.madt_core_count;
     }
 
-    if (!memory.map_page(lapic_base)) {
-        // common.printZ("SMP: Failed to map LAPIC memory!\n");
+    if (!memory.map_page(lapic_base, false)) {
+        logger.err("SMP: Failed to map LAPIC memory!");
         return;
     }
 
@@ -276,25 +431,22 @@ pub fn init() void {
 
     var ap_count: u32 = 0;
     for (acpi.lapic_ids[0..acpi.madt_core_count]) |id| {
-        // Find BSP. For simplicity, we assume ID 0 is BSP.
-        // In a real OS we should use CPUID to get current LAPIC ID.
-        if (id == 0) {
-            cores[0].id = 0;
+        if (id == bsp_lapic_id) {
             continue;
         }
 
         const stack_top = @intFromPtr(&ap_stacks[ap_count]) + 8192;
         mailbox_stack.* = stack_top;
         mailbox_id.* = ap_count + 1; // BSP is 0
+        mailbox_ack.* = 0;
 
         const last_flag = flag_ptr.*;
 
-        // common.printZ("SMP: Booting Core Index ");
-        // common.printNum(@intCast(ap_count + 1));
-        // common.printZ(" (LAPIC ID ");
-        // common.printNum(@intCast(id));
-        // common.printZ(")...\n");
+        logger.info("Booting secondary core...");
 
+        lapic[0x310 / 4] = @as(u32, id) << 24;
+        lapic[0x300 / 4] = 0x00004608;
+        common.sleep(1);
         lapic[0x310 / 4] = @as(u32, id) << 24;
         lapic[0x300 / 4] = 0x00004608;
 
@@ -304,13 +456,16 @@ pub fn init() void {
         }
 
         if (flag_ptr.* > last_flag) {
+            // Wait for AP to finish early init (read mailbox)
+            var ack_timeout: u32 = 0;
+            while (mailbox_ack.* == 0 and ack_timeout < 1000) : (ack_timeout += 1) {
+                common.sleep(1);
+            }
             cores[ap_count + 1].id = id;
+            detected_map[id] = @intCast(ap_count + 1);
             ap_count += 1;
         }
     }
 
-    // const online = get_online_cores();
-    // common.printZ("SMP: Status: ");
-    // common.printNum(@intCast(online));
-    // common.printZ(" cores integrated.\n");
+    logger.success("SMP: All cores integrated.");
 }

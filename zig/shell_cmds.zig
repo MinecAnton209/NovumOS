@@ -26,6 +26,18 @@ const vga = @import("drivers/vga.zig");
 const user = @import("user.zig");
 const elf = @import("elf.zig");
 const pci_cmds = @import("commands/pci_cmds.zig");
+const lfb = @import("drivers/lfb.zig");
+const calc = @import("commands/calc.zig");
+const logger = @import("logger.zig");
+const scheduler = @import("scheduler.zig");
+
+pub export fn cmd_ps() void {
+    scheduler.list_processes();
+}
+
+pub export fn cmd_calc(args: [*]const u8, args_len: u32) void {
+    calc.execute(args, args_len);
+}
 
 pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
     var argv: [8][]const u8 = undefined;
@@ -35,6 +47,18 @@ pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
         return;
     }
     const name = argv[0];
+
+    if (config.ENABLE_EMBEDDED_ELFS) {
+        if (common.std_mem_eql(name, "hello.elf") or common.std_mem_eql(name, "hello")) {
+            const data = @embedFile("embedded/hello.elf");
+            logger.info("Running embedded ELF...");
+            elf.load_and_run(data) catch |err| {
+                logger.err("Error loading embedded ELF");
+                logger.debug(@errorName(err));
+            };
+            return;
+        }
+    }
 
     if (common.selected_disk < 0) {
         common.printError("Error: ELF loading from RAM FS not implemented yet\n");
@@ -75,9 +99,8 @@ pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
 
     // Try to load and run
     elf.load_and_run(buffer) catch |err| {
-        common.printZ("Error loading ELF: ");
-        common.printZ(@errorName(err));
-        common.printZ("\n");
+        logger.err("Error loading ELF");
+        logger.debug(@errorName(err));
     };
 
     // Clean up if it fails (unreachable if success)
@@ -205,24 +228,32 @@ pub export fn cmd_cat(name_ptr: [*]const u8, name_len: u32) void {
 
 /// Execute 'touch' command to create a file
 pub export fn cmd_touch(name_ptr: [*]const u8, name_len: u32) void {
-    var argv: [8][]const u8 = undefined;
+    var argv: [16][]const u8 = undefined;
     const argc = common.parseArgs(name_ptr[0..name_len], &argv);
     if (argc == 0) {
-        common.printZ("Usage: touch <file>\n");
+        common.printZ("Usage: touch <file1> [file2] ...\n");
         return;
     }
-    const name = argv[0];
 
-    if (common.selected_disk < 0) {
-        touch.execute(name.ptr, @intCast(name.len));
-    } else {
-        const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-        if (fat.read_bpb(drive)) |bpb| {
-            if (!fat.write_file(drive, bpb, common.current_dir_cluster, name, "")) {
-                common.printError("Error: Failed to create file on disk\n");
-            }
+    for (argv[0..argc]) |name| {
+        if (common.selected_disk < 0) {
+            touch.execute(name.ptr, @intCast(name.len));
         } else {
-            common.printError("Error: Disk not formatted\n");
+            const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+            if (fat.read_bpb(drive)) |bpb| {
+                common.printZ("Touch: ");
+                common.printZ(name);
+                if (fat.write_file(drive, bpb, common.current_dir_cluster, name, "")) {
+                    common.printZ(" [OK]\n");
+                } else {
+                    vga.set_color(12, 0); // Red
+                    common.printZ(" [FAIL]\n");
+                    vga.reset_color();
+                }
+            } else {
+                common.printError("Error: Disk not formatted\n");
+                return;
+            }
         }
     }
 }
@@ -408,10 +439,22 @@ pub export fn cmd_shutdown() void {
 
 /// Execute 'uptime' command
 pub export fn cmd_uptime() void {
-    const s = timer.get_uptime();
-    common.printZ("System Ticks Uptime: ");
-    common.printNum(@intCast(s));
-    common.printZ(" seconds\n");
+    const total_seconds = timer.get_uptime();
+    const hours = total_seconds / 3600;
+    const minutes = (total_seconds % 3600) / 60;
+    const seconds = total_seconds % 60;
+
+    common.printZ("System Uptime: ");
+    if (hours > 0) {
+        common.printNum(@intCast(hours));
+        common.printZ("h ");
+    }
+    if (minutes > 0 or hours > 0) {
+        common.printNum(@intCast(minutes));
+        common.printZ("m ");
+    }
+    common.printNum(@intCast(seconds));
+    common.printZ("s\n");
 
     const dt = rtc.get_datetime();
     common.printZ("Current RTC Time: ");
@@ -782,53 +825,45 @@ pub export fn cmd_mem(args_ptr: [*]const u8, args_len: u32) void {
 
         const size = @as(usize, @intCast(mb_size)) * 1024 * 1024;
 
-        if (memory.heap.alloc(size)) |ptr| {
-            common.printZ("Allocation successful at ");
-            common.printHex(@as(u32, @intCast(@intFromPtr(ptr))));
+        // Use a fixed user-space virtual address well above kernel area.
+        // Syscall 15 (MemoryMapRange) allocates fresh PMM frames for us,
+        // so the pages are user-accessible (not supervisor-only like kernel heap).
+        const test_vaddr: usize = 0x1000000; // 16 MB — safe above kernel
 
-            common.printZ("\nPre-mapping memory (Zero CPU Exceptions)... ");
-            memory.map_range(@intFromPtr(ptr), size);
-            common.printZ("Done.\n");
+        common.printZ("Mapping user memory at ");
+        common.printHex(@intCast(test_vaddr));
+        common.printZ("...\n");
 
-            common.printZ("Filling memory...\n");
+        memory.map_range(test_vaddr, size, false);
 
-            var aborted = false;
-            var i: usize = 0;
-            var check_counter: u32 = 0;
-            while (i < size) : (i += 4096) {
-                // Check Ctrl+C every 1024 iterations (4MB) to improve performance
-                check_counter += 1;
-                if (check_counter >= 1024) {
-                    check_counter = 0;
-                    if (keyboard_isr.check_ctrl_c()) {
-                        common.printZ("\nAborted by user!\n");
-                        aborted = true;
-                        break;
-                    }
+        common.printZ("Pre-mapping done. Filling memory...\n");
+
+        const ptr: [*]u8 = @ptrFromInt(test_vaddr);
+        var aborted = false;
+        var i: usize = 0;
+        var check_counter: u32 = 0;
+        while (i < size) : (i += 4096) {
+            check_counter += 1;
+            if (check_counter >= 1024) {
+                check_counter = 0;
+                if (keyboard_isr.check_ctrl_c()) {
+                    common.printZ("\nAborted by user!\n");
+                    aborted = true;
+                    break;
                 }
-                ptr[i] = @as(u8, @intCast(i % 255));
             }
-
-            if (!aborted) {
-                // Final byte
-                ptr[size - 1] = 0xAA;
-                common.printZ("Memory fill complete.\n");
-            }
-
-            const end_pf = memory.pf_count;
-            common.printZ("Quiet Page Faults handled: ");
-            common.printNum(@intCast(end_pf - start_pf));
-            common.printZ("\n");
-
-            // In NovumOS, we often keep the allocation for testing or free it
-            // Let's at least trigger GC to show it works
-            memory.heap.free(ptr);
-            memory.heap.garbage_collect();
-        } else {
-            common.printError("Error: Failed to allocate ");
-            common.printNum(mb_size);
-            common.printZ("MB.\n");
+            ptr[i] = @as(u8, @intCast(i % 255));
         }
+
+        if (!aborted) {
+            ptr[size - 1] = 0xAA;
+            common.printZ("Memory fill complete.\n");
+        }
+
+        const end_pf = memory.pf_count;
+        common.printZ("Page faults handled: ");
+        common.printNum(@intCast(end_pf - start_pf));
+        common.printZ("\n");
     } else {
         common.printZ("Usage: mem --test [MB]\n");
     }
@@ -847,9 +882,12 @@ pub export fn cmd_fetch() void {
 }
 
 fn test_task(arg: usize) void {
-    common.printZ(" [TASK] Core reporting! Argument: ");
-    common.printNum(@intCast(arg));
-    common.printZ("\n");
+    var buf: [16]u8 = undefined;
+    smp.lock_print();
+    common.printZ(" [TASK] Core #");
+    common.printZ(common.intToString(@intCast(arg), &buf));
+    common.printZ(" done!\n");
+    smp.unlock_print();
 }
 
 pub export fn cmd_smp_test() void {
@@ -936,13 +974,16 @@ pub fn cmd_gpf() callconv(.c) void {
 
 pub export fn cmd_matrix() void {
     vga.clear_screen();
-    var row_offsets: [80]u8 = [_]u8{0} ** 80;
+    var row_offsets: [256]u8 = [_]u8{0} ** 256;
+
+    const cols = vga.MAX_COLS;
+    const rows = vga.MAX_ROWS;
 
     // Randomize initial offsets
     var seed: u32 = @intCast(timer.get_ticks());
-    for (0..80) |i| {
+    for (0..@min(cols, 256)) |i| {
         seed = seed *% 1103515245 +% 12345;
-        row_offsets[i] = @intCast(seed % 25);
+        row_offsets[i] = @intCast(seed % @as(u32, @intCast(rows)));
     }
 
     common.printZ("Entering the NovumOS Matrix... (Press Ctrl+C to exit)\n");
@@ -950,27 +991,42 @@ pub export fn cmd_matrix() void {
     vga.clear_screen();
 
     while (!keyboard_isr.check_ctrl_c()) {
-        for (0..80) |x| {
+        for (0..@min(cols, 256)) |x| {
             seed = seed *% 1103515245 +% 12345;
-            if (seed % 5 == 0) {
+
+            // Per-column speed and spawn logic
+            if ((seed % 10) < 4) {
                 const y = row_offsets[x];
 
-                const c: u8 = @intCast(33 + (seed % 94));
-                const idx = @as(usize, y) * 80 + @as(usize, x);
+                // 1. Bright White Head
+                vga.set_color(15, 0);
+                vga.zig_draw_char_at(@intCast(y), @intCast(x), @intCast(33 + ((seed >> 16) % 94)));
 
-                // Light Green for head
-                vga.VIDEO_MEMORY[idx] = 0x0A00 | @as(u16, c);
+                // 2. Light Green Body (just behind head)
+                const y1 = (y + rows - 1) % rows;
+                vga.set_color(10, 0);
+                vga.zig_draw_char_at(@intCast(y1), @intCast(x), @intCast(33 + ((seed >> 8) % 94)));
 
-                // Dim previous ones if we had a trail, but let's keep it simple:
-                // Clear the one way above to make it feel like a falling line
-                const tail_idx = (@as(usize, (y + 25 - 5) % 25)) * 80 + @as(usize, x);
-                vga.VIDEO_MEMORY[tail_idx] = 0x0000 | ' ';
+                // 3. Dark Green Fade
+                const y2 = (y + rows - 3) % rows;
+                vga.set_color(2, 0);
+                vga.zig_draw_char_at(@intCast(y2), @intCast(x), @intCast(33 + ((seed ^ 0xACE) % 94)));
 
-                row_offsets[x] = (y + 1) % 25;
+                // 4. Gray/Silver Ghost Trail
+                const y3 = (y + rows - 6) % rows;
+                vga.set_color(8, 0);
+                vga.zig_draw_char_at(@intCast(y3), @intCast(x), @intCast(33 + ((seed ^ 0xDEB) % 94)));
+
+                // 5. Eraser (clean up the tail)
+                const y_erase = (y + rows - 12) % rows;
+                vga.zig_draw_char_at(@intCast(y_erase), @intCast(x), ' ');
+
+                row_offsets[x] = @intCast((y + 1) % rows);
             }
         }
-        timer.sleep(30);
+        timer.sleep(15);
     }
+    vga.reset_color();
     vga.clear_screen();
 }
 fn print_hexdump_line(offset: u32, data: []const u8) void {
@@ -1307,4 +1363,49 @@ pub export fn cmd_more(name_ptr: [*]const u8, name_len: u32) void {
         }
     }
     vga.clear_screen();
+}
+
+pub export fn cmd_res(args_ptr: [*]const u8, args_len: u32) void {
+    var argv: [8][]const u8 = undefined;
+    const argc = common.parseArgs(args_ptr[0..args_len], &argv);
+    if (argc < 2) {
+        common.printZ("Usage: res <width> <height>\n");
+        return;
+    }
+
+    const w = @as(u16, @intCast(common.parse_int(argv[0]) orelse 0));
+    const h = @as(u16, @intCast(common.parse_int(argv[1]) orelse 0));
+
+    if (w == 0 or h == 0) {
+        common.printZ("Error: Invalid dimensions\n");
+        return;
+    }
+
+    common.printZ("Switching resolution to ");
+    common.printNum(@intCast(w));
+    common.printZ("x");
+    common.printNum(@intCast(h));
+    common.printZ("...\n");
+
+    if (lfb.init_bga(w, h)) {
+        vga.clear_screen();
+        common.printZ("Resolution changed successfully.\n");
+    } else {
+        common.printZ("Error: BGA not available or resolution not supported.\n");
+    }
+}
+
+pub export fn cmd_kill(args_ptr: [*]const u8, args_len: u32) void {
+    var argv: [8][]const u8 = undefined;
+    const argc = common.parseArgs(args_ptr[0..args_len], &argv);
+    if (argc == 0) {
+        common.printZ("Usage: kill <pid>\n");
+        return;
+    }
+    const pid = @as(u32, @intCast(common.parse_int(argv[0]) orelse 0));
+    if (scheduler.terminate_process(pid)) {
+        common.printZ("Process terminated.\n");
+    } else {
+        common.printZ("Error: Could not terminate process.\n");
+    }
 }

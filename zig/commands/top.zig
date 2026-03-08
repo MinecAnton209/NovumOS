@@ -8,7 +8,7 @@ pub fn cmd_top() void {
     vga.clear_screen();
 
     while (true) {
-        // Move cursor to top-left (assuming 0,0 is start of VGA)
+        // Move cursor to top-left
         vga.zig_set_cursor(0, 0);
 
         common.printZ("=== NovumOS CPU Monitor (TOP) ===\n");
@@ -51,6 +51,8 @@ pub fn cmd_top() void {
             }
             common.printZ("\n");
         }
+
+        vga.vga_flush();
 
         // Delay for a bit
         timer.sleep(250);

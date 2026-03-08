@@ -47,4 +47,50 @@ pub fn build(b: *std.Build) void {
     });
 
     b.default_step.dependOn(&install_kernel.step);
+
+    // --- Developer Commands ---
+
+    // 1. Run the OS without disk
+    const run_cmd = b.addSystemCommand(&[_][]const u8{
+        "qemu-system-i386",
+        "-drive",
+        "format=raw,file=../build/os-image.bin",
+        "-serial",
+        "stdio",
+        "-vga",
+        "std",
+    });
+    // Require the kernel to be built (though full OS build still needs build.bat/sh)
+    run_cmd.step.dependOn(&install_kernel.step);
+
+    const run_step = b.step("run", "Run the OS in QEMU (no disk)");
+    run_step.dependOn(&run_cmd.step);
+
+    // Option for disk size (e.g., 1M, 2G). Default 32M.
+    const disk_size_opt = b.option([]const u8, "disk_size", "Size of disk image (e.g., 1M, 2G). Default: 32M");
+    const disk_size = disk_size_opt orelse "32M";
+
+    // 2. Create a disk image of configurable size
+    const mkdisk_cmd = b.addSystemCommand(&[_][]const u8{
+        "qemu-img", "create", "-f", "raw", "../disk.img", disk_size,
+    });
+    const mkdisk_step = b.step("mkdisk", "Create a raw disk image (size configurable via --disk-size)");
+    mkdisk_step.dependOn(&mkdisk_cmd.step);
+
+    // 3. Run the OS with the disk attached
+    const run_disk_cmd = b.addSystemCommand(&[_][]const u8{
+        "qemu-system-i386",
+        "-drive",
+        "format=raw,file=../build/os-image.bin",
+        "-drive",
+        "format=raw,file=../disk.img",
+        "-serial",
+        "stdio",
+        "-vga",
+        "std",
+    });
+    run_disk_cmd.step.dependOn(&install_kernel.step);
+
+    const run_disk_step = b.step("run-disk", "Run the OS in QEMU with disk.img attached");
+    run_disk_step.dependOn(&run_disk_cmd.step);
 }

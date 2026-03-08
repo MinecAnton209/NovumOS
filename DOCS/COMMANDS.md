@@ -1,4 +1,4 @@
-# NovumOS Commands Reference (v0.19)
+# NovumOS Commands Reference
 
 Comprehensive documentation for all built-in NovumOS shell commands.
 
@@ -26,7 +26,10 @@ Comprehensive documentation for all built-in NovumOS shell commands.
 | `sysinfo` | System info & RAM detection | `sysinfo` |
 | `uptime` | System uptime | `uptime` |
 | `mem` | Memory status & Stress Tool | `mem [--test]` |
-| `nova` | Nova Interpreter | `nova` |
+| `calc` | Expressions evaluator | `calc <expr>` |
+| `res` | Change resolution | `res <w> <h>` |
+| `top` | Task Monitor | `top` |
+| `matrix` | Screensaver | `matrix` |
 | `reboot` | Restart system | `reboot` |
 | `shutdown` | Power off | `shutdown` |
 
@@ -63,6 +66,23 @@ Shows how long the system has been running since the last boot.
 ### `time`
 Displays the current Real-Time Clock (RTC) date and time.
 - **Usage:** `time`
+
+### `res`
+Changes the screen resolution on-the-fly using the BGA (Bochs Graphic Adapter) interface. 
+- **Usage:** `res <width> <height>`
+- **Example:** `res 800 600`
+- **Compatibility:** Works in QEMU, Bochs, and VirtualBox.
+
+### `top`
+Provides a real-time monitor for CPU usage, uptime, and active tasks.
+- **Usage:** `top`
+- **Control:** Press **Esc** or **Ctrl+C** to exit.
+- **Accuracy:** Updates every second.
+
+### `matrix`
+Enter the NovumOS Matrix! A resolution-independent screensaver effect.
+- **Usage:** `matrix`
+- **Exitting:** Press any key.
 
 ### `reboot`
 Safely restarts the computer using the keyboard controller pulse.
@@ -203,6 +223,12 @@ Lists the most recently executed commands.
 ### `echo`
 Prints the provided text back to the console.
 - **Usage:** `echo <text>`
+
+### `calc`
+Evaluates mathematical and bitwise expressions using the Nova core. Supports hex (0x) and binary (0b) inputs.
+- **Usage:** `calc <expression>`
+- **Example:** `calc (0x1234 & 0xFF00) >> 8`
+- **Output:** Result is shown in Decimal, Hex, and Binary formats.
 
 ---
 

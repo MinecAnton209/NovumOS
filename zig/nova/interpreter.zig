@@ -21,14 +21,16 @@ const REPL_BUFFER_SIZE: usize = 4096;
 const HISTORY_SIZE: usize = 20;
 
 const NOVA_KEYWORDS = [_][]const u8{
-    "print(",       "set ",             "exit();",         "import \"",      "if (",          "else {",
-    "while (",      "import \"math\";", "import \"sys\";", "math.",          "sys.",          "math.sin(",
-    "math.cos(",    "math.abs(",        "math.min(",       "math.max(",      "math.rad(",     "math.deg(",
-    "math.random(", "math.set_angles(", "sys.get_mem()",   "sys.get_temp()", "sys.delay(",    "sys.sleep(",
-    "sys.exec(",    "sys.shell(",       "sys.color(",      "sys.key()",      "sys.reboot();", "sys.shutdown();",
-    "len(",         "int(",             "str(",            "split(",         "format(",       "convert(",
-    "input(",       "read(",            "write(",          "delete(",        "rename(",       "copy(",
-    "exists(",      "size(",            "mkdir(",          "argc()",         "args(",         "break;",
+    "print(",       "set ",             "exit();",         "import \"",       "if (",            "else {",
+    "while (",      "import \"math\";", "import \"sys\";", "math.",           "sys.",            "math.sin(",
+    "math.cos(",    "math.abs(",        "math.min(",       "math.max(",       "math.rad(",       "math.deg(",
+    "math.random(", "math.set_angles(", "math.pi()",       "math.sqrt(",      "math.pow(",       "math.floor(",
+    "math.ceil(",   "math.round(",      "sys.get_mem()",   "sys.get_temp()",  "sys.delay(",      "sys.sleep(",
+    "sys.exec(",    "sys.shell(",       "sys.color(",      "sys.key()",       "sys.reboot();",   "sys.shutdown();",
+    "sys.whoami()", "sys.uname()",      "sys.uptime()",    "sys.get_res_x()", "sys.get_res_y()", "sys.cls()",
+    "len(",         "int(",             "str(",            "split(",          "format(",         "convert(",
+    "input(",       "read(",            "write(",          "delete(",         "rename(",         "copy(",
+    "exists(",      "size(",            "mkdir(",          "argc()",          "args(",           "break;",
     "continue;",
 };
 
@@ -63,7 +65,7 @@ var repl_len: usize = 0;
 pub fn readInput(buf: []u8) usize {
     var length: usize = 0;
     while (length < buf.len - 1) {
-        const key = keyboard.keyboard_wait_char();
+        const key = common.get_char();
         if (key == 10 or key == 13) { // Enter
             common.print_char('\n');
             break;
@@ -72,12 +74,12 @@ pub fn readInput(buf: []u8) usize {
                 length -= 1;
                 buf[length] = 0;
                 // Visually backspace
-                const cur_row = vga.zig_get_cursor_row();
-                const cur_col = vga.zig_get_cursor_col();
+                const cur_row = common.get_cursor_row();
+                const cur_col = common.get_cursor_col();
                 if (cur_col > 0) {
-                    vga.zig_set_cursor(cur_row, cur_col - 1);
-                    vga.zig_print_char(' ');
-                    vga.zig_set_cursor(cur_row, cur_col - 1);
+                    common.set_cursor(cur_row, cur_col - 1);
+                    common.print_char(' ');
+                    common.set_cursor(cur_row, cur_col - 1);
                 }
             }
         } else if (key >= 32 and key <= 126) {
@@ -362,12 +364,12 @@ fn readLine() void {
     for (&buffer) |*b| b.* = 0;
     history_index = history_count;
 
-    prompt_row = vga.zig_get_cursor_row();
-    prompt_col = vga.zig_get_cursor_col();
+    prompt_row = common.get_cursor_row();
+    prompt_col = common.get_cursor_col();
     refreshLine(); // Initial draw of status bar
 
     while (true) {
-        const key = keyboard.keyboard_wait_char();
+        const key = common.get_char();
 
         if (key == 3) {
             common.printZ("^C\n");
@@ -396,79 +398,89 @@ fn readLine() void {
                 buf_len -= 1;
                 refreshLine();
             }
-        } else if (key == keyboard.KEY_LEFT) {
-            if (buf_pos > 0) {
-                buf_pos -= 1;
+        } else if (key == 0xB) { // KEY_LEFT (approx, use common constants if available)
+        } else if (key == 0xC) { // KEY_RIGHT
+        } else {
+            // Check for special keys from keyboard_isr
+            const KEY_LEFT = 0x11;
+            const KEY_RIGHT = 0x12;
+            const KEY_UP = 0x13;
+            const KEY_DOWN = 0x14;
+            const KEY_HOME = 0x15;
+            const KEY_END = 0x16;
+            const KEY_DELETE = 0x17;
+            const KEY_INSERT = 0x18;
+
+            if (key == KEY_LEFT) {
+                if (buf_pos > 0) {
+                    buf_pos -= 1;
+                    moveScreenCursor();
+                }
+            } else if (key == KEY_RIGHT) {
+                if (buf_pos < buf_len) {
+                    buf_pos += 1;
+                    moveScreenCursor();
+                }
+            } else if (key == KEY_HOME) {
+                buf_pos = 0;
                 moveScreenCursor();
-            }
-        } else if (key == keyboard.KEY_RIGHT) {
-            if (buf_pos < buf_len) {
-                buf_pos += 1;
+            } else if (key == KEY_END) {
+                buf_pos = buf_len;
                 moveScreenCursor();
-            }
-        } else if (key == keyboard.KEY_HOME) {
-            buf_pos = 0;
-            moveScreenCursor();
-        } else if (key == keyboard.KEY_END) {
-            buf_pos = buf_len;
-            moveScreenCursor();
-        } else if (key == keyboard.KEY_UP) {
-            if (history_count > 0 and history_index > 0) {
-                history_index -= 1;
-                loadHistory();
-            }
-        } else if (key == keyboard.KEY_DOWN) {
-            if (history_index < history_count) {
-                history_index += 1;
-                if (history_index == history_count) {
-                    buf_len = 0;
-                    buf_pos = 0;
-                    for (&buffer) |*b| b.* = 0;
-                    refreshLine();
-                } else {
+            } else if (key == KEY_UP) {
+                if (history_count > 0 and history_index > 0) {
+                    history_index -= 1;
                     loadHistory();
                 }
-            }
-        } else if (key == keyboard.KEY_DELETE) {
-            if (buf_pos < buf_len) {
-                var i: usize = buf_pos;
-                while (i < buf_len - 1) : (i += 1) {
-                    buffer[i] = buffer[i + 1];
-                }
-                buffer[buf_len - 1] = 0;
-                buf_len -= 1;
-                refreshLine();
-            }
-        } else if (key == keyboard.KEY_INSERT) {
-            insert_mode = !insert_mode;
-            refreshLine();
-        } else if (key == keyboard.KEY_CAPS or key == keyboard.KEY_NUM) {
-            refreshLine();
-        } else if (key == 9) { // Tab
-            if (auto_cycling) {
-                auto_match_index += 1;
-            }
-            autocomplete();
-            refreshLine();
-        } else if (key >= 32 and key <= 126) { // Printable characters
-            if (buf_len < BUFFER_SIZE - 1) {
-                if (insert_mode) {
-                    var i: usize = buf_len;
-                    while (i > buf_pos) : (i -= 1) {
-                        buffer[i] = buffer[i - 1];
+            } else if (key == KEY_DOWN) {
+                if (history_index < history_count) {
+                    history_index += 1;
+                    if (history_index == history_count) {
+                        buf_len = 0;
+                        buf_pos = 0;
+                        for (&buffer) |*b| b.* = 0;
+                        refreshLine();
+                    } else {
+                        loadHistory();
                     }
-                    buffer[buf_pos] = key;
-                    buf_len += 1;
-                    buf_pos += 1;
-                } else {
-                    buffer[buf_pos] = key;
-                    if (buf_pos == buf_len) buf_len += 1;
-                    buf_pos += 1;
                 }
+            } else if (key == KEY_DELETE) {
+                if (buf_pos < buf_len) {
+                    var i: usize = buf_pos;
+                    while (i < buf_len - 1) : (i += 1) {
+                        buffer[i] = buffer[i + 1];
+                    }
+                    buffer[buf_len - 1] = 0;
+                    buf_len -= 1;
+                    refreshLine();
+                }
+            } else if (key == KEY_INSERT) {
+                insert_mode = !insert_mode;
+                refreshLine();
+            } else if (key >= 32 and key <= 126) { // Printable characters
+                if (buf_len < BUFFER_SIZE - 1) {
+                    if (insert_mode) {
+                        var i: usize = buf_len;
+                        while (i > buf_pos) : (i -= 1) {
+                            buffer[i] = buffer[i - 1];
+                        }
+                        buffer[buf_pos] = key;
+                        buf_len += 1;
+                        buf_pos += 1;
+                    } else {
+                        buffer[buf_pos] = key;
+                        if (buf_pos == buf_len) buf_len += 1;
+                        buf_pos += 1;
+                    }
+                    refreshLine();
+                }
+            } else if (key == 9) { // Tab
+                if (auto_cycling) {
+                    auto_match_index += 1;
+                }
+                autocomplete();
                 refreshLine();
             }
-        } else if (key == 27) { // ESC
-            // Clear line?
         }
     }
 }
@@ -569,28 +581,17 @@ fn isKeywordVisible(kw: []const u8) bool {
 fn refreshLine() void {
     const saved_pos = buf_pos;
 
-    // VGA Update
-    vga.zig_set_cursor(prompt_row, prompt_col);
-    {
-        var row = prompt_row;
-        var col = prompt_col;
-        var cleared: usize = 0;
-        while (cleared < 80) : (cleared += 1) {
-            if (row >= 25) break;
-            const idx = @as(usize, row) * 80 + col;
-            vga.VIDEO_MEMORY[idx] = vga.DEFAULT_ATTR | ' ';
-            col += 1;
-            if (col >= 80) {
-                col = 0;
-                row += 1;
-            }
-        }
-    }
+    // Output Update
+    common.set_cursor(prompt_row, prompt_col);
 
-    vga.zig_set_cursor(prompt_row, prompt_col);
-    const row_before = vga.zig_get_cursor_row();
-    for (buffer[0..buf_len]) |c| vga.zig_print_char(c);
-    const row_after = vga.zig_get_cursor_row();
+    // Clear the line (manual spaces in Ring 3 if needed, or SetCursor/PrintZ)
+    var i: usize = 0;
+    while (i < 78 - prompt_col) : (i += 1) common.print_char(' ');
+
+    common.set_cursor(prompt_row, prompt_col);
+    const row_before = common.get_cursor_row();
+    common.printZ(buffer[0..buf_len]);
+    const row_after = common.get_cursor_row();
     if (row_after < row_before and prompt_row > 0) prompt_row -= 1;
 
     // Serial Update
@@ -602,20 +603,6 @@ fn refreshLine() void {
     buf_pos = saved_pos;
     moveScreenCursor();
     serial.serial_show_cursor();
-
-    // Update status indicators
-    vga.VIDEO_MEMORY[80 - 14] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'C';
-    vga.VIDEO_MEMORY[80 - 13] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'A';
-    vga.VIDEO_MEMORY[80 - 12] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'P';
-    vga.VIDEO_MEMORY[80 - 11] = (if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'S';
-
-    vga.VIDEO_MEMORY[80 - 9] = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'N';
-    vga.VIDEO_MEMORY[80 - 8] = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'U';
-    vga.VIDEO_MEMORY[80 - 7] = (if (keyboard.keyboard_get_num_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800)) | 'M';
-
-    const attr = @as(u16, 0x0E00);
-    const status = if (insert_mode) " INS " else " OVR ";
-    for (status, 0..) |c, k| vga.VIDEO_MEMORY[80 - 5 + k] = attr | @as(u16, c);
 }
 
 fn moveScreenCursor() void {
@@ -625,7 +612,7 @@ fn moveScreenCursor() void {
         new_col -= 80;
         new_row += 1;
     }
-    vga.zig_set_cursor(@intCast(new_row), @intCast(new_col));
+    common.set_cursor(@intCast(new_row), @intCast(new_col));
 }
 
 /// Check if a statement is complete (balanced brackets and ends with ; or })
@@ -633,11 +620,27 @@ fn isComplete(source: []const u8) bool {
     var paren_depth: i32 = 0;
     var brace_depth: i32 = 0;
     var in_string: bool = false;
+    var in_comment: bool = false;
+    var in_block_comment: bool = false;
     var last_char: u8 = 0;
     var i: usize = 0;
 
     while (i < source.len) : (i += 1) {
         const c = source[i];
+
+        if (in_block_comment) {
+            if (c == '*' and i + 1 < source.len and source[i + 1] == '/') {
+                in_block_comment = false;
+                i += 1;
+            }
+            continue;
+        }
+
+        if (in_comment) {
+            if (c == '\n' or c == '\r') in_comment = false;
+            continue;
+        }
+
         if (in_string) {
             if (c == '"') {
                 if (i > 0 and source[i - 1] == '\\') {
@@ -646,25 +649,40 @@ fn isComplete(source: []const u8) bool {
                     in_string = false;
                 }
             }
-        } else {
-            if (c == '"') {
-                in_string = true;
-            } else if (c == '(') {
-                paren_depth += 1;
-            } else if (c == ')') {
-                paren_depth -= 1;
-            } else if (c == '{') {
-                brace_depth += 1;
-            } else if (c == '}') {
-                brace_depth -= 1;
+            continue;
+        }
+
+        // Check for start of comments
+        if (c == '/' and i + 1 < source.len) {
+            if (source[i + 1] == '/') {
+                in_comment = true;
+                i += 1;
+                continue;
+            } else if (source[i + 1] == '*') {
+                in_block_comment = true;
+                i += 1;
+                continue;
             }
         }
-        if (c != ' ' and c != '\n' and c != '\r' and c != '\t') {
+
+        if (c == '"') {
+            in_string = true;
+        } else if (c == '(') {
+            paren_depth += 1;
+        } else if (c == ')') {
+            paren_depth -= 1;
+        } else if (c == '{') {
+            brace_depth += 1;
+        } else if (c == '}') {
+            brace_depth -= 1;
+        }
+
+        if (c != ' ' and c != '\n' and c != '\r' and c != '\t' and c != 0) {
             last_char = c;
         }
     }
 
-    if (in_string or paren_depth > 0 or brace_depth > 0) return false;
+    if (in_string or paren_depth > 0 or brace_depth > 0 or in_block_comment) return false;
     if (last_char == ';' or last_char == '}') return true;
 
     return false;

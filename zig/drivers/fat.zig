@@ -1,6 +1,7 @@
 // FAT12/16 Filesystem Driver
 const common = @import("../commands/common.zig");
 const ata = @import("ata.zig");
+const vga = @import("vga.zig");
 
 pub const FatType = enum {
     None,
@@ -279,23 +280,25 @@ fn list_sector(drive: ata.Drive, sector: u32, show_hidden: bool, lfn: *LfnState)
         // Determine Color
         var color: u8 = 15; // Default White
         if (is_dir) {
-            color = 9; // Bright Blue
+            color = 11; // Light Cyan
         } else if (full_name.len > 0 and full_name[0] == '.') {
-            color = 8; // Grey
+            color = 8; // Dark Grey
         } else if (common.endsWithIgnoreCase(full_name, ".nv")) {
-            color = 10; // Green
+            color = 10; // Light Green
         } else if (common.endsWithIgnoreCase(full_name, ".bin") or
             common.endsWithIgnoreCase(full_name, ".elf") or
             common.endsWithIgnoreCase(full_name, ".exe") or
             common.endsWithIgnoreCase(full_name, ".o"))
         {
-            color = 12; // Red
+            color = 12; // Light Red
         }
 
         common.vga.set_color(color, 0);
         common.printZ(full_name);
+        if (is_dir) common.print_char('/');
         common.vga.reset_color();
-        printed = name_len;
+
+        printed = name_len + (if (is_dir) @as(usize, 1) else @as(usize, 0));
 
         // Padding
         if (printed < 30) {
@@ -305,7 +308,11 @@ fn list_sector(drive: ata.Drive, sector: u32, show_hidden: bool, lfn: *LfnState)
             common.print_char(' ');
         }
 
-        if (!is_dir) {
+        if (is_dir) {
+            vga.set_color(8, 0);
+            common.printZ("<DIR>");
+            vga.reset_color();
+        } else {
             const size = @as(u32, buffer[i + 28]) | (@as(u32, buffer[i + 29]) << 8) | (@as(u32, buffer[i + 30]) << 16) | (@as(u32, buffer[i + 31]) << 24);
             common.printNum(@intCast(size));
             common.printZ(" bytes");

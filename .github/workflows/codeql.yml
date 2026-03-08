@@ -1,0 +1,69 @@
+name: "CodeQL"
+
+on:
+  push:
+    branches: [ "main", "feat/*" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '30 2 * * 0' # Every Sunday at 2:30 AM
+
+jobs:
+  analyze:
+    name: Analyze C/C++ (SDK)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'c-cpp' ]
+        # Zig is not officially supported by CodeQL yet, but we can scan the SDK C code
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        
+    - name: Setup Zig
+      uses: goto-bus-stop/setup-zig@v2
+      with:
+        version: master
+
+    - name: Setup NASM
+      uses: ilammy/setup-nasm@v1
+
+    - name: Cache Zig
+      uses: actions/cache@v4
+      with:
+        path: |
+          .zig-cache
+          zig/.zig-cache
+          ~/.cache/zig
+        key: ${{ runner.os }}-zig-codeql-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-zig-codeql-
+          ${{ runner.os }}-zig-
+
+    # We need to compile the C files so CodeQL can trace the build
+    - name: Build SDK C apps
+      run: |
+        cd sdk/libnovum
+        chmod +x build.sh
+        ./build.sh
+        cd ..
+        chmod +x build-app.sh
+        ./build-app.sh examples/hello_world/main.c examples/hello_world/hello.elf
+        ./build-app.sh examples/system_test/main.c examples/system_test/test.elf
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"

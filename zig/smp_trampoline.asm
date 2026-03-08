@@ -34,6 +34,15 @@ ap_entry_32:
     ; places the stack address before sending the IPI.
     mov esp, [0x7000]
 
+    ; 5.5 Enable SSE (CR4.OSFXSR | CR4.OSXMMEXCPT)
+    mov eax, cr4
+    or eax, 0x600           ; OSFXSR=1, OSXMMEXCPT=1
+    mov cr4, eax
+    mov eax, cr0
+    and ax, 0xFFFB          ; Clear EM (bit 2)
+    or ax, 0x2              ; Set MP (bit 1)
+    mov cr0, eax
+
     ; 6. Signal BSP that this core is ready (using lock for atomicity)
     lock inc dword [0x9000]
 
