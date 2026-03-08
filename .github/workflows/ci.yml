@@ -1,0 +1,72 @@
+name: CI Build
+
+on:
+  push:
+    branches: [ "main", "feat/*" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: mlugg/setup-zig@v1
+      with:
+        version: master
+
+    - name: Setup NASM
+      uses: ilammy/setup-nasm@v1
+
+    - name: Build NovumOS (Windows)
+      run: .\build.bat
+
+    - name: Build SDK and Examples (Windows)
+      run: |
+        cd sdk/libnovum
+        .\build.bat
+        cd ..
+        .\build-app.bat examples\hello_world\main.c examples\hello_world\hello.elf
+        .\build-app.bat examples\system_test\main.c examples\system_test\test.elf
+
+    - name: Upload OS Image
+      uses: actions/upload-artifact@v4
+      with:
+        name: NovumOS-Image-Windows
+        path: build/os-image.bin
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: mlugg/setup-zig@v1
+      with:
+        version: master
+
+    - name: Setup NASM
+      uses: ilammy/setup-nasm@v1
+
+    - name: Build NovumOS (Linux)
+      run: |
+        chmod +x build.sh
+        ./build.sh
+
+    - name: Build SDK and Examples (Linux)
+      run: |
+        cd sdk/libnovum
+        chmod +x build.sh
+        ./build.sh
+        cd ..
+        chmod +x build-app.sh
+        ./build-app.sh examples/hello_world/main.c examples/hello_world/hello.elf
+        ./build-app.sh examples/system_test/main.c examples/system_test/test.elf
+
+    - name: Upload OS Image
+      uses: actions/upload-artifact@v4
+      with:
+        name: NovumOS-Image-Linux
+        path: build/os-image.bin
