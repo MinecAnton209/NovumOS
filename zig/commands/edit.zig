@@ -14,6 +14,7 @@ var filename: [32]u8 = [_]u8{0} ** 32;
 var filename_len: usize = 0;
 var insert_mode: bool = true;
 var is_modified: bool = false;
+var content_dirty: bool = true;
 var current_status: [40]u8 = [_]u8{0} ** 40;
 var status_len: usize = 0;
 
@@ -49,18 +50,25 @@ pub fn execute(name: []const u8) void {
     serial.serial_clear_screen();
 
     var last_cursor_pos: usize = 9999;
-    var last_buf_len: usize = 9999;
     var last_viewport_top: usize = 9999;
+    content_dirty = true;
 
     while (true) {
-        const needs_redraw = (cursor_pos != last_cursor_pos or buf_len != last_buf_len or viewport_top != last_viewport_top);
-        if (needs_redraw) {
+        update_viewport();
+
+        const needs_full_redraw = (content_dirty or viewport_top != last_viewport_top);
+        const cursor_moved = (cursor_pos != last_cursor_pos);
+
+        if (needs_full_redraw) {
             serial.serial_hide_cursor();
             draw_ui();
             last_cursor_pos = cursor_pos;
-            last_buf_len = buf_len;
             last_viewport_top = viewport_top;
+            content_dirty = false;
             serial.serial_show_cursor();
+        } else if (cursor_moved) {
+            update_cursor_ui_only();
+            last_cursor_pos = cursor_pos;
         } else {
             vga.update_hardware_cursor();
         }
@@ -131,6 +139,7 @@ pub fn execute(name: []const u8) void {
                 buf_len -= 1;
                 cursor_pos -= 1;
                 is_modified = true;
+                content_dirty = true;
             }
         } else if (char == keyboard.KEY_DELETE) {
             if (cursor_pos < buf_len) {
@@ -139,6 +148,7 @@ pub fn execute(name: []const u8) void {
                 buffer[buf_len - 1] = 0;
                 buf_len -= 1;
                 is_modified = true;
+                content_dirty = true;
             }
         } else if (char == 10 or char == 13) {
             insert_char('\n');
@@ -147,6 +157,9 @@ pub fn execute(name: []const u8) void {
             insert_char(char);
             is_modified = true;
         }
+
+        // Extremely important to flush changes down to video memory!
+        vga.vga_flush();
     }
     vga.restore_screen_buffer();
 }
@@ -204,21 +217,41 @@ fn draw_text_at(row: usize, col: usize, text: []const u8, attr: u16) void {
     }
 }
 
-fn draw_content() void {
+fn update_viewport() void {
     const coords = get_cursor_coords(cursor_pos);
     const ROWS = vga.MAX_ROWS - 2;
-    const COLS = vga.MAX_COLS;
-    const max_cols = vga.MAX_COLS;
 
-    // Auto-scroll logic
     if (coords.r - 1 < viewport_top) {
         viewport_top = coords.r - 1;
     } else if (coords.r - 1 >= viewport_top + ROWS) {
         viewport_top = coords.r - ROWS;
     }
+}
+
+fn update_cursor_ui_only() void {
+    const coords = get_cursor_coords(cursor_pos);
+    var pos_buf: [20]u8 = undefined;
+    const pos_str = common.fmt_to_buf(&pos_buf, "L: {d} C: {d}", .{ coords.r, coords.c });
+    const max_cols = vga.MAX_COLS;
+    const pos_x = if (max_cols > 20) max_cols - 20 else 0;
+
+    for (0..20) |i| {
+        if (pos_x + i < max_cols) common.draw_char_at(0, @intCast(pos_x + i), ' ', 0x7000);
+    }
+    draw_text_at(0, pos_x, pos_str, 0x7000);
+
+    const final_r = coords.r - 1 - viewport_top + 1;
+    vga.zig_set_cursor(@intCast(final_r), @intCast(coords.c));
+    serial.serial_set_cursor(@intCast(final_r), @intCast(coords.c));
+}
+
+fn draw_content() void {
+    const coords = get_cursor_coords(cursor_pos);
+    const ROWS = vga.MAX_ROWS - 2;
+    const COLS = vga.MAX_COLS;
 
     for (1..vga.MAX_ROWS - 1) |r| {
-        for (0..max_cols) |c| common.draw_char_at(@intCast(r), @intCast(c), ' ', 0x0F00);
+        vga.zig_clear_line(@intCast(r));
     }
 
     var r: usize = 1;
@@ -288,6 +321,7 @@ fn cut_line() void {
     buf_len -= len;
     cursor_pos = start;
     is_modified = true;
+    content_dirty = true;
     status_msg("Line cut");
 }
 
@@ -300,6 +334,7 @@ fn paste_line() void {
     buf_len += clip_len;
     cursor_pos += clip_len;
     is_modified = true;
+    content_dirty = true;
     status_msg("Pasted");
 }
 
@@ -314,6 +349,7 @@ fn insert_char(c: u8) void {
         buffer[cursor_pos] = c;
     }
     cursor_pos += 1;
+    content_dirty = true;
 }
 
 fn save_file() void {

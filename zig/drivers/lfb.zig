@@ -48,6 +48,48 @@ pub var framebuffer: ?[*]u8 = null;
 pub var fb_mapped_size: usize = 0;
 pub var fb_phys_base: u32 = 0;
 
+// Dynamic backbuffer allocation
+pub var backbuffer_ptr: ?[*]u8 = null;
+pub var backbuffer_mapped_size: usize = 0;
+
+fn ensure_backbuffer(size: usize) void {
+    if (size <= backbuffer_mapped_size) return;
+    const vaddr_start: usize = 0xD0000000;
+    const aligned_size: usize = (size + 4095) & ~@as(usize, 4095);
+    var offset: usize = backbuffer_mapped_size;
+
+    while (offset < aligned_size) : (offset += 4096) {
+        if (memory.pmm.alloc_page()) |paddr| {
+            _ = memory.map_page_at(vaddr_start + offset, paddr, true);
+        } else {
+            break;
+        }
+    }
+    backbuffer_mapped_size = offset;
+    backbuffer_ptr = @ptrFromInt(vaddr_start);
+}
+
+pub var dirty: bool = false;
+pub var dirty_min_x: u32 = 0;
+pub var dirty_min_y: u32 = 0;
+pub var dirty_max_x: u32 = 0;
+pub var dirty_max_y: u32 = 0;
+
+pub fn mark_dirty(min_x: u32, min_y: u32, max_x: u32, max_y: u32) void {
+    if (!dirty) {
+        dirty = true;
+        dirty_min_x = min_x;
+        dirty_min_y = min_y;
+        dirty_max_x = max_x;
+        dirty_max_y = max_y;
+    } else {
+        if (min_x < dirty_min_x) dirty_min_x = min_x;
+        if (min_y < dirty_min_y) dirty_min_y = min_y;
+        if (max_x > dirty_max_x) dirty_max_x = max_x;
+        if (max_y > dirty_max_y) dirty_max_y = max_y;
+    }
+}
+
 pub fn init() void {
     const raw_info: *VbeModeInfo = @ptrFromInt(0x8000);
 
@@ -67,7 +109,11 @@ pub fn init() void {
 
     memory.map_range(fb_phys_base, fb_mapped_size, false);
     framebuffer = @ptrFromInt(fb_phys_base);
+    ensure_backbuffer(fb_mapped_size);
     initialized = true;
+
+    // Calibrate smart vsync
+    calibrate_vsync();
 }
 
 pub fn init_bga(w: u16, h: u16) bool {
@@ -93,51 +139,92 @@ pub fn init_bga(w: u16, h: u16) bool {
 
         memory.map_range(fb_phys_base, fb_mapped_size, false);
         framebuffer = @ptrFromInt(fb_phys_base);
+        ensure_backbuffer(new_size);
         initialized = true;
     } else if (new_size > fb_mapped_size) {
         // Map more memory if resolution increased
         memory.map_range(fb_phys_base + @as(u32, @intCast(fb_mapped_size)), new_size - fb_mapped_size, false);
         fb_mapped_size = new_size;
         memory.user_mmio_end = fb_phys_base + fb_mapped_size;
+        ensure_backbuffer(new_size);
+    } else {
+        ensure_backbuffer(new_size);
     }
 
     // Refresh shell/vga dimensions
     vga.init_dimensions();
+
+    // Re-calibrate vsync if resolution logic altered timings (unlikely but safe)
+    calibrate_vsync();
+
     return true;
+}
+
+pub fn fill_rect(start_x: u32, start_y: u32, w: u32, h: u32, color: u32) void {
+    if (!initialized) return;
+    const bb = backbuffer_ptr orelse return;
+
+    if (start_x >= width or start_y >= height) return;
+    var draw_w = w;
+    var draw_h = h;
+    if (start_x + draw_w > width) draw_w = width - start_x;
+    if (start_y + draw_h > height) draw_h = height - start_y;
+    if (draw_w == 0 or draw_h == 0) return;
+
+    mark_dirty(start_x, start_y, start_x + draw_w - 1, start_y + draw_h - 1);
+
+    var y = start_y;
+    while (y < start_y + draw_h) : (y += 1) {
+        if (bpp == 32) {
+            const offset = y * pitch + start_x * 4;
+            const p: [*]u32 = @ptrCast(@alignCast(&bb[offset]));
+            var i: usize = 0;
+            while (i < draw_w) : (i += 1) {
+                p[i] = color;
+            }
+        } else {
+            var x = start_x;
+            while (x < start_x + draw_w) : (x += 1) {
+                const offset = y * pitch + x * 3;
+                bb[offset] = @intCast(color & 0xFF);
+                bb[offset + 1] = @intCast((color >> 8) & 0xFF);
+                bb[offset + 2] = @intCast((color >> 16) & 0xFF);
+            }
+        }
+    }
 }
 
 pub fn put_pixel(x: u32, y: u32, color: u32) void {
     if (!initialized) return;
     if (x >= width or y >= height) return;
+    const backbuffer = backbuffer_ptr orelse return;
 
-    const fb = framebuffer.?;
+    mark_dirty(x, y, x, y);
+
     if (bpp == 32) {
         const offset = y * pitch + x * 4;
-        const p: *u32 = @ptrCast(@alignCast(&fb[offset]));
+        const p: *u32 = @ptrCast(@alignCast(&backbuffer[offset]));
         p.* = color;
     } else if (bpp == 24) {
         const offset = y * pitch + x * 3;
-        fb[offset] = @intCast(color & 0xFF);
-        fb[offset + 1] = @intCast((color >> 8) & 0xFF);
-        fb[offset + 2] = @intCast((color >> 16) & 0xFF);
+        backbuffer[offset] = @intCast(color & 0xFF);
+        backbuffer[offset + 1] = @intCast((color >> 8) & 0xFF);
+        backbuffer[offset + 2] = @intCast((color >> 16) & 0xFF);
     }
 }
 
 pub fn fill_screen(color: u32) void {
     if (!initialized) return;
-    var y: u32 = 0;
-    while (y < height) : (y += 1) {
-        var x: u32 = 0;
-        while (x < width) : (x += 1) {
-            put_pixel(x, y, color);
-        }
-    }
+    fill_rect(0, 0, width, height, color);
 }
 
 pub fn draw_char(c: u8, x: u32, y: u32, fg: u32, bg: u32, scale: u32) void {
     if (!initialized) return;
     if (c < 32 or c > 126) return;
+    const bb = backbuffer_ptr orelse return;
     const char_idx = @as(usize, c) * font.FONT_HEIGHT;
+
+    mark_dirty(x, y, x + (font.FONT_WIDTH * scale) - 1, y + (font.FONT_HEIGHT * scale) - 1);
 
     var row: u32 = 0;
     while (row < font.FONT_HEIGHT) : (row += 1) {
@@ -147,12 +234,25 @@ pub fn draw_char(c: u8, x: u32, y: u32, fg: u32, bg: u32, scale: u32) void {
             const is_set = (row_data & (@as(u8, 0x80) >> @as(u3, @intCast(col)))) != 0;
             const pcolor = if (is_set) fg else bg;
 
-            // Draw a 'scale x scale' pixel block
             var dy: u32 = 0;
             while (dy < scale) : (dy += 1) {
+                const py = y + (row * scale) + dy;
+                if (py >= height) continue;
                 var dx: u32 = 0;
                 while (dx < scale) : (dx += 1) {
-                    put_pixel(x + (col * scale) + dx, y + (row * scale) + dy, pcolor);
+                    const px = x + (col * scale) + dx;
+                    if (px >= width) continue;
+
+                    if (bpp == 32) {
+                        const offset = py * pitch + px * 4;
+                        const p: *u32 = @ptrCast(@alignCast(&bb[offset]));
+                        p.* = pcolor;
+                    } else if (bpp == 24) {
+                        const offset = py * pitch + px * 3;
+                        bb[offset] = @intCast(pcolor & 0xFF);
+                        bb[offset + 1] = @intCast((pcolor >> 8) & 0xFF);
+                        bb[offset + 2] = @intCast((pcolor >> 16) & 0xFF);
+                    }
                 }
             }
         }
@@ -176,13 +276,100 @@ pub fn draw_string(s: []const u8, x: u32, y: u32, fg: u32, bg: u32, scale: u32) 
 
 pub fn copy_region(src_y: u32, dest_y: u32, count: u32) void {
     if (!initialized or framebuffer == null) return;
-    const fb = framebuffer.?;
+    const backbuffer = backbuffer_ptr orelse return;
     const bytes_per_line = pitch;
+
+    mark_dirty(0, dest_y, width - 1, dest_y + count - 1);
 
     var i: u32 = 0;
     while (i < count) : (i += 1) {
         const src_off = (src_y + i) * bytes_per_line;
         const dest_off = (dest_y + i) * bytes_per_line;
-        @memcpy(fb[dest_off .. dest_off + bytes_per_line], fb[src_off .. src_off + bytes_per_line]);
+        @memcpy(backbuffer[dest_off .. dest_off + bytes_per_line], backbuffer[src_off .. src_off + bytes_per_line]);
     }
+}
+
+var vsync_interval_ms: usize = 0;
+var last_vsync_tick: usize = 0;
+
+pub fn calibrate_vsync() void {
+    const timer = @import("timer.zig");
+    // Wait until out of retrace
+    while ((inb(0x3DA) & 8) != 0) {}
+    // Wait until start of retrace
+    while ((inb(0x3DA) & 8) == 0) {}
+
+    const start = timer.get_ticks();
+
+    // Wait until out of retrace
+    while ((inb(0x3DA) & 8) != 0) {}
+    // Wait until start of next retrace
+    while ((inb(0x3DA) & 8) == 0) {}
+
+    const end = timer.get_ticks();
+
+    vsync_interval_ms = end - start;
+    if (vsync_interval_ms == 0 or vsync_interval_ms > 100) {
+        vsync_interval_ms = 16; // fallback ~60fps
+    }
+
+    last_vsync_tick = timer.get_ticks();
+}
+
+pub fn smart_vsync() void {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) return; // Prevent #GP: Cannot use `inb` in Ring 3. User bounds skip vsync entirely.
+
+    const timer = @import("timer.zig");
+    if (vsync_interval_ms == 0) return;
+
+    const now = timer.get_ticks();
+    const elapsed = now - last_vsync_tick;
+
+    // Planning: Instead of busy cycle, sleep until 1ms before vsync
+    if (elapsed < vsync_interval_ms) {
+        const remaining = vsync_interval_ms - elapsed;
+        if (remaining > 1) {
+            timer.sleep(remaining - 1);
+        }
+    }
+
+    // Fine-tuning: wait exact moment
+    while ((inb(0x3DA) & 8) != 0) {}
+    while ((inb(0x3DA) & 8) == 0) {}
+
+    last_vsync_tick = timer.get_ticks();
+}
+
+pub fn swap_buffers() void {
+    if (!initialized or framebuffer == null or !dirty) return;
+    const backbuffer = backbuffer_ptr orelse return;
+
+    // Use Smart VSync to prevent tearing but let CPU rest
+    smart_vsync();
+
+    const fb = framebuffer.?;
+
+    // Copy only the dirty region to VRAM
+    var y: u32 = dirty_min_y;
+    while (y <= dirty_max_y) : (y += 1) {
+        if (y >= height) break;
+        const line_off = y * pitch;
+        const x_start_off = dirty_min_x * (bpp / 8);
+        const copy_len = (dirty_max_x - dirty_min_x + 1) * (bpp / 8);
+
+        @memcpy(fb[line_off + x_start_off .. line_off + x_start_off + copy_len], backbuffer[line_off + x_start_off .. line_off + x_start_off + copy_len]);
+    }
+
+    dirty = false;
+}
+
+fn inb(port: u16) u8 {
+    return asm volatile ("inb %[port], %[ret]"
+        : [ret] "={al}" (-> u8),
+        : [port] "{dx}" (port),
+    );
 }

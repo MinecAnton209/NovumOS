@@ -293,6 +293,7 @@ pub export fn read_command() void {
                 refresh_line();
             }
         }
+        vga.vga_flush();
     }
 
     // Do not explicitly erase, refresh_line clears prompt directly
@@ -363,9 +364,9 @@ fn refresh_line() void {
     // 1. VGA Update (Clear to avoid trailing characters when line length decreases)
     vga.clear_prompt_area(prompt_row, prompt_col);
 
-    // Draw text on VGA. We use zig_print_char to allow natural wrapping.
-    // If it scrolls, we need to detect it.
-    vga.zig_set_cursor(prompt_row, prompt_col);
+    // Set cursor silently to avoid flashing the cursor at the prompt start
+    vga.cursor_row = prompt_row;
+    vga.cursor_col = prompt_col;
     for (cmd_buffer[0..cmd_len]) |c| {
         const row_before_char = vga.zig_get_cursor_row();
         vga.zig_print_char(c);
@@ -428,32 +429,6 @@ fn move_screen_cursor() void {
         new_row += 1;
     }
     vga.zig_set_cursor(@intCast(new_row), @intCast(new_col));
-
-    if (lfb.initialized) {
-        // 1. Erase old cursor
-        const old_bx = @as(u32, @intCast(last_shell_cursor_col)) * 8;
-        const old_by = @as(u32, @intCast(last_shell_cursor_row)) * 14;
-        var r: u32 = 12;
-        while (r < 14) : (r += 1) {
-            var c_idx: u32 = 0;
-            while (c_idx < 8) : (c_idx += 1) {
-                lfb.put_pixel(old_bx + c_idx, old_by + r, 0x000000);
-            }
-        }
-
-        // 2. Draw new cursor if visible
-        if (shell_cursor_visible) {
-            const bx = @as(u32, @intCast(new_col)) * 8;
-            const by = @as(u32, @intCast(new_row)) * 14;
-            r = 12;
-            while (r < 14) : (r += 1) {
-                var c_idx: u32 = 0;
-                while (c_idx < 8) : (c_idx += 1) {
-                    lfb.put_pixel(bx + c_idx, by + r, 0xFFFFFF);
-                }
-            }
-        }
-    }
 
     last_shell_cursor_row = new_row;
     last_shell_cursor_col = new_col;

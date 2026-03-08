@@ -89,6 +89,7 @@ pub export fn restore_screen_buffer() void {
     cursor_row = @intCast(saved_cursor_row);
     cursor_col = @intCast(saved_cursor_col);
     update_hardware_cursor();
+    lfb.swap_buffers();
 }
 
 pub export fn clear_screen() void {
@@ -102,6 +103,8 @@ pub export fn clear_screen() void {
     cursor_row = 0;
     cursor_col = 0;
     cursor_visible = false;
+
+    lfb.swap_buffers();
 }
 
 pub export fn zig_set_cursor(row: u8, col: u8) void {
@@ -179,6 +182,8 @@ fn scroll() void {
             VIDEO_MEMORY[r * MAX_COLS + c] = VIDEO_MEMORY[(r + 1) * MAX_COLS + c];
         }
     }
+
+    lfb.swap_buffers(); // Flush after scrolling
 }
 
 fn internal_newline() void {
@@ -269,13 +274,7 @@ pub export fn zig_print_char(c: u8) void {
         if (lfb.initialized) {
             const bx = @as(u32, @intCast(cursor_col)) * 8;
             const by = @as(u32, @intCast(cursor_row)) * 14;
-            var r: u32 = 0;
-            while (r < 14) : (r += 1) {
-                var cl: u32 = 0;
-                while (cl < 8) : (cl += 1) {
-                    lfb.put_pixel(bx + cl, by + r, 0x000000);
-                }
-            }
+            lfb.fill_rect(bx, by, 8, 14, 0x000000);
         }
     } else if (c >= 32) {
         if (cursor_row >= MAX_ROWS) {
@@ -299,23 +298,22 @@ pub export fn zig_print_char(c: u8) void {
             internal_newline();
         }
     }
+    // NOTE: No swap_buffers here - flush happens at cursor update (end of batch)
 }
 
 pub export fn zig_clear_line(row: u8) void {
     if (row >= MAX_ROWS) return;
     const py = @as(u32, row) * 14;
-    var y: u32 = py;
-    while (y < py + 14) : (y += 1) {
-        var x: u32 = 0;
-        while (x < @as(u32, MAX_COLS) * 8) : (x += 1) {
-            lfb.put_pixel(x, y, 0x000000);
-        }
-    }
+
+    // Quick clear via rect
+    lfb.fill_rect(0, py, @as(u32, MAX_COLS) * 8, 14, 0x000000);
+
     // Also clear the VIDEO_MEMORY buffer
     var col: usize = 0;
     while (col < MAX_COLS) : (col += 1) {
         VIDEO_MEMORY[@as(usize, row) * MAX_COLS + col] = DEFAULT_ATTR | ' ';
     }
+    // No flush here - flushed by the caller (scroll or manual)
 }
 
 pub export fn clear_prompt_area(start_row: u8, start_col: u8) void {
@@ -330,7 +328,7 @@ pub export fn clear_prompt_area(start_row: u8, start_col: u8) void {
         if (lfb.initialized) {
             const bx = @as(u32, col) * 8;
             const by = @as(u32, row) * 14;
-            lfb.draw_char(' ', bx, by, 0x000000, 0x000000, 1); // Fast clear pixel area
+            lfb.fill_rect(bx, by, 8, 14, 0x000000);
         }
 
         col += 1;
@@ -339,6 +337,7 @@ pub export fn clear_prompt_area(start_row: u8, start_col: u8) void {
             row += 1;
         }
     }
+    // No early flush, wait for shell to redraw chars and flush collectively via cursor update
 }
 
 pub export fn zig_draw_char_at(row: u8, col: u8, c: u8) void {
@@ -352,6 +351,7 @@ pub export fn zig_draw_char_at(row: u8, col: u8, c: u8) void {
         const by = @as(u32, row) * 14;
         lfb.draw_char(c, bx, by, vga_attr_to_rgb(attr), vga_attr_to_rgb(attr >> 4), 1);
     }
+    // No per-char flush - caller (editor's draw_ui) flushes after all chars are drawn
 }
 
 pub export fn draw_indicator(col: u8, attr: u16, c: u8) void {
@@ -366,6 +366,7 @@ pub export fn draw_indicator(col: u8, attr: u16, c: u8) void {
         const by = @as(u32, row) * 14;
         lfb.draw_char(c, bx, by, vga_attr_to_rgb(attr), vga_attr_to_rgb(attr >> 4), 1);
     }
+    // Indicators drawn in batch, flushed at cursor update
 }
 
 // Internal version that assumes lock is already held
@@ -386,6 +387,7 @@ fn erase_vga_cursor_internal() void {
         lfb.draw_char(char, bx, by, vga_attr_to_rgb(attr), vga_attr_to_rgb(attr >> 4), 1);
     }
     cursor_visible = false;
+    // flush happens in update_vga_cursor after drawing new cursor position
 }
 
 pub export fn erase_vga_cursor() void {
@@ -396,6 +398,7 @@ pub export fn erase_vga_cursor() void {
         interrupts_restore_vga(eflags);
     }
     erase_vga_cursor_internal();
+    lfb.swap_buffers(); // flush after erase
 }
 
 pub export fn update_vga_cursor() void {
@@ -434,10 +437,15 @@ pub export fn update_vga_cursor() void {
     prev_cursor_row = r;
     prev_cursor_col = c;
     cursor_visible = true;
+    lfb.swap_buffers();
 }
 
 pub export fn update_hardware_cursor() void {
-    update_vga_cursor();
+    update_vga_cursor(); // already calls swap_buffers internally
+}
+
+pub export fn vga_flush() void {
+    lfb.swap_buffers();
 }
 
 fn outb(port: u16, val: u8) void {
