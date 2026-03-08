@@ -313,7 +313,7 @@ export fn handle_syscall_zig(regs: *Registers) void {
         },
         31 => { // Free(EBX = ptr)
             if (regs.ebx != 0) {
-                memory.heap.free(@ptrFromInt(regs.ebx));
+                _ = memory.heap.free_safe(@ptrFromInt(regs.ebx));
             }
         },
         32 => { // CheckCtrlC() -> EAX (1/0)

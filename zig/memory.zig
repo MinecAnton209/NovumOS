@@ -670,6 +670,19 @@ pub const heap = struct {
     }
 
     pub fn free(ptr: [*]u8) void {
+        const res = free_internal(ptr, false);
+        if (!res) {
+            // This should only happen if called from kernel with bad logic
+            @panic("Heap: Internal free failed (bad pointer, magic or double-free)");
+        }
+    }
+
+    /// Syscall-safe free that returns success/failure instead of panicking
+    pub fn free_safe(ptr: [*]u8) bool {
+        return free_internal(ptr, true);
+    }
+
+    fn free_internal(ptr: [*]u8, safe: bool) bool {
         const eflags = interrupts_save();
         smp.spin_lock(&heap_lock);
         defer {
@@ -680,6 +693,10 @@ pub const heap = struct {
         // 1. Basic pointer validation
         const addr = @intFromPtr(ptr);
         if (addr < 0x1000 or (addr & 7) != 0) {
+            if (safe) {
+                logger.security("Free: Invalid or unaligned pointer from User Mode");
+                return false;
+            }
             @panic("Heap: Attempt to free invalid or unaligned pointer");
         }
 
@@ -688,23 +705,55 @@ pub const heap = struct {
 
         // 2. Magic number validation (prevents freeing non-heap memory)
         if (header.magic != HEAP_MAGIC) {
+            if (safe) {
+                logger.security("Free: Corruption detected (invalid magic)");
+                return false;
+            }
             @panic("Heap: Corruption detected (invalid magic)! Potential buffer overflow or invalid free.");
         }
 
         // 3. Double-free detection
         if (header.is_free) {
+            if (safe) {
+                logger.security("Free: Double-free attempt from User Mode");
+                return false;
+            }
             @panic("Heap: Double-free detected!");
         }
 
         // 4. Sanity check on size
         if (header.size > 128 * 1024 * 1024) {
+            if (safe) {
+                logger.security("Free: Insane block size detected");
+                return false;
+            }
             @panic("Heap: Corruption detected (implausible block size)!");
+        }
+
+        // --- Deep Validation ---
+        // Verify that this block ACTUALLY exists in our linked list.
+        // This prevents 'fake' headers created in user-space from being processed.
+        var found = false;
+        var current = first_block;
+        while (current) |block| : (current = block.next) {
+            if (@intFromPtr(block) == header_ptr) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            if (safe) {
+                logger.security("Free: Valid-looking header but NOT in heap list (fake block attempt)");
+            }
+            return false;
         }
 
         header.is_free = true;
 
         // Simple immediate coalescing with next block
         coalesce();
+        return true;
     }
 
     /// Garbage Collector / Memory Cleaner
