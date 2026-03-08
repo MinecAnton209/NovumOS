@@ -12,8 +12,10 @@ NovumOS is a simple operating system that successfully boots from 16-bit real mo
 
 ### Features
 
-- ✅ **32-bit Graphics** - High-resolution Linear Framebuffer (LFB) support via **VBE** and **BGA**
+- ✅ **32-bit Graphics** - High-resolution Linear Framebuffer (LFB) with **Double Buffering** and **Dirty Rectangles**
 - ✅ **Dynamic Resolution** - Change screen resolution on-the-fly with the `res` command
+- ✅ **Preemptive Multitasking** - Round-robin scheduler with process lifecycle management (`ps`, `kill`)
+- ✅ **SMP (Symmetric Multiprocessing)** - Support for multiple CPU cores with task balancing and work-stealing
 - ✅ **Relocated Kernel** - Loaded at **1MB (0x100000)** for maximum stability and compatibility
 - ✅ **A20 Line Support** - Full access to high memory via BIOS & Fast A20 activation
 - ✅ **LBA Disk Support** - Robust disk loading using Logic Block Addressing for larger kernels
@@ -90,7 +92,11 @@ qemu-system-i386 -drive format=raw,file=build\os-image.bin -drive format=raw,fil
 - `uninstall`      - Remove an installed Nova command
 - `echo <text>`    - Print text (supports pipes)
 - `top`            - Real-time CPU and Task Monitor
+- `ps`             - List active system processes
+- `kill <pid>`     - Terminate a running process
 - `mem`            - Test memory allocator
+- `smp-test`       - Test global task queue across cores (Debug only)
+- `stress-test`    - Run heavy math on AP cores (Debug only)
 
 ### SDK (Software Development Kit)
 
@@ -145,6 +151,8 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Copy (0x10k to 1MB) �
 - **32-bit Linear Framebuffer (LFB)** drawing logic
 - Keyboard driver (IRQ1 based)
 - Command shell with persistent history (hidden `.HISTORY`) and LFN autocomplete
+- **Preemptive Scheduler** - Multi-process management with time-slicing
+- **SMP Core Balancing** - Handshake-based AP initialization and global task distribution
 - Integrated Nova Interpreter
 
 ### Roadmap
@@ -179,14 +187,18 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Copy (0x10k to 1MB) �
 - [x] Native script management (install, uninstall)
 - [x] File Management improvements (LFN create/read/delete)
 - [x] PCI Bus Enumeration
+- [x] **Preemptive Multitasking** (v0.23)
+- [x] **SMP Support** (4 cores tested, v0.23)
+- [x] **Process Management** (kill, exit, return stubs)
+- [x] **Paging & Virtual Memory Management** (Basic implementation)
+- [x] **User Mode (Ring 3)** (Experimental ELF loading)
+- [x] **GitHub CI/CD** (Automated build and build-test validation)
 
 #### Future improvements
-- [x] Heap Memory Allocator (kmalloc/kfree) - *Basic implementation done*
-- [ ] Paging & Virtual Memory Management
-- [ ] Multi-tasking (Kernel & User threads)
-- [ ] User Mode (Ring 3) & System Calls
+- [ ] Improved User Mode & Syscall API
 - [ ] PS/2 Mouse Support
 - [ ] Simple Sound Driver (PC Speaker)
+- [ ] Network Stack (Initial research)
 
 ### Author
 
