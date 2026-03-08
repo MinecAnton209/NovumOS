@@ -214,12 +214,13 @@ export fn handle_syscall_zig(regs: *Registers) void {
             const vaddr = regs.ebx;
             const size = regs.ecx;
             const kernel_end = @intFromPtr(&memory.ebss_sym);
-            // Validate virtual address range
-            if (vaddr < kernel_end or size == 0 or size > 64 * 1024 * 1024) {
-                logger.security("Invalid MemoryMapRange request");
+            const res_end = @addWithOverflow(vaddr, size);
+            // Validate virtual address range and check for overflow
+            if (res_end[1] != 0 or vaddr < kernel_end or size == 0 or size > 64 * 1024 * 1024) {
+                logger.security("Invalid MemoryMapRange request (bad range or overflow)");
             } else {
                 var addr = vaddr & 0xFFFFF000;
-                const end = vaddr + size;
+                const end = res_end[0];
                 while (addr < end) : (addr += memory.PAGE_SIZE) {
                     const pd_idx = addr >> 22;
                     const pt_idx = (addr >> 12) & 0x3FF;
