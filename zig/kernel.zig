@@ -52,24 +52,66 @@ const scheduler = @import("scheduler.zig");
 
 // --- Kernel Entry Point ---
 export fn kmain() void {
-    // 1. Initialize PMM & Heap
+    // 1. Initialize Memory first so we can use paging, heap and LFB mapping
     memory.pmm.init();
     memory.heap.init();
     memory.init_paging();
 
-    // 2. Initialize timer and interrupt controllers
-    // Initialize file system
-    shell_cmds.zig_init();
-
-    // Initialize system timer
+    // 2. Initialize timer early so we can do small delays for animation
     timer.init();
 
-    // Initialize ACPI (for proper shutdown)
-    _ = acpi.init();
-
-    // Initialize LFB and VGA dimensions
+    // 3. Initialize display so we can show boot progress
     lfb.init();
     vga.init_dimensions();
+    vga.clear_screen();
+
+    vga.set_color(11, 0); // Light Cyan
+    common.printZ("\nInitializing NovumOS Kernel...\n\n");
+
+    // Step 1: Memory (Actually done earlier, just show progress)
+    vga.set_color(15, 0);
+    common.printZ("Warming up PMM:  ");
+    vga.vga_flush();
+
+    vga.set_color(10, 0);
+    common.printZ("OK\n");
+
+    // Step 2: Drivers
+    vga.set_color(15, 0);
+    common.printZ("Loading drivers:");
+    vga.vga_flush();
+
+    // Actual drivers init
+    _ = acpi.init();
+    const spinner = [_]u8{ '|', '/', '-', '\\' };
+    var i: usize = 0;
+    while (i < 8) : (i += 1) {
+        common.set_cursor(2, 17);
+        common.print_char(spinner[i % 4]);
+        vga.vga_flush();
+    }
+    common.set_cursor(2, 17);
+    vga.set_color(10, 0);
+    common.printZ("OK\n");
+
+    // Step 3: File System
+    vga.set_color(15, 0);
+    common.printZ("Mounting disks:  [                    ]");
+    vga.vga_flush();
+
+    // Actual FS init
+    shell_cmds.zig_init();
+    var p: u8 = 0;
+    while (p < 20) : (p += 1) {
+        common.set_cursor(3, 18 + p);
+        vga.set_color(14, 0);
+        common.print_char('#');
+        vga.vga_flush();
+    }
+    vga.set_color(10, 0);
+    common.set_cursor(3, 40);
+    common.printZ("OK\n");
+
     vga.clear_screen();
 
     // Print welcome banner in LFB
