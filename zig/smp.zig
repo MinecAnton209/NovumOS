@@ -215,24 +215,29 @@ fn steal_task(my_idx: u32) ?Task {
         if (i == my_idx) continue;
         const target = &cores[i];
 
+        // Optimistic lock-free pre-check: avoid spinning on the bus when
+        // the target queue is clearly empty.  .monotonic is enough here
+        // because the authoritative re-check happens *inside* the lock.
+        const count = @atomicLoad(u32, &target.task_count, .monotonic);
+        if (count == 0) continue;
+
+        spin_lock(&target.lock);
+        // Re-check after acquiring the lock (the queue may have drained
+        // between the optimistic read and the lock acquisition).
         if (target.task_count > 0) {
-            spin_lock(&target.lock);
-            // Re-check after locking
-            if (target.task_count > 0) {
-                // Steal from the end of the queue
-                var j: usize = 31;
-                while (true) : (j -= 1) {
-                    if (target.tasks[j]) |t| {
-                        target.tasks[j] = null;
-                        target.task_count -= 1;
-                        spin_unlock(&target.lock);
-                        return t;
-                    }
-                    if (j == 0) break;
+            // Steal from the end of the queue (LIFO on victim, FIFO on self)
+            var j: usize = 31;
+            while (true) : (j -= 1) {
+                if (target.tasks[j]) |t| {
+                    target.tasks[j] = null;
+                    target.task_count -= 1;
+                    spin_unlock(&target.lock);
+                    return t;
                 }
+                if (j == 0) break;
             }
-            spin_unlock(&target.lock);
         }
+        spin_unlock(&target.lock);
     }
     return null;
 }
@@ -435,6 +440,15 @@ pub fn init() void {
             continue;
         }
 
+        // Guard: ap_stacks has room for 15 APs (indices 0..14); slot 0 of
+        // `cores` is always the BSP, so AP core indices are 1..15.
+        // If the MADT reports more processors than we support, skip the extras
+        // instead of indexing out of bounds into ap_stacks.
+        if (ap_count >= ap_stacks.len) {
+            logger.warn("SMP: More cores in MADT than ap_stacks capacity — skipping");
+            break;
+        }
+
         const stack_top = @intFromPtr(&ap_stacks[ap_count]) + 8192;
         mailbox_stack.* = stack_top;
         mailbox_id.* = ap_count + 1; // BSP is 0
@@ -442,7 +456,7 @@ pub fn init() void {
 
         const last_flag = flag_ptr.*;
 
-        logger.info("Booting secondary core...");
+        logger.info("SMP: Booting secondary core...");
 
         lapic[0x310 / 4] = @as(u32, id) << 24;
         lapic[0x300 / 4] = 0x00004608;
