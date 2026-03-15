@@ -1,6 +1,6 @@
-[submodule "lib/linenoise"]
-	path = lib/linenoise
-	url = https://github.com/antirez/linenoise
 [submodule "lib/fatfs"]
 	path = lib/fatfs
 	url = https://github.com/abbrev/fatfs
+[submodule "lib/linenoise"]
+	path = lib/linenoise
+	url = https://github.com/patrislav1/linenoise-baremetal

@@ -48,6 +48,14 @@ pub fn build(b: *std.Build) void {
 
     b.default_step.dependOn(&install_kernel.step);
 
+    // --- linenoise (C) ---
+    const linenoise_path = "../lib/linenoise";
+    kernel_mod.addCSourceFile(.{
+        .file = b.path(linenoise_path ++ "/linenoise.c"),
+        .flags = &[_][]const u8{"-Wno-unused-function"},
+    });
+    kernel_mod.addIncludePath(b.path(linenoise_path));
+
     // --- Developer Commands ---
 
     // 1. Run the OS without disk

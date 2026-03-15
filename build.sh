@@ -30,7 +30,7 @@ nasm -f elf32 user_mode.asm -o build/user_mode.o
 
 # Link kernel with Zig modules
 echo "Linking..."
-zig ld.lld -m elf_i386 -T linker.ld --strip-all -o build/kernel32.elf build/kernel32.o build/user_mode.o zig/build/kernel.o
+zig ld.lld -m elf_i386 -T linker.ld --strip-all -o build/kernel32.elf build/kernel32.o build/user_mode.o zig/build/kernel.o --allow-multiple-definition
 
 # Extract flat binary from ELF
 echo "Extracting binary..."
