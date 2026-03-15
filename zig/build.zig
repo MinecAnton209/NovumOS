@@ -56,6 +56,19 @@ pub fn build(b: *std.Build) void {
     });
     kernel_mod.addIncludePath(b.path(linenoise_path));
 
+    // --- FatFS (C) ---
+    const fatfs_path = "../lib/fatfs/source";
+    kernel_mod.addCSourceFile(.{
+        .file = b.path(fatfs_path ++ "/ff.c"),
+        .flags = &[_][]const u8{"-Wno-unused-function"},
+    });
+    kernel_mod.addCSourceFile(.{
+        .file = b.path("drivers/diskio.c"),
+        .flags = &[_][]const u8{},
+    });
+    kernel_mod.addIncludePath(b.path(fatfs_path));
+    kernel_mod.addIncludePath(b.path("."));
+
     // --- Developer Commands ---
 
     // 1. Run the OS without disk

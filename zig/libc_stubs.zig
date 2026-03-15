@@ -1,6 +1,7 @@
 // Minimal libc stubs for freestanding kernel environment
 
 const serial = @import("drivers/serial.zig");
+const ata = @import("drivers/ata.zig");
 
 pub export fn memcpy(dest: [*]u8, src: [*]const u8, n: usize) [*]u8 {
     var d = dest;
@@ -52,4 +53,16 @@ pub export fn linenoise_getch() i32 {
         return @as(i32, serial.serial_getchar());
     }
     return -1;
+}
+
+pub export fn ata_read_sector(drive: u8, lba: u32, buffer: [*]u8) void {
+    ata.read_sector(@as(ata.Drive, @enumFromInt(drive)), lba, buffer);
+}
+
+pub export fn ata_write_sector(drive: u8, lba: u32, data: [*]const u8) void {
+    ata.write_sector(@as(ata.Drive, @enumFromInt(drive)), lba, data);
+}
+
+pub export fn get_fattime() u32 {
+    return 0;
 }
