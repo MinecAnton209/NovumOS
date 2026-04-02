@@ -17,6 +17,7 @@ const smp = @import("smp.zig");
 const libc_stubs = @import("libc_stubs.zig");
 const logger = @import("logger.zig");
 const user = @import("user.zig");
+const idt_watchdog = @import("idt_watchdog.zig");
 
 // Ensure all modules are included in the compilation
 comptime {
@@ -128,6 +129,9 @@ export fn kmain() void {
 
     // Initialize Dumb SMP (Kick Core 1)
     smp.init();
+
+    // Save IDT snapshot for watchdog (after all IDT setup is complete)
+    idt_watchdog.save_snapshot();
 
     // Jump to Shell in Ring 3 (User Mode)
     user.jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true);

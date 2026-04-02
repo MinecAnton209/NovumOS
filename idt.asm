@@ -15,6 +15,7 @@ extern isr_timer
 extern handle_exception
 extern handle_double_fault
 extern handle_syscall_zig
+extern idt_watchdog_save_snapshot
 
 section .data
 align 16

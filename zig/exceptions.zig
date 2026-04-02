@@ -206,7 +206,7 @@ pub fn crash_invalid_op() void {
 
 pub fn crash_stack_overflow() void {
     // Prevent tail-call optimization with dummy assembly
-    asm volatile ("" ::: "memory");
+    asm volatile ("" ::: .{ .memory = true });
     var buf: [1024]u8 = undefined;
     // Access buffer to ensure it's not optimized away
     @as(*volatile u8, @ptrCast(&buf[0])).* = 0;
@@ -507,6 +507,14 @@ fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]cons
         }
 
         draw_lfb.str(lrow, 0, "SYSTEM HALTED. Press ENTER to reboot.", COL_WHITE);
+
+        // Flush LFB to screen
+        lfb.dirty = true;
+        lfb.dirty_min_x = 0;
+        lfb.dirty_min_y = 0;
+        lfb.dirty_max_x = lfb.width - 1;
+        lfb.dirty_max_y = lfb.height - 1;
+        lfb.swap_buffers();
     } else {
         // VGA text fallback
         print_at(row, 2, "EAX: ", bg_red);
@@ -713,7 +721,7 @@ fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]cons
 }
 
 fn io_delay() void {
-    asm volatile ("outb %%al, $0x80" ::: "al");
+    asm volatile ("outb %%al, $0x80" ::: .{ .al = true });
 }
 
 fn reboot() noreturn {

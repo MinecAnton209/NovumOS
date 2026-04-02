@@ -15,6 +15,7 @@ const nova_commands = @import("nova/commands.zig");
 const top_cmd = @import("commands/top.zig");
 const lfb = @import("drivers/lfb.zig");
 const rtc = @import("drivers/rtc.zig");
+const idt_watchdog = @import("idt_watchdog.zig");
 
 // Embedded Nova Scripts
 const EmbeddedScript = struct {
@@ -45,6 +46,15 @@ fn cmd_handler_kill(args: []const u8) void {
 fn cmd_handler_ps(args: []const u8) void {
     _ = args;
     shell_cmds.cmd_ps();
+}
+
+fn cmd_handler_idt_check(args: []const u8) void {
+    _ = args;
+    idt_watchdog.cmd_idt_check();
+}
+
+fn cmd_handler_idt_modify(args: []const u8) void {
+    idt_watchdog.cmd_idt_modify(args);
 }
 
 const SHELL_COMMANDS = [_]Command{
@@ -107,9 +117,12 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "stack_overflow", .help = "Trigger a Double Fault via stack overflow", .handler = cmd_handler_stack_overflow },
     .{ .name = "page_fault", .help = "Trigger a Page Fault exception", .handler = cmd_handler_page_fault },
     .{ .name = "gpf", .help = "Trigger a General Protection Fault", .handler = cmd_handler_gpf },
+} else [_]Command{}) ++ (if (config.ENABLE_IDT_WATCHDOG) [_]Command{
+    .{ .name = "idt-check", .help = "Verify IDT integrity against saved snapshot", .handler = cmd_handler_idt_check },
 } else [_]Command{}) ++ (if (config.ENABLE_DEBUG_COMMANDS) [_]Command{
     .{ .name = "smp-test", .help = "Test global task queue across cores", .handler = cmd_handler_smp_test },
     .{ .name = "stress-test", .help = "Run heavy math on AP cores while BSP stays free", .handler = cmd_handler_stress_test },
+    .{ .name = "idt-modify", .help = "Test IDT modification (for watchdog testing)", .handler = cmd_handler_idt_modify },
 } else [_]Command{});
 
 // Local command buffer
