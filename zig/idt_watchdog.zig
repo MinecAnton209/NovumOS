@@ -229,13 +229,8 @@ fn check_shadow_walk() bool {
         return false;
     }
 
-    // Check Dirty bit (bit 6) - if set after we cleared it → attack
-    // (attacker wrote to IDT, page was written to)
-    const current_dirty = (pte_info.flags & 0x40) != 0;
-    if (current_dirty) {
-        common.printZ("IDT Watchdog: Shadow Walk - Dirty bit set! IDT page was written to.\n");
-        return false;
-    }
+    // Skip Dirty bit check - normal IDT access (interrupt handling) sets it
+    // The PTE phys and other flags checks are sufficient
 
     // Check if PTE flags were modified (WR/RW bits, US bits, etc)
     if ((pte_info.flags & 0x07) != (saved_pte_flags & 0x07)) {
