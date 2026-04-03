@@ -37,6 +37,7 @@ var snapshot_corrupted: bool = false;
 
 var siphash_key: [16]u8 align(16) = undefined;
 var key_initialized: bool = false;
+var saved_idtr_base: u32 = 0;
 
 // This section will be made read-only after initialization
 var snapshot_mac_ro: [16]u8 align(16) = undefined;
@@ -171,6 +172,9 @@ pub fn save_snapshot() void {
 
     generate_key();
 
+    // Save IDTR base for verification
+    saved_idtr_base = get_current_idtr();
+
     const idt_base = @intFromPtr(&idt_start);
 
     if (!is_memory_present(idt_base)) {
@@ -196,11 +200,28 @@ pub fn check_idt_safe() bool {
     return check_idt_internal();
 }
 
+fn get_current_idtr() u32 {
+    var idtr: [6]u8 = undefined;
+    asm volatile ("sidt %[mem]"
+        : [mem] "=m" (idtr),
+    );
+    const base = @as(u32, idtr[2]) | (@as(u32, idtr[3]) << 8) | (@as(u32, idtr[4]) << 16) | (@as(u32, idtr[5]) << 24);
+    return base;
+}
+
 fn check_idt_internal() bool {
     if (!config.ENABLE_IDT_WATCHDOG) return true;
 
     if (snapshot_corrupted) {
         return false;
+    }
+
+    // Verify IDTR hasn't been moved (only if snapshot was saved)
+    if (snapshot_saved) {
+        const current_idtr = get_current_idtr();
+        if (current_idtr != saved_idtr_base) {
+            return false;
+        }
     }
 
     if (!snapshot_valid) return true;
@@ -340,4 +361,31 @@ pub fn cmd_idt_modify(args: []const u8) void {
         common.printZ(&hex_buf);
         common.printZ("\n  WARNING: Will trigger panic in ~10 seconds!\n");
     }
+}
+
+pub fn cmd_idt_move(args: []const u8) void {
+    _ = args;
+    if (!config.ENABLE_DEBUG_COMMANDS) {
+        common.printZ("Debug commands disabled (set ENABLE_DEBUG_COMMANDS = true in config.zig)\n");
+        return;
+    }
+
+    if (!config.ENABLE_IDT_WATCHDOG) {
+        common.printZ("IDT Watchdog is disabled (set ENABLE_IDT_WATCHDOG = true in config.zig)\n");
+        return;
+    }
+
+    common.printZ("IDT Move Test (LIDT relocation):\n");
+    common.printZ("  Current IDTR base: 0x");
+    const current_idtr = get_current_idtr();
+    var hex_buf: [8]u8 = undefined;
+    var j: i8 = 7;
+    const v = current_idtr;
+    while (j >= 0) : (j -= 1) {
+        const nibble = @as(u8, @intCast((v >> @as(u5, @intCast(j * 4))) & 0xF));
+        hex_buf[@as(usize, 7 - @as(usize, @intCast(j)))] = if (nibble < 10) '0' + nibble else 'A' + nibble - 10;
+    }
+    common.printZ(&hex_buf);
+    common.printZ("\n  NOTE: This would move IDT to new location\n");
+    common.printZ("  Watchdog detects IDTR change and triggers panic!\n");
 }

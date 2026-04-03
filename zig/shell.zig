@@ -57,6 +57,10 @@ fn cmd_handler_idt_modify(args: []const u8) void {
     idt_watchdog.cmd_idt_modify(args);
 }
 
+fn cmd_handler_idt_move(args: []const u8) void {
+    idt_watchdog.cmd_idt_move(args);
+}
+
 const SHELL_COMMANDS = [_]Command{
     .{ .name = "help", .help = "Show this help message (Tip: help 2)", .handler = cmd_handler_help },
     .{ .name = "?", .help = "Alias for help", .handler = cmd_handler_help },
@@ -117,12 +121,12 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "stack_overflow", .help = "Trigger a Double Fault via stack overflow", .handler = cmd_handler_stack_overflow },
     .{ .name = "page_fault", .help = "Trigger a Page Fault exception", .handler = cmd_handler_page_fault },
     .{ .name = "gpf", .help = "Trigger a General Protection Fault", .handler = cmd_handler_gpf },
-} else [_]Command{}) ++ (if (config.ENABLE_IDT_WATCHDOG) [_]Command{
-    .{ .name = "idt-check", .help = "Verify IDT integrity against saved snapshot", .handler = cmd_handler_idt_check },
 } else [_]Command{}) ++ (if (config.ENABLE_DEBUG_COMMANDS) [_]Command{
     .{ .name = "smp-test", .help = "Test global task queue across cores", .handler = cmd_handler_smp_test },
     .{ .name = "stress-test", .help = "Run heavy math on AP cores while BSP stays free", .handler = cmd_handler_stress_test },
+    .{ .name = "idt-check", .help = "Verify IDT integrity against saved snapshot", .handler = cmd_handler_idt_check },
     .{ .name = "idt-modify", .help = "Test IDT modification (for watchdog testing)", .handler = cmd_handler_idt_modify },
+    .{ .name = "idt-move", .help = "Test IDTR relocation (detected by watchdog)", .handler = cmd_handler_idt_move },
 } else [_]Command{});
 
 // Local command buffer
