@@ -191,6 +191,29 @@ fn get_pte_for_addr(vaddr: usize) struct { phys: u32, flags: u32 } {
     };
 }
 
+fn clear_dirty_bit_for_idt() void {
+    const idt_vaddr = @intFromPtr(&idt_start);
+
+    var cr3: u32 = undefined;
+    asm volatile ("mov %%cr3, %[cr3]"
+        : [cr3] "=r" (cr3),
+    );
+    const pd_base = cr3 & 0xFFFFF000;
+    const pd_idx = (idt_vaddr >> 22) & 0x3FF;
+    const pt_idx = (idt_vaddr >> 12) & 0x3FF;
+
+    const pd_addr = @as(usize, pd_base) + pd_idx * 4;
+    const pd_entry = @as(*const u32, @ptrFromInt(pd_addr)).*;
+    if ((pd_entry & 1) == 0) return;
+
+    const pt_base = pd_entry & 0xFFFFF000;
+    const pt_addr = @as(usize, pt_base) + pt_idx * 4;
+
+    var pte = @as(*volatile u32, @ptrFromInt(pt_addr)).*;
+    pte = pte & @as(u32, 0xFFFFFFBF);
+    @as(*volatile u32, @ptrFromInt(pt_addr)).* = pte;
+}
+
 fn check_shadow_walk() bool {
     const idt_vaddr = @intFromPtr(&idt_start);
 
@@ -206,11 +229,11 @@ fn check_shadow_walk() bool {
         return false;
     }
 
-    // Check Dirty bit (bit 6) - if wasn't set at snapshot but now set → attack
-    // (attacker wrote to IDT, restored PTE to hide traces)
+    // Check Dirty bit (bit 6) - if set after we cleared it → attack
+    // (attacker wrote to IDT, page was written to)
     const current_dirty = (pte_info.flags & 0x40) != 0;
-    if (!saved_dirty_was_set and current_dirty) {
-        common.printZ("IDT Watchdog: Shadow Walk - Dirty bit appeared! Saved was clean.\n");
+    if (current_dirty) {
+        common.printZ("IDT Watchdog: Shadow Walk - Dirty bit set! IDT page was written to.\n");
         return false;
     }
 
@@ -269,6 +292,9 @@ pub fn save_snapshot() void {
     // Clear Dirty bit (bit 6) - it gets set on any write, save baseline without it
     saved_pte_flags = pte_info.flags & @as(u32, 0xFFFFFFBF);
     saved_dirty_was_set = (pte_info.flags & 0x40) != 0;
+
+    // Clear Dirty bit in PTE - page is now officially "clean"
+    clear_dirty_bit_for_idt();
 
     const idt_base = @intFromPtr(&idt_start);
 
