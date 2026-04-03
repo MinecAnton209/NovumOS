@@ -405,6 +405,23 @@ pub fn sleep(ms: usize) void {
     timer.sleep(ms);
 }
 
+pub fn idt_check() bool {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        var result: u32 = 0;
+        asm volatile ("int $0x80"
+            : [ret] "={eax}" (result),
+            : [sys] "{eax}" (@as(u32, 33)),
+        );
+        return result == 1;
+    }
+    const idt_watchdog = @import("../idt_watchdog.zig");
+    return idt_watchdog.check_idt();
+}
+
 var rnd_state: u32 = 0xACE1;
 pub fn seed_random_with_tsc() void {
     var low: u32 = undefined;

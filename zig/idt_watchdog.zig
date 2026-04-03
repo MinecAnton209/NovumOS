@@ -234,16 +234,19 @@ pub fn save_snapshot() void {
 
 pub fn check_idt() bool {
     if (!config.ENABLE_IDT_WATCHDOG) return true;
+    return check_idt_internal();
+}
 
-    if (is_kernel_mode() and check_wp_bit()) {
+pub fn check_idt_safe() bool {
+    return check_idt_internal();
+}
+
+fn check_idt_internal() bool {
+    if (!config.ENABLE_IDT_WATCHDOG) return true;
+
+    if (snapshot_corrupted) {
         return false;
     }
-
-    if (!verify_watchdog_data()) {
-        return false;
-    }
-
-    if (snapshot_corrupted) return false;
 
     if (!snapshot_valid) return true;
 
@@ -294,7 +297,7 @@ pub export fn idt_watchdog_save_snapshot() void {
 }
 
 pub export fn idt_watchdog_check() bool {
-    return check_idt();
+    return check_idt_safe();
 }
 
 pub fn cmd_idt_check() void {
@@ -316,13 +319,8 @@ pub fn cmd_idt_check() void {
         return;
     }
 
-    if (check_wp_bit()) {
-        common.printError("  Status: FAILED\n");
-        common.printError("  Result: CR0.WP bit was modified!\n");
-        return;
-    }
-
-    if (check_idt()) {
+    const result = common.idt_check();
+    if (result) {
         common.printZ("  Status: OK\n");
         common.printZ("  Result: IDT matches saved snapshot\n");
     } else {

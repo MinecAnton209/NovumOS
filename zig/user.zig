@@ -234,7 +234,7 @@ export fn handle_syscall_zig(regs: *Registers) void {
                                 asm volatile ("invlpg (%[v])"
                                     :
                                     : [v] "r" (addr),
-                                    : "memory");
+                                    : .{ .memory = true });
                             }
                         }
                     } else {
@@ -321,6 +321,10 @@ export fn handle_syscall_zig(regs: *Registers) void {
         32 => { // CheckCtrlC() -> EAX (1/0)
             regs.eax = if (keyboard.check_ctrl_c_kernel()) 1 else 0;
         },
+        33 => { // SYS_IDT_CHECK -> EAX (1=OK, 0=modified/failed)
+            const idt_watchdog = @import("idt_watchdog.zig");
+            regs.eax = if (idt_watchdog.check_idt()) @as(u32, 1) else @as(u32, 0);
+        },
         else => {
             logger.err("Unknown syscall");
             logger.debug(common.intToString(@intCast(regs.eax), &buf));
@@ -342,7 +346,7 @@ pub fn user_malloc(size: usize) ?[*]u8 {
         : [ret] "={eax}" (res),
         : [sys] "{eax}" (@as(u32, 30)),
           [arg1] "{ebx}" (size),
-        : "memory");
+        : .{ .memory = true });
     if (res == 0) return null;
     return @ptrFromInt(res);
 }
@@ -363,7 +367,7 @@ pub fn user_free(ptr: ?[*]u8) void {
         :
         : [sys] "{eax}" (@as(u32, 31)),
           [arg1] "{ebx}" (@intFromPtr(p)),
-        : "memory");
+        : .{ .memory = true });
 }
 
 // Link to the assembly implementation
