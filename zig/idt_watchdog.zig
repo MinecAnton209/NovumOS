@@ -54,6 +54,9 @@ fn protect_watchdog_data() void {
     if (watchdog_protected or !config.ENABLE_IDT_WATCHDOG) return;
     watchdog_protected = true;
 
+    // Make IDT page read-only to prevent modifications
+    make_page_readonly(@intFromPtr(&idt_start));
+
     var hash: u32 = 0xCAFEBABE;
     for (idt_snapshot) |b| {
         hash = hash *% 31 +% b;
@@ -65,6 +68,19 @@ fn protect_watchdog_data() void {
         hash = hash *% 41 +% b;
     }
     watchdog_data_hash = hash;
+}
+
+fn make_page_readonly(vaddr: usize) void {
+    _ = vaddr;
+    var cr0: u32 = undefined;
+    asm volatile ("mov %%cr0, %[cr0]"
+        : [cr0] "=r" (cr0),
+    );
+    cr0 |= 0x10000;
+    asm volatile ("mov %[cr0], %%cr0"
+        :
+        : [cr0] "r" (cr0),
+        : .{ .memory = true });
 }
 
 fn generate_key() void {
