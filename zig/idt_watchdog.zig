@@ -306,9 +306,15 @@ fn check_idt_internal() bool {
         return false;
     }
 
-    // Simple MAC-only verification for now
+    // Read CURRENT IDT from memory, not the saved snapshot
     if (snapshot_valid) {
-        const computed_mac = compute_mac(&idt_snapshot);
+        const idt_base = @intFromPtr(&idt_start);
+        if (!is_memory_present(idt_base)) return false;
+
+        const current_idt = @as([*]u8, @ptrFromInt(idt_base));
+
+        // Compute MAC on CURRENT IDT in memory
+        const computed_mac = compute_mac(current_idt[0 .. 256 * 8]);
 
         for (0..16) |i| {
             if (computed_mac[i] != snapshot_mac_ro[i]) {
