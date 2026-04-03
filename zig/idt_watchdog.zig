@@ -276,6 +276,10 @@ pub export fn idt_watchdog_check() bool {
     return check_idt();
 }
 
+pub fn get_idt_base() usize {
+    return @intFromPtr(&idt_start);
+}
+
 pub fn cmd_idt_check() void {
     if (!config.ENABLE_IDT_WATCHDOG) {
         common.printZ("IDT Watchdog is disabled (set ENABLE_IDT_WATCHDOG = true in config.zig)\n");

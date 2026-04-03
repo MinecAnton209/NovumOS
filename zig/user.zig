@@ -330,18 +330,17 @@ export fn handle_syscall_zig(regs: *Registers) void {
             const idt_watchdog = @import("idt_watchdog.zig");
             regs.eax = if (idt_watchdog.check_idt()) @as(u32, 1) else @as(u32, 0);
         },
-        34 => { // SYS_IDT_MOVE (debug) -> move IDTR to test watchdog
+        34 => { // SYS_IDT_MOVE (debug) -> test watchdog detection
             if (!config.ENABLE_DEBUG_COMMANDS) {
                 regs.eax = 0;
                 return;
             }
-            // Load a fake IDT descriptor - this will break IDT
-            // For testing only - will cause panic when watchdog checks
-            const fake_idt = [6]u8{ 0xFF, 0xFF, 0, 0, 0, 0 };
-            asm volatile ("lidt %[mem]"
-                :
-                : [mem] "m" (fake_idt),
-            );
+            // Instead of moving IDTR (causes immediate crash),
+            // just modify one byte in IDT - watchdog will detect on next check
+            const idt_watchdog = @import("idt_watchdog.zig");
+            const idt_base = idt_watchdog.get_idt_base();
+            const idt_ptr = @as([*]u8, @ptrFromInt(idt_base));
+            idt_ptr[0x90 * 8] = 0xCC; // Modify unused vector
             regs.eax = 1;
         },
         else => {
