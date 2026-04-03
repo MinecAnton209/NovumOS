@@ -303,26 +303,41 @@ fn check_idt_internal() bool {
     if (!config.ENABLE_IDT_WATCHDOG) return true;
 
     if (snapshot_corrupted) {
+        common.printZ("IDT Watchdog: Snapshot corrupted!\n");
         return false;
     }
 
     if (snapshot_valid) {
         const current_cr3 = get_current_cr3();
         if (current_cr3 != saved_cr3_base) {
+            common.printZ("IDT Watchdog: CR3 mismatch! Expected: 0x");
+            common.printHex(saved_cr3_base);
+            common.printZ(" Got: 0x");
+            common.printHex(current_cr3);
+            common.printZ("\n");
             return false;
         }
 
         const current_idtr = get_current_idtr();
         if (current_idtr != saved_idtr_base) {
+            common.printZ("IDT Watchdog: IDTR mismatch! Expected: 0x");
+            common.printHex(saved_idtr_base);
+            common.printZ(" Got: 0x");
+            common.printHex(current_idtr);
+            common.printZ("\n");
             return false;
         }
 
         if (!check_shadow_walk()) {
+            common.printZ("IDT Watchdog: Shadow Walk check failed!\n");
             return false;
         }
 
         const idt_base = @intFromPtr(&idt_start);
-        if (!is_memory_present(idt_base)) return false;
+        if (!is_memory_present(idt_base)) {
+            common.printZ("IDT Watchdog: IDT memory not present!\n");
+            return false;
+        }
 
         const current_idt = @as([*]u8, @ptrFromInt(idt_base));
 
@@ -330,6 +345,13 @@ fn check_idt_internal() bool {
 
         for (0..16) |i| {
             if (computed_mac[i] != snapshot_mac_ro[i]) {
+                common.printZ("IDT Watchdog: MAC mismatch at byte ");
+                common.printNum(@as(i32, @intCast(i)));
+                common.printZ("! Expected: 0x");
+                common.printHex(snapshot_mac_ro[i]);
+                common.printZ(" Got: 0x");
+                common.printHex(computed_mac[i]);
+                common.printZ("\n");
                 return false;
             }
         }
