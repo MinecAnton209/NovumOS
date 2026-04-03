@@ -233,6 +233,7 @@ fn check_shadow_walk() bool {
     // The PTE phys and other flags checks are sufficient
 
     // Check if PTE flags were modified (WR/RW bits, US bits, etc)
+    // Only check bits 0-2 (Present, R/W, U/S) - ignore cache-related bits
     if ((pte_info.flags & 0x07) != (saved_pte_flags & 0x07)) {
         common.printZ("IDT Watchdog: Shadow Walk - PTE flags changed! Saved: 0x");
         common.printHex(saved_pte_flags);
