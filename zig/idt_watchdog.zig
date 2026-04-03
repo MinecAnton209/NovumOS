@@ -37,7 +37,12 @@ var snapshot_corrupted: bool = false;
 
 var siphash_key: [16]u8 align(16) = undefined;
 var key_initialized: bool = false;
+
+// Verification state (obfuscated names)
 var saved_idtr_base: u32 = 0;
+var saved_pte_phys: u32 = 0;
+var saved_pte_flags: u32 = 0;
+var saved_cr3_base: u32 = 0;
 
 // This section will be made read-only after initialization
 var snapshot_mac_ro: [16]u8 align(16) = undefined;
@@ -142,6 +147,73 @@ fn is_memory_present(addr: usize) bool {
     return memory.is_ptr_present(@intCast(addr));
 }
 
+fn get_pte_for_addr(vaddr: usize) struct { phys: u32, flags: u32 } {
+    // Get CR3 - page directory base
+    var cr3: u32 = undefined;
+    asm volatile ("mov %%cr3, %[cr3]"
+        : [cr3] "=r" (cr3),
+    );
+
+    // Clear lower 12 bits to get page directory base
+    const pd_base = cr3 & 0xFFFFF000;
+
+    // Page directory index (bits 22-31 of virtual address)
+    const pd_idx = (vaddr >> 22) & 0x3FF;
+    // Page table index (bits 12-21 of virtual address)
+    const pt_idx = (vaddr >> 12) & 0x3FF;
+
+    // Read PDE (4 bytes)
+    const pd_addr = @as(usize, pd_base) + pd_idx * 4;
+    const pd_entry = @as(*const u32, @ptrFromInt(pd_addr)).*;
+
+    // Check if page table is present
+    if ((pd_entry & 1) == 0) {
+        return .{ .phys = 0, .flags = 0 };
+    }
+
+    // Get page table base address
+    const pt_base = pd_entry & 0xFFFFF000;
+
+    // Read PTE (4 bytes)
+    const pt_addr = @as(usize, pt_base) + pt_idx * 4;
+    const pte = @as(*const u32, @ptrFromInt(pt_addr)).*;
+
+    // Check if page is present
+    if ((pte & 1) == 0) {
+        return .{ .phys = 0, .flags = 0 };
+    }
+
+    // Return physical address (bits 12-31) and flags (bits 0-11)
+    return .{
+        .phys = @truncate(pte >> 12),
+        .flags = pte & 0xFFF,
+    };
+}
+
+fn check_shadow_walk() bool {
+    const idt_vaddr = @intFromPtr(&idt_start);
+
+    const pte_info = get_pte_for_addr(idt_vaddr);
+
+    // Check physical address changed (page remapping attack)
+    if (pte_info.phys == 0 or pte_info.phys != saved_pte_phys) {
+        return false;
+    }
+
+    // Check Dirty bit (bit 6) - if set, someone wrote to this page
+    // This catches attackers who modify IDT then restore PTE
+    if ((pte_info.flags & 0x40) != 0) {
+        return false;
+    }
+
+    // Check if PTE flags were modified (WR/RW bits, US bits, etc)
+    if ((pte_info.flags & 0x07) != (saved_pte_flags & 0x07)) {
+        return false;
+    }
+
+    return true;
+}
+
 const KERNEL_CODE_SELECTOR = 0x08;
 const INTERRUPT_GATE_TYPE = 0xE;
 const PRESENT_BIT = 0x80;
@@ -172,8 +244,16 @@ pub fn save_snapshot() void {
 
     generate_key();
 
+    // Save CR3 for page directory validation
+    saved_cr3_base = get_current_cr3();
+
     // Save IDTR base for verification
     saved_idtr_base = get_current_idtr();
+
+    // Save PTE physical address and flags for Shadow Walk detection
+    const pte_info = get_pte_for_addr(@intFromPtr(&idt_start));
+    saved_pte_phys = pte_info.phys;
+    saved_pte_flags = pte_info.flags;
 
     const idt_base = @intFromPtr(&idt_start);
 
@@ -209,6 +289,14 @@ fn get_current_idtr() u32 {
     return base;
 }
 
+fn get_current_cr3() u32 {
+    var cr3: u32 = undefined;
+    asm volatile ("mov %%cr3, %[cr3]"
+        : [cr3] "=r" (cr3),
+    );
+    return cr3 & 0xFFFFF000; // Mask off lower 12 bits (page alignment)
+}
+
 fn check_idt_internal() bool {
     if (!config.ENABLE_IDT_WATCHDOG) return true;
 
@@ -216,16 +304,29 @@ fn check_idt_internal() bool {
         return false;
     }
 
-    // Verify IDTR hasn't been moved (only if snapshot was saved)
+    // 4-layer verification chain
     if (snapshot_saved) {
+        // Layer 1: CR3 verification (page directory switch attack)
+        const current_cr3 = get_current_cr3();
+        if (current_cr3 != saved_cr3_base) {
+            return false;
+        }
+
+        // Layer 2: IDTR verification (LIDT relocation attack)
         const current_idtr = get_current_idtr();
         if (current_idtr != saved_idtr_base) {
+            return false;
+        }
+
+        // Layer 3: PTE verification (Shadow Walk attack)
+        if (!check_shadow_walk()) {
             return false;
         }
     }
 
     if (!snapshot_valid) return true;
 
+    // Layer 4: MAC verification (IDT content modification)
     const computed_mac = compute_mac(&idt_snapshot);
 
     var mac_match = true;
