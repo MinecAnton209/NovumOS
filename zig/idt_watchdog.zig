@@ -43,6 +43,7 @@ var saved_idtr_base: u32 = 0;
 var saved_pte_phys: u32 = 0;
 var saved_pte_flags: u32 = 0;
 var saved_cr3_base: u32 = 0;
+var saved_dirty_was_set: bool = false;
 
 // This section will be made read-only after initialization
 var snapshot_mac_ro: [16]u8 align(16) = undefined;
@@ -205,10 +206,14 @@ fn check_shadow_walk() bool {
         return false;
     }
 
-    // Check Dirty bit (bit 6) - if set, someone wrote to this page
-    // This catches attackers who modify IDT then restore PTE
-    // NOTE: Dirty bit is normal after IDT is used! Skip this check.
-    //
+    // Check Dirty bit (bit 6) - if wasn't set at snapshot but now set → attack
+    // (attacker wrote to IDT, restored PTE to hide traces)
+    const current_dirty = (pte_info.flags & 0x40) != 0;
+    if (!saved_dirty_was_set and current_dirty) {
+        common.printZ("IDT Watchdog: Shadow Walk - Dirty bit appeared! Saved was clean.\n");
+        return false;
+    }
+
     // Check if PTE flags were modified (WR/RW bits, US bits, etc)
     if ((pte_info.flags & 0x07) != (saved_pte_flags & 0x07)) {
         common.printZ("IDT Watchdog: Shadow Walk - PTE flags changed! Saved: 0x");
@@ -261,7 +266,9 @@ pub fn save_snapshot() void {
     // Save PTE physical address and flags for Shadow Walk detection
     const pte_info = get_pte_for_addr(@intFromPtr(&idt_start));
     saved_pte_phys = pte_info.phys;
-    saved_pte_flags = pte_info.flags;
+    // Clear Dirty bit (bit 6) - it gets set on any write, save baseline without it
+    saved_pte_flags = pte_info.flags & @as(u32, 0xFFFFFFBF);
+    saved_dirty_was_set = (pte_info.flags & 0x40) != 0;
 
     const idt_base = @intFromPtr(&idt_start);
 
