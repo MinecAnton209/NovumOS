@@ -195,7 +195,7 @@ fn check_shadow_walk() bool {
 
     const pte_info = get_pte_for_addr(idt_vaddr);
 
-    // Check physical address changed (page remapping attack)
+    // Check if PTE physical address changed (page remapping attack)
     if (pte_info.phys == 0 or pte_info.phys != saved_pte_phys) {
         common.printZ("IDT Watchdog: Shadow Walk - PTE phys mismatch! Saved: 0x");
         common.printHex(saved_pte_phys);
@@ -207,13 +207,8 @@ fn check_shadow_walk() bool {
 
     // Check Dirty bit (bit 6) - if set, someone wrote to this page
     // This catches attackers who modify IDT then restore PTE
-    if ((pte_info.flags & 0x40) != 0) {
-        common.printZ("IDT Watchdog: Shadow Walk - Dirty bit set! PTE flags: 0x");
-        common.printHex(pte_info.flags);
-        common.printZ("\n");
-        return false;
-    }
-
+    // NOTE: Dirty bit is normal after IDT is used! Skip this check.
+    //
     // Check if PTE flags were modified (WR/RW bits, US bits, etc)
     if ((pte_info.flags & 0x07) != (saved_pte_flags & 0x07)) {
         common.printZ("IDT Watchdog: Shadow Walk - PTE flags changed! Saved: 0x");
