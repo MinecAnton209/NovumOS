@@ -306,14 +306,26 @@ fn check_idt_internal() bool {
         return false;
     }
 
-    // Read CURRENT IDT from memory, not the saved snapshot
     if (snapshot_valid) {
+        const current_cr3 = get_current_cr3();
+        if (current_cr3 != saved_cr3_base) {
+            return false;
+        }
+
+        const current_idtr = get_current_idtr();
+        if (current_idtr != saved_idtr_base) {
+            return false;
+        }
+
+        if (!check_shadow_walk()) {
+            return false;
+        }
+
         const idt_base = @intFromPtr(&idt_start);
         if (!is_memory_present(idt_base)) return false;
 
         const current_idt = @as([*]u8, @ptrFromInt(idt_base));
 
-        // Compute MAC on CURRENT IDT in memory
         const computed_mac = compute_mac(current_idt[0 .. 256 * 8]);
 
         for (0..16) |i| {
