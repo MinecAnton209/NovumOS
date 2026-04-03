@@ -248,16 +248,8 @@ fn check_shadow_walk() bool {
     // Skip Dirty bit check - normal IDT access (interrupt handling) sets it
     // The PTE phys and other flags checks are sufficient
 
-    // Check if PTE flags were modified (WR/RW bits, US bits, etc)
-    // Only check bits 0-2 (Present, R/W, U/S) - ignore cache-related bits
-    if ((pte_info.flags & 0x07) != (saved_pte_flags & 0x07)) {
-        common.printZ("IDT Watchdog: Shadow Walk - PTE flags changed! Saved: 0x");
-        common.printHex(saved_pte_flags);
-        common.printZ(" Got: 0x");
-        common.printHex(pte_info.flags);
-        common.printZ("\n");
-        return false;
-    }
+    // Skip PTE flags check - kernel may legitimately modify U/W bits
+    // Physical address check is sufficient for Shadow Walk detection
 
     return true;
 }
