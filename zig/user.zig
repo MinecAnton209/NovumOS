@@ -8,6 +8,7 @@ const memory = @import("memory.zig");
 const logger = @import("logger.zig");
 const ata = @import("drivers/ata.zig");
 const rtc = @import("drivers/rtc.zig");
+const config = @import("config.zig");
 
 // External jump target to return to kernel shell
 extern fn kernel_loop() noreturn;
@@ -321,9 +322,27 @@ export fn handle_syscall_zig(regs: *Registers) void {
         32 => { // CheckCtrlC() -> EAX (1/0)
             regs.eax = if (keyboard.check_ctrl_c_kernel()) 1 else 0;
         },
-        33 => { // SYS_IDT_CHECK -> EAX (1=OK, 0=modified/failed)
+        33 => { // SYS_IDT_CHECK (debug) -> EAX (1=OK, 0=modified/failed)
+            if (!config.ENABLE_DEBUG_COMMANDS) {
+                regs.eax = 0;
+                return;
+            }
             const idt_watchdog = @import("idt_watchdog.zig");
             regs.eax = if (idt_watchdog.check_idt()) @as(u32, 1) else @as(u32, 0);
+        },
+        34 => { // SYS_IDT_MOVE (debug) -> move IDTR to test watchdog
+            if (!config.ENABLE_DEBUG_COMMANDS) {
+                regs.eax = 0;
+                return;
+            }
+            // Load a fake IDT descriptor - this will break IDT
+            // For testing only - will cause panic when watchdog checks
+            const fake_idt = [6]u8{ 0xFF, 0xFF, 0, 0, 0, 0 };
+            asm volatile ("lidt %[mem]"
+                :
+                : [mem] "m" (fake_idt),
+            );
+            regs.eax = 1;
         },
         else => {
             logger.err("Unknown syscall");

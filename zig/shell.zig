@@ -58,7 +58,8 @@ fn cmd_handler_idt_modify(args: []const u8) void {
 }
 
 fn cmd_handler_idt_move(args: []const u8) void {
-    idt_watchdog.cmd_idt_move(args);
+    _ = args;
+    common.idt_move();
 }
 
 const SHELL_COMMANDS = [_]Command{

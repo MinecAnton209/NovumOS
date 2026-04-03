@@ -2,6 +2,7 @@
 // Provides shared logic for printing, system control, and file system access.
 
 const fs = @import("../fs.zig");
+const config = @import("../config.zig");
 pub const vga = @import("../drivers/vga.zig");
 const timer = @import("../drivers/timer.zig");
 const acpi = @import("../drivers/acpi.zig");
@@ -420,6 +421,24 @@ pub fn idt_check() bool {
     }
     const idt_watchdog = @import("../idt_watchdog.zig");
     return idt_watchdog.check_idt();
+}
+
+pub fn idt_move() void {
+    if (!config.ENABLE_DEBUG_COMMANDS) return;
+
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        _ = asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 34)),
+        );
+        return;
+    }
+    const idt_watchdog = @import("../idt_watchdog.zig");
+    idt_watchdog.trigger_panic();
 }
 
 var rnd_state: u32 = 0xACE1;
