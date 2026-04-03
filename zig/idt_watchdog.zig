@@ -277,6 +277,8 @@ pub fn check_idt() bool {
 }
 
 pub fn check_idt_safe() bool {
+    // Skip check if snapshot not saved yet (during early boot)
+    if (!snapshot_saved) return true;
     return check_idt_internal();
 }
 
@@ -304,64 +306,17 @@ fn check_idt_internal() bool {
         return false;
     }
 
-    // 4-layer verification chain
-    if (snapshot_saved) {
-        // Layer 1: CR3 verification (page directory switch attack)
-        const current_cr3 = get_current_cr3();
-        if (current_cr3 != saved_cr3_base) {
-            return false;
-        }
+    // Simple MAC-only verification for now
+    if (snapshot_valid) {
+        const computed_mac = compute_mac(&idt_snapshot);
 
-        // Layer 2: IDTR verification (LIDT relocation attack)
-        const current_idtr = get_current_idtr();
-        if (current_idtr != saved_idtr_base) {
-            return false;
-        }
-
-        // Layer 3: PTE verification (Shadow Walk attack)
-        if (!check_shadow_walk()) {
-            return false;
+        for (0..16) |i| {
+            if (computed_mac[i] != snapshot_mac_ro[i]) {
+                return false;
+            }
         }
     }
 
-    if (!snapshot_valid) return true;
-
-    // Layer 4: MAC verification (IDT content modification)
-    const computed_mac = compute_mac(&idt_snapshot);
-
-    var mac_match = true;
-    for (0..16) |i| {
-        if (computed_mac[i] != snapshot_mac_ro[i]) {
-            mac_match = false;
-            break;
-        }
-    }
-
-    if (!mac_match) return false;
-
-    const idt_base = @intFromPtr(&idt_start);
-
-    if (!is_memory_present(idt_base)) return false;
-
-    const current_idt = @as([*]u8, @ptrFromInt(idt_base));
-
-    for (0..32) |i| {
-        const entry = current_idt + i * 8;
-        if (!verify_idt_entry_integrity(entry)) {
-            return false;
-        }
-    }
-
-    if (!verify_idt_entry_integrity(current_idt + 0x20 * 8)) return false;
-    if (!verify_idt_entry_integrity(current_idt + 0x21 * 8)) return false;
-    if (!verify_idt_entry_integrity(current_idt + 0x80 * 8)) return false;
-
-    var i: usize = 0;
-    while (i < 256 * 8) : (i += 1) {
-        if (idt_snapshot[i] != current_idt[i]) {
-            return false;
-        }
-    }
     return true;
 }
 

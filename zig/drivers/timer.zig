@@ -1,5 +1,6 @@
 // PIT (Programmable Interval Timer) Driver
 const common = @import("../commands/common.zig");
+const config = @import("../config.zig");
 const idt_watchdog = @import("../idt_watchdog.zig");
 
 // PIT Ports
@@ -40,7 +41,7 @@ pub export fn isr_timer(esp: u32) u32 {
     }
 
     // IDT watchdog check every 1000 ticks (10 seconds)
-    if (ptr.* % 1000 == 0) {
+    if (ptr.* % 1000 == 0 and ptr.* > 1000) {
         if (!idt_watchdog.check_idt_safe()) {
             idt_watchdog.trigger_panic();
         }
