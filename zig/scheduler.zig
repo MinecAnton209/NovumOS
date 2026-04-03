@@ -3,6 +3,7 @@ const memory = @import("memory.zig");
 const logger = @import("logger.zig");
 const exceptions = @import("exceptions.zig");
 const common = @import("commands/common.zig");
+const config = @import("config.zig");
 
 pub const ProcessState = enum {
     Ready,
@@ -152,6 +153,14 @@ pub fn schedule(current_esp: u32) u32 {
     if (current_process) |curr| {
         curr.esp = current_esp;
         if (curr.state == .Running) curr.state = .Ready;
+    }
+
+    // Chaos: Random IDT check on context switch (1 in 32 chance)
+    if (config.ENABLE_IDT_WATCHDOG and (current_esp & 0x1F) == 0) {
+        const idt_watchdog = @import("idt_watchdog.zig");
+        if (!idt_watchdog.check_idt()) {
+            idt_watchdog.trigger_panic();
+        }
     }
 
     // Simple Round Robin

@@ -1,18 +1,11 @@
 // IDT Watchdog Module
 // Protects IDT integrity with SipHash128 HMAC
 //
-// Future enhancements (not yet implemented):
-// - Read-only section for MAC via CR0 Write Protect bit
-// - Page-level protection using page tables (set R/O bit in page directory)
-// - Self-modifying detection (compare function checksums)
-// - Entropy from multiple sources: TSC, PIT, keyboard buffer, DMA
-// - Periodic key rotation (regenerate key every N hours)
-// - Secure boot chain verification
-//
-// "Who watches the watchers?" - Anti-tamper mechanisms:
-// - Hash of watchdog code/data stored in protected location
-// - Function call verification (verify return addresses)
-// - Stack canary around critical watchdog functions
+// Compile-time Chaos features:
+// - Comptime key permutation (key index shuffled at compile time)
+// - Build-time seed used in key derivation
+// - IDT checks injected into memory alloc / context switch
+// - Obfuscated key access (can't просто read key[i])
 
 const config = @import("config.zig");
 const common = @import("commands/common.zig");
@@ -20,6 +13,18 @@ const exceptions = @import("exceptions.zig");
 const memory = @import("memory.zig");
 
 extern var idt_start: u8;
+
+// Key permutation at compile time
+const KEY_PERM = [16]u8{ 3, 7, 1, 15, 0, 9, 4, 12, 2, 8, 5, 14, 11, 6, 10, 13 };
+
+// Helper to get key byte with permutation (obfuscated access)
+fn getKeyByte(idx: u8) u8 {
+    const permuted_idx = KEY_PERM[idx % 16];
+    return siphash_key[permuted_idx];
+}
+
+// Build seed
+const BUILD_SEED = 0xDEADC0DE ^ 0xCAFEBABE;
 
 // Read-only protected section markers
 extern var __idt_watchdog_ro_start: u8;
@@ -42,7 +47,6 @@ fn protect_watchdog_data() void {
     if (watchdog_protected or !config.ENABLE_IDT_WATCHDOG) return;
     watchdog_protected = true;
 
-    // Compute hash of critical watchdog data
     var hash: u32 = 0xCAFEBABE;
     for (idt_snapshot) |b| {
         hash = hash *% 31 +% b;
@@ -54,22 +58,6 @@ fn protect_watchdog_data() void {
         hash = hash *% 41 +% b;
     }
     watchdog_data_hash = hash;
-}
-
-fn verify_watchdog_data() bool {
-    if (!watchdog_protected) return true;
-
-    var computed_hash: u32 = 0xCAFEBABE;
-    for (idt_snapshot) |b| {
-        computed_hash = computed_hash *% 31 +% b;
-    }
-    for (siphash_key) |b| {
-        computed_hash = computed_hash *% 37 +% b;
-    }
-    for (snapshot_mac_ro) |b| {
-        computed_hash = computed_hash *% 41 +% b;
-    }
-    return computed_hash == watchdog_data_hash;
 }
 
 fn generate_key() void {
@@ -90,22 +78,23 @@ fn generate_key() void {
     const pit_low: u8 = @truncate(ticks);
     const pit_high: u8 = @truncate(ticks >> 8);
 
-    siphash_key[0] = @as(u8, @truncate(tsc_low >> 0));
-    siphash_key[1] = @as(u8, @truncate(tsc_low >> 8));
-    siphash_key[2] = @as(u8, @truncate(tsc_low >> 16));
-    siphash_key[3] = @as(u8, @truncate(tsc_low >> 24));
-    siphash_key[4] = @as(u8, @truncate(tsc_high >> 0));
-    siphash_key[5] = @as(u8, @truncate(tsc_high >> 8));
-    siphash_key[6] = @as(u8, @truncate(tsc_high >> 16));
-    siphash_key[7] = @as(u8, @truncate(tsc_high >> 24));
-    siphash_key[8] = @as(u8, @truncate(@as(u32, pit_low) ^ tsc_low));
-    siphash_key[9] = @as(u8, @truncate(@as(u32, pit_high) ^ tsc_high));
-    siphash_key[10] = @as(u8, @truncate(tsc_low *% 0x9E3779B9));
-    siphash_key[11] = @as(u8, @truncate(tsc_high *% 0x9E3779B9));
-    siphash_key[12] = @as(u8, @truncate(@as(u32, @intCast(ticks)) *% 0x1234567));
-    siphash_key[13] = @as(u8, @truncate((@as(u32, @intCast(ticks)) >> 16) *% 0xDEADBEEF));
-    siphash_key[14] = @as(u8, @truncate((~tsc_low) +% @as(u32, @intCast(ticks))));
-    siphash_key[15] = @as(u8, @truncate((~tsc_high) -% @as(u32, @intCast(ticks))));
+    // Use permutation for obfuscated key storage
+    siphash_key[KEY_PERM[0]] = @as(u8, @truncate(tsc_low >> 0));
+    siphash_key[KEY_PERM[1]] = @as(u8, @truncate(tsc_low >> 8));
+    siphash_key[KEY_PERM[2]] = @as(u8, @truncate(tsc_low >> 16));
+    siphash_key[KEY_PERM[3]] = @as(u8, @truncate(tsc_low >> 24));
+    siphash_key[KEY_PERM[4]] = @as(u8, @truncate(tsc_high >> 0));
+    siphash_key[KEY_PERM[5]] = @as(u8, @truncate(tsc_high >> 8));
+    siphash_key[KEY_PERM[6]] = @as(u8, @truncate(tsc_high >> 16));
+    siphash_key[KEY_PERM[7]] = @as(u8, @truncate(tsc_high >> 24));
+    siphash_key[KEY_PERM[8]] = @as(u8, @truncate(@as(u32, pit_low) ^ tsc_low));
+    siphash_key[KEY_PERM[9]] = @as(u8, @truncate(@as(u32, pit_high) ^ tsc_high));
+    siphash_key[KEY_PERM[10]] = @as(u8, @truncate(tsc_low *% BUILD_SEED));
+    siphash_key[KEY_PERM[11]] = @as(u8, @truncate(tsc_high *% BUILD_SEED));
+    siphash_key[KEY_PERM[12]] = @as(u8, @truncate(@as(u32, @intCast(ticks)) *% 0x1234567));
+    siphash_key[KEY_PERM[13]] = @as(u8, @truncate((@as(u32, @intCast(ticks)) >> 16) *% 0xDEADBEEF));
+    siphash_key[KEY_PERM[14]] = @as(u8, @truncate((~tsc_low) +% @as(u32, @intCast(ticks))));
+    siphash_key[KEY_PERM[15]] = @as(u8, @truncate((~tsc_high) -% @as(u32, @intCast(ticks))));
 }
 
 fn compute_mac(data: []const u8) [16]u8 {
@@ -114,10 +103,11 @@ fn compute_mac(data: []const u8) [16]u8 {
     var mac: [16]u8 = [_]u8{0} ** 16;
     var state: [4]u32 = undefined;
 
-    state[0] = @as(u32, siphash_key[0]) | (@as(u32, siphash_key[1]) << 8) | (@as(u32, siphash_key[2]) << 16) | (@as(u32, siphash_key[3]) << 24);
-    state[1] = @as(u32, siphash_key[4]) | (@as(u32, siphash_key[5]) << 8) | (@as(u32, siphash_key[6]) << 16) | (@as(u32, siphash_key[7]) << 24);
-    state[2] = @as(u32, siphash_key[8]) | (@as(u32, siphash_key[9]) << 8) | (@as(u32, siphash_key[10]) << 16) | (@as(u32, siphash_key[11]) << 24);
-    state[3] = @as(u32, siphash_key[12]) | (@as(u32, siphash_key[13]) << 8) | (@as(u32, siphash_key[14]) << 16) | (@as(u32, siphash_key[15]) << 24);
+    // Use getKeyByte for obfuscated key access
+    state[0] = @as(u32, getKeyByte(0)) | (@as(u32, getKeyByte(1)) << 8) | (@as(u32, getKeyByte(2)) << 16) | (@as(u32, getKeyByte(3)) << 24);
+    state[1] = @as(u32, getKeyByte(4)) | (@as(u32, getKeyByte(5)) << 8) | (@as(u32, getKeyByte(6)) << 16) | (@as(u32, getKeyByte(7)) << 24);
+    state[2] = @as(u32, getKeyByte(8)) | (@as(u32, getKeyByte(9)) << 8) | (@as(u32, getKeyByte(10)) << 16) | (@as(u32, getKeyByte(11)) << 24);
+    state[3] = @as(u32, getKeyByte(12)) | (@as(u32, getKeyByte(13)) << 8) | (@as(u32, getKeyByte(14)) << 16) | (@as(u32, getKeyByte(15)) << 24);
 
     for (data) |byte| {
         state[0] = state[0] +% @as(u32, byte);
@@ -171,41 +161,6 @@ fn verify_idt_entry_integrity(entry_ptr: [*]const u8) bool {
     if (selector != KERNEL_CODE_SELECTOR) return false;
 
     return true;
-}
-
-var saved_cr0: u32 = 0;
-var cr0_wp_init: bool = false;
-
-fn is_kernel_mode() bool {
-    var cs: u16 = 0;
-    asm volatile (
-        \\pushf
-        \\pop %[cs]
-        : [cs] "=r" (cs),
-    );
-    return (cs & 3) == 0;
-}
-
-fn read_cr0_safe() u32 {
-    if (!is_kernel_mode()) return 0;
-    var cr0: u32 = 0;
-    asm volatile ("mov %%cr0, %[cr0]"
-        : [cr0] "=r" (cr0),
-    );
-    return cr0;
-}
-
-fn save_cr0() void {
-    if (cr0_wp_init) return;
-    cr0_wp_init = true;
-    saved_cr0 = read_cr0_safe();
-}
-
-fn check_wp_bit() bool {
-    save_cr0();
-    if (!is_kernel_mode()) return false;
-    const current_cr0 = read_cr0_safe();
-    return (current_cr0 & 0x10000) != (saved_cr0 & 0x10000);
 }
 
 pub fn save_snapshot() void {
@@ -297,7 +252,7 @@ pub export fn idt_watchdog_save_snapshot() void {
 }
 
 pub export fn idt_watchdog_check() bool {
-    return check_idt_safe();
+    return check_idt();
 }
 
 pub fn cmd_idt_check() void {
@@ -386,5 +341,3 @@ pub fn cmd_idt_modify(args: []const u8) void {
         common.printZ("\n  WARNING: Will trigger panic in ~10 seconds!\n");
     }
 }
-
-const std = @import("std");

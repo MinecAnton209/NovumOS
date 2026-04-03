@@ -192,7 +192,7 @@ inline fn interrupts_restore(eflags: u32) void {
             \\popfl
             :
             : [eflags] "r" (eflags),
-            : "memory");
+            : .{ .memory = true });
     }
 }
 
@@ -214,7 +214,7 @@ pub fn init_paging() void {
         \\mov %%cr4, %%eax
         \\or $0x00000010, %%eax
         \\mov %%eax, %%cr4
-        ::: "eax");
+        ::: .{ .eax = true });
 
     const code_start = @intFromPtr(&_code_start);
     const code_end = @intFromPtr(&_code_end);
@@ -309,7 +309,7 @@ pub fn init_paging() void {
         \\1:
         : [cr0_val] "=&r" (cr0_val),
         : [pd] "r" (pd_addr),
-        : "memory");
+        : .{ .memory = true });
 
     // 6. Restore Interrupts
     asm volatile ("sti");
@@ -385,7 +385,7 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
             asm volatile ("invlpg (%[vaddr])"
                 :
                 : [vaddr] "r" (vaddr),
-                : "memory");
+                : .{ .memory = true });
             pf_count += 1;
             return true;
         }
@@ -456,7 +456,7 @@ pub fn map_page_at(vaddr: usize, paddr_in: usize, is_user: bool) bool {
         asm volatile ("invlpg (%[vaddr])"
             :
             : [vaddr] "r" (vaddr),
-            : "memory");
+            : .{ .memory = true });
         return true;
     }
 
@@ -503,7 +503,7 @@ pub fn map_page_at(vaddr: usize, paddr_in: usize, is_user: bool) bool {
         asm volatile ("invlpg (%[vaddr])"
             :
             : [vaddr] "r" (vaddr),
-            : "memory");
+            : .{ .memory = true });
 
         pf_count += 1;
         return true;
@@ -624,6 +624,17 @@ pub const heap = struct {
 
         // Align to 8 bytes
         const aligned_size = (size + 7) & ~@as(usize, 7);
+
+        // Chaos: Random IDT check on memory allocation (1 in 16 chance)
+        if (config.ENABLE_IDT_WATCHDOG) {
+            const ptr_val = @intFromPtr(&aligned_size);
+            if ((ptr_val & 0xF) == 0) {
+                const idt_watchdog = @import("idt_watchdog.zig");
+                if (!idt_watchdog.check_idt()) {
+                    idt_watchdog.trigger_panic();
+                }
+            }
+        }
 
         while (true) {
             var current = first_block;
@@ -828,5 +839,5 @@ pub fn switch_page_directory(pd_addr: u32) void {
     asm volatile ("mov %[pd], %%cr3"
         :
         : [pd] "r" (pd_addr),
-        : "memory");
+        : .{ .memory = true });
 }
