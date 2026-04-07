@@ -111,7 +111,8 @@ inline fn interrupts_restore(f: u32) void {
         asm volatile ("pushl %[f]; popfl"
             :
             : [f] "r" (f),
-            : "memory");
+            : .{ .memory = true }
+        );
     }
 }
 

@@ -33,7 +33,8 @@ fn interrupts_restore(f: u32) void {
     asm volatile ("pushl %[f]; popfl"
         :
         : [f] "r" (f),
-        : "memory");
+        : .{ .memory = true }
+    );
 }
 fn spin_lock(lock: *volatile u32) void {
     while (@atomicRmw(u32, lock, .Xchg, 1, .acquire) == 1) {

@@ -1,7 +1,6 @@
 // PIT (Programmable Interval Timer) Driver
 const common = @import("../commands/common.zig");
 const config = @import("../config.zig");
-const idt_watchdog = @import("../idt_watchdog.zig");
 
 // PIT Ports
 const PIT_COMMAND = 0x43;
@@ -9,9 +8,13 @@ const PIT_CHANNEL0 = 0x40;
 
 // PIT Frequency
 const PIT_FREQ = 1193182;
-const TARGET_FREQ = 100; // 1 tick = 10ms
+const TARGET_FREQ = 100;
+
+// Timing obfuscation - random interval based on build hash
+const TIMING_SEED = config.BUILD_HASH;
 
 var ticks: usize = 0;
+var check_counter: usize = 0;
 
 /// Initialize PIT to 1000Hz
 pub fn init() void {
@@ -20,9 +23,9 @@ pub fn init() void {
     // Command byte:
     // Channel 0 (00), Access Mode: LSB/MSB (11), Mode 2: Rate Generator (010), Binary (0)
     // 00 11 010 0 = 0x34
-    outb(PIT_COMMAND, 0x34);
-    outb(PIT_CHANNEL0, @intCast(divisor & 0xFF));
-    outb(PIT_CHANNEL0, @intCast((divisor >> 8) & 0xFF));
+    common.outb(PIT_COMMAND, 0x34);
+    common.outb(PIT_CHANNEL0, @intCast(divisor & 0xFF));
+    common.outb(PIT_CHANNEL0, @intCast((divisor >> 8) & 0xFF));
 }
 
 /// IRQ0 Timer Handler (called from ASM)
@@ -40,10 +43,12 @@ pub export fn isr_timer(esp: u32) u32 {
         }
     }
 
-    // IDT watchdog check every 1000 ticks (10 seconds)
-    if (ptr.* % 1000 == 0 and ptr.* > 1000) {
-        if (!idt_watchdog.check_idt_safe()) {
-            idt_watchdog.trigger_panic();
+    // Obfuscated watchdog check - timing based on build seed
+    check_counter +%= 1;
+    if ((check_counter & TIMING_SEED) == 0) {
+        const idtw = @import("../idt_watchdog.zig");
+        if (!idtw.check_idt_safe()) {
+            idtw.trigger_panic();
         }
     }
 
@@ -87,9 +92,4 @@ pub fn sleep(ms: usize) void {
         asm volatile ("sti");
         asm volatile ("hlt");
     }
-}
-
-// I/O port functions
-fn outb(port: u16, val: u8) void {
-    common.outb(port, val);
 }

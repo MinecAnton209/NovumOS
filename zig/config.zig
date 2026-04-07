@@ -10,7 +10,7 @@ pub const ENABLE_EMBEDDED_ELFS = false;
 pub const ENABLE_KERNEL_LOGGING = false; // Toggle for informative kernel logs
 
 // Computetime randomization for watchdog timing (obfuscated)
-const BUILD_HASH = 0xDEADC0DE ^ 0xCAFEBABE ^ 0x12345678;
+pub const BUILD_HASH = 0xDEADC0DE ^ 0xCAFEBABE ^ 0x12345678;
 pub const WATCHDOG_INTERVAL_TICKS = 1000 + (BUILD_HASH % 500); // 1000-1500
 pub const WATCHDOG_CHANCE_ALLOC = 1 + (BUILD_HASH % 16); // 1-16
 pub const WATCHDOG_CHANCE_SCHED = 1 + (BUILD_HASH % 32); // 1-32

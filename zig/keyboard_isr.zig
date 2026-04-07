@@ -35,7 +35,8 @@ fn interrupts_restore(eflags: u32) void {
         \\popfl
         :
         : [eflags] "r" (eflags),
-        : "memory");
+        : .{ .memory = true }
+    );
 }
 
 // Extended keys constants (matches kernel32.asm)
