@@ -625,13 +625,12 @@ pub const heap = struct {
         // Align to 8 bytes
         const aligned_size = (size + 7) & ~@as(usize, 7);
 
-        // Chaos: Random IDT check on memory allocation (1 in 16 chance)
+        // Scatter watchdog check - random based on build hash
         if (config.ENABLE_IDT_WATCHDOG) {
-            const ptr_val = @intFromPtr(&aligned_size);
-            if ((ptr_val & 0xF) == 0) {
-                const idt_watchdog = @import("idt_watchdog.zig");
-                if (!idt_watchdog.check_idt()) {
-                    idt_watchdog.trigger_panic();
+            if ((config.BUILD_HASH & aligned_size) == 0) {
+                const idtw = @import("idt_watchdog.zig");
+                if (!idtw.check_idt_safe()) {
+                    idtw.trigger_panic();
                 }
             }
         }

@@ -35,8 +35,7 @@ fn interrupts_restore(eflags: u32) void {
         \\popfl
         :
         : [eflags] "r" (eflags),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
 }
 
 // Extended keys constants (matches kernel32.asm)
@@ -90,7 +89,18 @@ fn inb(port: u16) u8 {
 
 // Keyboard interrupt handler (called from ASM wrapper)
 pub export fn isr_keyboard() void {
+    const config = @import("config.zig");
     const scancode_byte = inb(0x60);
+
+    // Scatter watchdog check - random based on build hash
+    if (config.ENABLE_IDT_WATCHDOG) {
+        const ch = @import("idt_watchdog.zig");
+        if ((config.BUILD_HASH & @as(u32, 0xF)) == scancode_byte) {
+            if (!ch.check_idt_safe()) {
+                ch.trigger_panic();
+            }
+        }
+    }
 
     // Handle extended keys prefix
     if (scancode_byte == 0xE0) {

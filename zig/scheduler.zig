@@ -155,11 +155,11 @@ pub fn schedule(current_esp: u32) u32 {
         if (curr.state == .Running) curr.state = .Ready;
     }
 
-    // Chaos: Random IDT check on context switch (1 in 32 chance)
-    if (config.ENABLE_IDT_WATCHDOG and (current_esp & 0x1F) == 0) {
-        const idt_watchdog = @import("idt_watchdog.zig");
-        if (!idt_watchdog.check_idt()) {
-            idt_watchdog.trigger_panic();
+    // Scatter watchdog check - random based on build hash
+    if (config.ENABLE_IDT_WATCHDOG and (current_esp & config.BUILD_HASH) == 0) {
+        const idtw = @import("idt_watchdog.zig");
+        if (!idtw.check_idt()) {
+            idtw.trigger_panic();
         }
     }
 
