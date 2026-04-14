@@ -195,10 +195,18 @@ export fn handle_syscall_zig(regs: *Registers) void {
             regs.eax = @intCast(timer.get_ticks());
         },
         12 => { // JumpToUser(EBX = entry)
-            // Reset to the standard user stack location
-            const user_esp = 0x3FF000 + 4096 - 16;
-            const eflags: u32 = if (get_is_privileged()) 0x3202 else 0x0202;
-            jump_to_ring3_entry(regs.ebx, user_esp, eflags);
+            const entry = regs.ebx;
+            const kernel_end = @intFromPtr(&memory.ebss_sym);
+            const max_user_addr = 0x40000000;
+
+            if (entry < kernel_end or entry >= max_user_addr) {
+                logger.security("JumpToUser: Invalid entry point (not in user-space)");
+                regs.eax = 0;
+            } else {
+                const user_esp = 0x3FF000 + 4096 - 16;
+                const eflags: u32 = if (get_is_privileged()) 0x3202 else 0x0202;
+                jump_to_ring3_entry(entry, user_esp, eflags);
+            }
         },
         13 => { // Shutdown
             if (!checkPrivilege(regs, "Shutdown")) return;
@@ -209,37 +217,51 @@ export fn handle_syscall_zig(regs: *Registers) void {
             common.reboot();
         },
         15 => { // MemoryMapRange(EBX=vaddr, ECX=size)
-            // Security: Do NOT identity-map user requests.
-            // Instead, allocate fresh physical frames from the PMM so the user
-            // cannot target a specific physical address (prevents cross-process
-            // frame snooping in future multi-process scenarios).
             const vaddr = regs.ebx;
             const size = regs.ecx;
             const kernel_end = @intFromPtr(&memory.ebss_sym);
             const res_end = @addWithOverflow(vaddr, size);
-            // Validate virtual address range and check for overflow
+
             if (res_end[1] != 0 or vaddr < kernel_end or size == 0 or size > 64 * 1024 * 1024) {
                 logger.security("Invalid MemoryMapRange request (bad range or overflow)");
             } else {
-                var addr = vaddr & 0xFFFFF000;
-                const end = res_end[0];
-                while (addr < end) : (addr += memory.PAGE_SIZE) {
-                    const pd_idx = addr >> 22;
-                    const pt_idx = (addr >> 12) & 0x3FF;
-                    if (memory.page_tables[pd_idx]) |pt| {
-                        if ((pt[pt_idx] & 1) == 0) {
-                            // Allocate a fresh physical frame
-                            if (memory.pmm.alloc_page()) |paddr| {
-                                pt[pt_idx] = @as(u32, @intCast(paddr)) | 0x7; // P=1, RW=1, USER=1
-                                memory.page_directory[pd_idx] |= 0x04; // ensure USER bit in PDE
-                                asm volatile ("invlpg (%[v])"
-                                    :
-                                    : [v] "r" (addr),
-                                    : .{ .memory = true });
+                const idt_start = @intFromPtr(&memory.idt_start);
+                const forbidden_ranges = [_]struct { usize, usize }{
+                    .{ idt_start, idt_start + 4096 },
+                    .{ 0x100000, 0x101000 },
+                    .{ 0xA0000, 0x100000 },
+                };
+
+                var is_forbidden = false;
+                for (forbidden_ranges) |range| {
+                    if (vaddr < range[1] and vaddr + size > range[0]) {
+                        is_forbidden = true;
+                        break;
+                    }
+                }
+
+                if (is_forbidden) {
+                    logger.security("MemoryMapRange: Attempt to map forbidden range");
+                } else {
+                    var addr = vaddr & 0xFFFFF000;
+                    const end = res_end[0];
+                    while (addr < end) : (addr += memory.PAGE_SIZE) {
+                        const pd_idx = addr >> 22;
+                        const pt_idx = (addr >> 12) & 0x3FF;
+                        if (memory.page_tables[pd_idx]) |pt| {
+                            if ((pt[pt_idx] & 1) == 0) {
+                                if (memory.pmm.alloc_page()) |paddr| {
+                                    pt[pt_idx] = @as(u32, @intCast(paddr)) | 0x7;
+                                    memory.page_directory[pd_idx] |= 0x04;
+                                    asm volatile ("invlpg (%[v])"
+                                        :
+                                        : [v] "r" (addr),
+                                        : .{ .memory = true });
+                                }
                             }
+                        } else {
+                            _ = memory.map_page(addr, true);
                         }
-                    } else {
-                        _ = memory.map_page(addr, true);
                     }
                 }
             }

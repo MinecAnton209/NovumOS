@@ -17,7 +17,7 @@ extern const _data_start: anyopaque;
 extern const _data_end: anyopaque;
 extern const _system_start: anyopaque;
 extern const _system_end: anyopaque;
-extern const idt_start: anyopaque;
+pub extern const idt_start: anyopaque;
 
 // We'll allocate a fixed-size bitmap for up to 4GB (128KB bitmap)
 var bitmap: [131072]u8 align(4096) linksection(".system") = [_]u8{0} ** 131072;
@@ -43,7 +43,7 @@ pub const pmm = struct {
         const reserved_up_to = if (kernel_end < 0x800000) 0x800000 else kernel_end;
         const reserved_pages = (reserved_up_to / PAGE_SIZE) + 1;
         var i: u32 = 0;
-        while (i < reserved_pages) : (i += 1) set_page_busy(i);
+        while (i < reserved_pages) : (i += 1) _ = set_page_busy(i);
     }
 
     pub fn alloc_page() ?usize {
@@ -57,7 +57,7 @@ pub const pmm = struct {
         var i = last_free_page;
         while (i < TOTAL_PAGES) : (i += 1) {
             if (!is_page_busy(i)) {
-                set_page_busy(i);
+                _ = set_page_busy(i);
                 last_free_page = i;
                 return i * PAGE_SIZE;
             }
@@ -79,18 +79,26 @@ pub const pmm = struct {
     }
 };
 
-pub fn set_page_busy(idx: u32) void {
-    if (idx >= TOTAL_PAGES) return;
+pub fn set_page_busy(idx: u32) bool {
+    if (idx >= TOTAL_PAGES) {
+        logger.security("PMM: set_page_busy - index out of bounds");
+        return false;
+    }
     const bit_idx: u3 = @intCast(idx % 8);
     const mask = @as(u8, 1) << bit_idx;
     _ = @atomicRmw(u8, &bitmap[idx / 8], .Or, mask, .seq_cst);
+    return true;
 }
 
-pub fn clear_page_busy(idx: u32) void {
-    if (idx >= TOTAL_PAGES) return;
+pub fn clear_page_busy(idx: u32) bool {
+    if (idx >= TOTAL_PAGES) {
+        logger.security("PMM: clear_page_busy - index out of bounds");
+        return false;
+    }
     const bit_idx: u3 = @intCast(idx % 8);
     const mask = ~(@as(u8, 1) << bit_idx);
     _ = @atomicRmw(u8, &bitmap[idx / 8], .And, mask, .seq_cst);
+    return true;
 }
 
 fn read_cmos(reg: u8) u8 {
@@ -481,7 +489,7 @@ pub fn map_page_at(vaddr: usize, paddr_in: usize, is_user: bool) bool {
 
         // Mark as busy if it's in our RAM range
         if (paddr < MAX_MEMORY) {
-            set_page_busy(@as(u32, @intCast(paddr / PAGE_SIZE)));
+            _ = set_page_busy(@as(u32, @intCast(paddr / PAGE_SIZE)));
         }
 
         // Set attributes based on requester and region
@@ -620,6 +628,12 @@ pub const heap = struct {
         defer {
             smp.spin_unlock(&heap_lock);
             interrupts_restore(eflags);
+        }
+
+        const MAX_ALLOC_SIZE = 16 * 1024 * 1024;
+        if (size > MAX_ALLOC_SIZE) {
+            logger.security("Heap alloc: requested size exceeds maximum (16MB)");
+            return null;
         }
 
         // Align to 8 bytes

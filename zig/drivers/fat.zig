@@ -1005,7 +1005,11 @@ pub fn copy_file_literal(drive: ata.Drive, bpb: BPB, src_dir: u32, src_name: []c
 
     var sector_buf: [512]u8 = undefined;
     while (current_src < eof_limit) {
+        if (current_src < 2) break;
+
         const src_lba = bpb.first_data_sector + (current_src - 2) * bpb.sectors_per_cluster;
+
+        if (current_dest < 2) break;
         const dest_lba = bpb.first_data_sector + (current_dest - 2) * bpb.sectors_per_cluster;
 
         var s: u32 = 0;
