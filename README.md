@@ -28,7 +28,7 @@ NovumOS is a simple operating system that successfully boots from 16-bit real mo
 - ✅ **Piping & Redirection** - Support for pipes (`|`) and output redirection (`>`, `>>`)
 - ✅ **FAT12/16 Support** - Native disk support for ATA drives with **Long File Name (LFN)** and **Hidden Files** support
 - ✅ **PCI Bus Enumeration** - Support for scanning and identifying hardware devices on the PCI bus
-- ✅ **Nova Language v0.23-beta.6** - Integrated custom interpreter with multi-line REPL, mandatory semicolons, modular system, and context-aware tab completion
+- ✅ **Nova Language v0.24** - Integrated custom interpreter with multi-line REPL, mandatory semicolons, modular system, and context-aware tab completion
 - ✅ **Filesystem Overhaul** - Native implementation of `create_file`, `delete`, `rename`, and `copy` directly in the Nova interpreter
 - ✅ **Embedded Scripts** - Built-in commands written in Nova (`syscheck`, `hello`)
 - ✅ **Native Commands** - Native implementation of `install` and `uninstall` for Nova scripts
@@ -157,21 +157,21 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Copy (0x10k to 1MB) �
 
 ### Roadmap
 
-#### Current progress (v0.23-beta.6)
+#### Current progress (v0.24)
 - [x] **Graphic mode support (VBE/BGA)** (32-bit LFB, dynamic resolution)
 - [x] **Kernel Relocation to 1MB** (EBDA safety, A20 activation)
-- [x] **PCI Bus Enumeration (v0.23-beta.6)** (Config space access, device ID database)
-- [x] **Modular Sub-systems (v0.22)** (sys, math mod)
-- [x] **Multi-line REPL (v0.22)** (Accumulator buffer, continuation prompt)
-- [x] **Mandatory Semicolons (v0.22)** (Complete statement tracking)
-- [x] **Context-aware Tab Completion (v0.22)** (Import detection)
-- [x] **Enhanced Error Handling (v0.22)** (Soft errors in REPL)
-- [x] **Full Floating Point Engine (v0.21)**
-- [x] **High-Precision Trig (v0.21)** (Bhaskara I formula)
-- [x] **Informative REPL (v0.21)** (Descriptive status strings)
-- [x] **Advanced VM FS Functions (v0.21)** (Native delete, rename, copy)
-- [x] Multicore Support (v0.20)
-- [x] FAT32 Support (v0.20)
+- [x] **PCI Bus Enumeration** (Config space access, device ID database)
+- [x] **Modular Sub-systems** (sys, math mod)
+- [x] **Multi-line REPL** (Accumulator buffer, continuation prompt)
+- [x] **Mandatory Semicolons** (Complete statement tracking)
+- [x] **Context-aware Tab Completion** (Import detection)
+- [x] **Enhanced Error Handling** (Soft errors in REPL)
+- [x] **Full Floating Point Engine**
+- [x] **High-Precision Trig** (Bhaskara I formula)
+- [x] **Informative REPL** (Descriptive status strings)
+- [x] **Advanced VM FS Functions** (Native delete, rename, copy)
+- [x] Multicore Support
+- [x] FAT32 Support
 - [x] IDT (Interrupt Descriptor Table)
 - [x] Timer (PIT) & Precise Sleep
 - [x] RTC Driver (Date/Time)
@@ -183,15 +183,16 @@ BIOS → Bootloader (16-bit) → Protected Mode Switch → Copy (0x10k to 1MB) �
 - [x] **Hierarchical Path Support & CWD** (Absolute/Relative paths, cd, pwd)
 - [x] Built-in Text Editor (`edit`)
 - [x] Dynamic Shell Commands table
-- [x] Nova Language v0.22.0 (Multi-line REPL, Modules, Mandatory Semicolons, Context-aware Tab)
+- [x] Nova Language (Multi-line REPL, Modules, Mandatory Semicolons, Context-aware Tab)
 - [x] Native script management (install, uninstall)
 - [x] File Management improvements (LFN create/read/delete)
 - [x] PCI Bus Enumeration
-- [x] **Preemptive Multitasking** (v0.23)
-- [x] **SMP Support** (4 cores tested, v0.23)
+- [x] **Preemptive Multitasking**
+- [x] **SMP Support** (4 cores tested)
 - [x] **Process Management** (kill, exit, return stubs)
 - [x] **Paging & Virtual Memory Management** (Basic implementation)
 - [x] **User Mode (Ring 3)** (Experimental ELF loading)
+- [x] **Security Fixes** (CVE-2026-40317)
 - [x] **GitHub CI/CD** (Automated build and build-test validation)
 
 #### Future improvements

@@ -21,8 +21,8 @@ body:
       label: OS Version
       description: Which version of NovumOS are you running?
       options:
-        - v0.23-beta.6 (Current)
-        - v0.22-stable
+        - v0.24 (Current)
+        - v0.23
         - Other (please specify in description)
       default: 0
     validations:

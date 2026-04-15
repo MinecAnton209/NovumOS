@@ -1,4 +1,4 @@
-# NovumOS Memory Architecture (v0.23-beta.6)
+# NovumOS Memory Architecture (v0.24)
 
 This document describes the high-performance memory management and paging system implemented in NovumOS.
 
