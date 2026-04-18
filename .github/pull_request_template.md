@@ -1,6 +1,14 @@
 ## Description of Changes
 <!-- Describe your changes. What did you change? Why is this needed? -->
 
+## Related Issues
+<!-- Link to related issues (e.g., "Closes #123", "Fixes #456") -->
+
+## Breaking Changes
+- [ ] Yes
+- [ ] No
+<!-- If yes, describe what breaks and how to migrate -->
+
 ## Change Type
 - [ ] Bug fix
 - [ ] New feature
