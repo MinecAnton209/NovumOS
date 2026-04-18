@@ -34,8 +34,7 @@ pub fn get_datetime() DateTime {
             :
             : [sys] "{eax}" (@as(u32, 19)),
               [ptr] "{ebx}" (@intFromPtr(&dt)),
-            : .{ .memory = true }
-        );
+            : .{ .memory = true });
         return dt;
     }
 

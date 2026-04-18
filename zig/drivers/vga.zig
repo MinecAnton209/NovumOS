@@ -236,8 +236,7 @@ fn interrupts_restore_vga(f: u32) void {
     asm volatile ("pushl %[f]; popfl"
         :
         : [f] "r" (f),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
 }
 
 fn spin_lock_vga(lock: *volatile u32) void {

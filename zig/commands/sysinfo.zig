@@ -194,8 +194,7 @@ fn get_cpu_vendor(buffer: *[13]u8) void {
           [edx] "={edx}" (edx),
           [ecx] "={ecx}" (ecx),
         : [eax] "{eax}" (0),
-        : .{ .eax = true }
-    );
+        : .{ .eax = true });
 
     // EBX
     buffer[0] = @intCast(ebx & 0xFF);
