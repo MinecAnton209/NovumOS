@@ -1,0 +1,44 @@
+# EditorConfig - https://editorconfig.org
+
+root = true
+
+# All files
+[*]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+charset = utf-8
+
+# Assembly (NASM)
+[*.asm]
+indent_style = tab
+indent_size = tab
+
+# Zig
+[*.zig]
+indent_style = space
+indent_size = 4
+
+# Shell scripts
+[*.{bat,sh}]
+indent_style = tab
+
+# Markdown
+[*.md]
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = false
+
+# YAML
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# Linker scripts
+[*.ld]
+indent_style = tab
+
+# JSON
+[*.json]
+indent_style = space
+indent_size = 2
