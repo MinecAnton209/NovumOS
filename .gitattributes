@@ -1,0 +1,12 @@
+# GitHub Language Statistics
+# Force GitHub to recognize .nv files as Nova language
+
+*.nv linguist-language=Nova
+*.nv linguist-vendored=false
+
+# Exclude build artifacts from language stats
+build/* linguist-vendored=true
+.zig-cache/* linguist-vendored=true
+*.img linguist-vendored=true
+*.iso linguist-vendored=true
+*.o linguist-vendored=true
