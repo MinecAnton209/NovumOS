@@ -1,5 +1,6 @@
 ; NovumOS Kernel - 32-bit Protected Mode
 ; Main entry point and module includes
+; Used by Limine bootloader via Multiboot2 protocol
 [bits 32]
 
 ; Constants
@@ -21,9 +22,57 @@ section .data
 shift_state     db 0
 extended_key    db 0
 
-; Put entry point in .text.start section to ensure it's first
+; Multiboot2 info filled by bootloader
+align 4
+global mb2_info
+mb2_info:
+    dd 0
+global fb_addr
+fb_addr:
+    dd 0          ; framebuffer physical address
+global fb_pitch
+fb_pitch:
+    dd 0          ; bytes per scanline
+global fb_width
+fb_width:
+    dd 0          ; framebuffer width in pixels
+global fb_height
+fb_height:
+    dd 0          ; framebuffer height in pixels
+global fb_bpp
+fb_bpp:
+    dd 0          ; bits per pixel
+
 section .text.start
-global start
+global _start
+_start equ limine_start
+
+section .multiboot
+align 8
+_multiboot2_header_start:
+    ; --- Main header ---
+    dd 0xe85250d6                ; Magic: Multiboot2
+    dd 0                         ; Architecture: i386 (32-bit)
+    dd _multiboot2_header_end - _multiboot2_header_start ; Header length
+    ; Checksum: -(magic + arch + length)
+    dd -(0xe85250d6 + 0 + (_multiboot2_header_end - _multiboot2_header_start))
+
+    ; --- Framebuffer request ---
+    align 8
+    dw 5                         ; Type 5: Framebuffer request
+    dw 0                         ; Flags
+    dd 20                        ; Size
+    dd 1024                      ; Width (0 = default)
+    dd 768                       ; Height
+    dd 32                        ; Depth (32 bpp)
+
+    ; --- Closing tag ---
+    align 8
+    dw 0                         ; Type 0
+    dw 0                         ; Flags
+    dd 8                         ; Size
+_multiboot2_header_end:
+align 8
 
 ; External Zig / Linker symbols
 extern zig_init
@@ -46,14 +95,10 @@ gdt_kernel_start:
     dq 0                        ; Null descriptor (0x00)
     dw 0xffff, 0x0000, 0x9a00, 0x00cf ; Code segment (0x08)
     dw 0xffff, 0x0000, 0x9200, 0x00cf ; Data segment (0x10)
-    ; Core TSS slots (0x18, 0x20, 0x28, ..., 0x90) - 16 total
-    times 16 dw 0x0067, 0x0000, 0x8900, 0x0000
-    ; DF TSS (0x98) - shifted after core TSS
-    dw 0x0067, 0x0000, 0x8900, 0x0000
-    ; User Code segment (0xA0)
-    dw 0xffff, 0x0000, 0xfa00, 0x00cf
-    ; User Data segment (0xA8)
-    dw 0xffff, 0x0000, 0xf200, 0x00cf
+    times 16 dw 0x0067, 0x0000, 0x8900, 0x0000 ; Core TSS slots
+    dw 0x0067, 0x0000, 0x8900, 0x0000 ; DF TSS
+    dw 0xffff, 0x0000, 0xfa00, 0x00cf ; User Code segment
+    dw 0xffff, 0x0000, 0xf200, 0x00cf ; User Data segment
 gdt_kernel_real_end:
 global gdt_descriptor_kernel
 gdt_descriptor_kernel:
@@ -61,10 +106,8 @@ gdt_descriptor_kernel:
     dd gdt_kernel_start
 
 section .text.start
-start:
-    cli                         ; Disable interrupts during setup
-    
-    ; 1. Setup GDT (Global Descriptor Table)
+limine_start:
+    cli
     lgdt [gdt_descriptor_kernel]
     
     mov ax, 0x10                ; 0x10 is the data segment in GDT
@@ -74,18 +117,106 @@ start:
     mov gs, ax
     mov ss, ax
     
-    ; 2. Setup Stack (at 5MB, safe from kernel/BSS)
+    ; Setup Stack (at 5MB, safe from kernel/BSS)
     mov esp, 0x500000
     mov ebp, esp
 
-    ; 3. Long jump to reload CS (Code Segment)
+    ; Long jump to reload CS (Code Segment)
     jmp 0x08:.reload_cs
 .reload_cs:
-    jmp actual_code
 
 section .text
 actual_code:
-    ; 4. Enable SSE (required by modern compilers like Zig/Clang)
+    ; Parse Multiboot2 info to get framebuffer address from bootloader
+    mov ebp, ebx
+    add ebp, 8  ; Skip header (total_size + reserved)
+
+.parse_tag:
+    mov eax, [ebp]      ; tag type
+    mov ecx, [ebp + 4] ; tag size
+
+    cmp eax, 0         ; End tag (type 0)?
+    je .no_framebuffer
+
+    cmp eax, 8         ; Framebuffer tag (type 8)?
+    je .found_fb
+
+    ; Skip to next tag (aligned to 8 bytes)
+    add ebp, ecx
+    mov eax, ebp
+    and eax, 7
+    jz .parse_tag
+    add ebp, 8
+    sub ebp, eax
+    jmp .parse_tag
+
+.found_fb:
+    ; Framebuffer tag: read fields
+    ; type(4) + size(4) + addr(8) + pitch(4) + width(4) + height(4) + bpp(1) + type(1) + reserved(2)
+    mov eax, [ebp + 8]
+    mov [fb_addr], eax
+    mov eax, [ebp + 16]
+    mov [fb_pitch], eax
+    mov eax, [ebp + 20]
+    mov [fb_width], eax
+    mov eax, [ebp + 24]
+    mov [fb_height], eax
+    movzx eax, byte [ebp + 28]  ; bpp is u8
+    mov [fb_bpp], eax
+    jmp .done_parse
+
+.no_framebuffer:
+    ; No framebuffer provided
+    mov al, 'N'
+    call debug_putc
+
+.done_parse:
+    mov al, 'D'
+    call debug_putc
+
+    ; Early boot visual feedback - draw test pattern to framebuffer
+    mov eax, [fb_addr]
+    test eax, eax
+    jz .skip_fb_write
+
+    ; Draw gradient: white rows on even Y, red rows on odd Y
+    mov edi, eax
+    mov ebx, [fb_height]
+    mov eax, [fb_width]
+
+.fill_y:
+    push eax
+    push ebx
+    mov ecx, eax         ; width
+    mov ebx, edi
+    sub ebx, [fb_addr]
+    shr ebx, 16         ; approximate row number
+    and ebx, 1
+    test ebx, ebx
+    jnz .row_red
+
+.row_white:
+    mov [edi], dword 0xFFFFFFFF  ; white pixel
+    add edi, 4
+    loop .row_white
+    jmp .row_done
+
+.row_red:
+    mov [edi], dword 0x000000FF  ; red pixel
+    add edi, 4
+    loop .row_red
+
+.row_done:
+    pop ebx
+    pop eax
+    dec ebx
+    jnz .fill_y
+
+.skip_fb_write:
+    mov al, 'K'
+    call debug_putc
+
+    ; Enable SSE (required by modern compilers like Zig/Clang)
     mov eax, cr0
     and ax, 0xFFFB      ; Clear EM bit
     or ax, 0x0002       ; Set MP bit
@@ -94,15 +225,21 @@ actual_code:
     or ax, 0x0600       ; Set OSFXSR and OSXMMEXCPT bits
     mov cr4, eax
 
-    ; 5. Clear BSS section (mandatory for Zig)
+    ; Clear BSS section (mandatory for Zig)
     mov edi, sbss
     mov ecx, ebss
     sub ecx, edi
     xor al, al
     rep stosb
 
-    ; 5. Hardware Initialization
+    mov al, 'P'
+    call debug_putc
+
+    ; Hardware Initialization
     call clear_screen
+
+    mov al, 'C'
+    call debug_putc
 
     ; Setup TSS in GDT
     call gdt_install_tss
@@ -112,15 +249,21 @@ actual_code:
     mov ax, 0x18
     ltr ax
 
+    mov al, 'G'
+    call debug_putc
+
     call idt_init               ; Setup IDT (now uses TSS 0x98 for vector 8)
     call init_serial            ; Setup COM1 for logging
     call zig_init               ; Initialize Zig modules (FS, etc)
 
+    mov al, 'I'
+    call debug_putc
+
     sti                         ; Re-enable interrupts
-    
-    ; 7. Transfer control to Zig Kernel
+
+    ; Transfer control to Zig Kernel
     call kmain
-    
+
     ; Should never return
     cli
     hlt
@@ -152,6 +295,59 @@ gdt_install_tss:
     ret
 
 ; --- Hardware Modules ---
+
+; Initialize debug serial port (COM1, 38400 baud)
+debug_putc_init:
+    mov dx, 0x3f8 + 1    ; IER
+    xor al, al
+    out dx, al
+    mov dx, 0x3f8 + 3   ; LCR
+    mov al, 0x80
+    out dx, al
+    mov dx, 0x3f8 + 0    ; DLL
+    mov al, 0x03
+    out dx, al
+    mov dx, 0x3f8 + 1   ; DLM
+    xor al, al
+    out dx, al
+    mov dx, 0x3f8 + 3
+    mov al, 0x03
+    out dx, al
+    ret
+
+; Write character to debug serial port
+debug_putc:
+    push eax
+    mov dx, 0x3f8 + 5
+.wait:
+    in al, dx
+    test al, 0x20
+    jz .wait
+    pop eax
+    mov dx, 0x3f8
+    out dx, al
+    ret
+
+; Write 32-bit hex value to debug serial
+debug_putc_hex:
+    pushad
+    mov ecx, 8
+.hex_loop:
+    rol eax, 4
+    mov ebx, eax
+    and ebx, 0x0f
+    add ebx, '0'
+    cmp ebx, '9'
+    jle .hex_skip
+    add ebx, 'a' - '9' - 1
+.hex_skip:
+    push eax
+    mov al, bl
+    call debug_putc
+    pop eax
+    loop .hex_loop
+    popad
+    ret
 
 ; Initialize Serial COM1 (38400 baud, 8N1)
 init_serial:

@@ -17,6 +17,13 @@ const lfb = @import("drivers/lfb.zig");
 const rtc = @import("drivers/rtc.zig");
 const idt_watchdog = @import("idt_watchdog.zig");
 
+extern const mb2_info: u32;
+extern const fb_addr: u32;
+extern const fb_pitch: u32;
+extern const fb_width: u32;
+extern const fb_height: u32;
+extern const fb_bpp: u32;
+
 // Embedded Nova Scripts
 const EmbeddedScript = struct {
     name: []const u8,
@@ -128,6 +135,8 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "idt-check", .help = "Verify IDT integrity against saved snapshot", .handler = cmd_handler_idt_check },
     .{ .name = "idt-modify", .help = "Test IDT modification (for watchdog testing)", .handler = cmd_handler_idt_modify },
     .{ .name = "idt-move", .help = "Test IDTR relocation (detected by watchdog)", .handler = cmd_handler_idt_move },
+    .{ .name = "fbinfo", .help = "Display framebuffer info", .handler = cmd_handler_fbinfo },
+    .{ .name = "fbtest", .help = "Draw test pattern to framebuffer", .handler = cmd_handler_fbtest },
 } else [_]Command{});
 
 // Local command buffer
@@ -1468,6 +1477,35 @@ fn cmd_handler_res(args: []const u8) void {
 
 fn cmd_handler_calc(args: []const u8) void {
     shell_cmds.cmd_calc(args.ptr, @intCast(args.len));
+}
+
+fn cmd_handler_fbinfo(args: []const u8) void {
+    _ = args;
+    common.printZ("\n=== Multiboot2 Framebuffer ===\n");
+    common.printZ("fb_addr:   "); common.printHex(fb_addr); common.printZ("\n");
+    common.printZ("fb_pitch: "); common.printHex(fb_pitch); common.printZ("\n");
+    common.printZ("fb_width: "); common.printHex(fb_width); common.printZ("\n");
+    common.printZ("fb_h:     "); common.printHex(fb_height); common.printZ("\n");
+    common.printZ("fb_bpp:   "); common.printHex(fb_bpp); common.printZ("\n");
+}
+
+fn cmd_handler_fbtest(args: []const u8) void {
+    _ = args;
+    if (fb_addr == 0) {
+        common.printZ("fb_addr is 0\n");
+        return;
+    }
+    const fb = @as([*]volatile u32, @ptrFromInt(fb_addr));
+    const w = fb_width;
+    const h = fb_height;
+    var y: u32 = 0;
+    while (y < h) : (y += 1) {
+        var x: u32 = 0;
+        while (x < w) : (x += 1) {
+            fb[y * w + x] = if ((y & 1) == 0) 0xFFFFFFFF else 0x000000FF;
+        }
+    }
+    common.printZ("Done\n");
 }
 
 fn cmd_handler_install(args: []const u8) void {

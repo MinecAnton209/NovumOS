@@ -1,19 +1,29 @@
-/* Linker script for NovumOS kernel */
+/* Linker script for NovumOS kernel - Limine/Multiboot2 */
 OUTPUT_FORMAT(elf32-i386)
-ENTRY(start)
+ENTRY(_start)
 
 SECTIONS {
-    /* Kernel + User environment loads at 0x100000 (1MB) */
+    /* Kernel loads at 0x100000 (1MB) */
     . = 0x100000;
-    _code_start = .;
 
-    /* Single .text section — Zig compiles everything into one kernel.o
-       Fine-grained protection is done via linksection() in Zig source */
+    /* Multiboot2 header */
+    .multiboot : {
+        KEEP(*(.multiboot))
+    }
+
+    /* Additional boot requests */
+    .requests : {
+        KEEP(*(.requests))
+    }
+
+    /* Kernel code */
     .text : {
         *(.text.start)
         *(.text*)
-    }
-    _code_end = .;
+    } =0x90909090
+
+    _code_start = ADDR(.text);
+    _code_end = ADDR(.text) + SIZEOF(.text);
 
     _rodata_start = .;
     .rodata : {
@@ -26,9 +36,7 @@ SECTIONS {
         *(.data*)
     }
 
-    /* Critical kernel structures: page_directory, bitmap, page_tables
-       These are placed here via linksection(".system") in memory.zig
-       and mapped as Supervisor-only (no USER bit) in init_paging */
+    /* Critical kernel structures: page_directory, bitmap, page_tables */
     .system ALIGN(4096) : {
         _system_start = .;
         *(.system*)
@@ -44,7 +52,7 @@ SECTIONS {
     _data_end = .;
     ebss = .;
 
-    /* Discard all debug and exception handling sections */
+    /* Discard debug and exception handling sections */
     /DISCARD/ : {
         *(.comment)
         *(.note*)

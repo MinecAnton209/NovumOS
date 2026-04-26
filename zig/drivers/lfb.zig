@@ -3,6 +3,12 @@ const font = @import("font.zig");
 const bga = @import("bga.zig");
 const vga = @import("vga.zig");
 
+extern const fb_addr: u32;
+extern const fb_pitch: u32;
+extern const fb_width: u32;
+extern const fb_height: u32;
+extern const fb_bpp: u32;
+
 pub const VbeModeInfo = extern struct {
     attributes: u16,
     win_a_attributes: u8,
@@ -91,6 +97,29 @@ pub fn mark_dirty(min_x: u32, min_y: u32, max_x: u32, max_y: u32) void {
 }
 
 pub fn init() void {
+    // First try Multiboot2 framebuffer from bootloader
+    if (fb_addr != 0) {
+        // Use Multiboot2 provided framebuffer
+        fb_phys_base = fb_addr;
+        width = fb_width;
+        height = fb_height;
+        bpp = fb_bpp;
+        pitch = fb_pitch;
+        
+        if (pitch == 0) pitch = width * (bpp / 8);
+        fb_mapped_size = @as(usize, pitch) * height;
+        
+        memory.user_mmio_start = fb_phys_base;
+        memory.user_mmio_end = fb_phys_base + fb_mapped_size;
+        
+        memory.map_range(fb_phys_base, fb_mapped_size, true);
+        framebuffer = @ptrFromInt(fb_phys_base);
+        ensure_backbuffer(fb_mapped_size);
+        initialized = true;
+        return;
+    }
+    
+    // Fallback to VBE info
     const raw_info: *VbeModeInfo = @ptrFromInt(0x8000);
 
     width = raw_info.width;
