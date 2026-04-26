@@ -392,6 +392,10 @@ export fn handle_syscall_zig(regs: *Registers) void {
             };
             unreachable;
         },
+        41 => { // Yield() - yield CPU to other processes
+            asm volatile ("int $0x20");
+            regs.eax = 0;
+        },
         else => {
             logger.err("Unknown syscall");
             logger.debug(common.intToString(@intCast(regs.eax), &buf));
