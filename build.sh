@@ -75,23 +75,10 @@ else
     echo "Install xorriso to create ISO: sudo apt install xorriso"
 fi
 
-# Calculate disk size based on iso_root + 10% for metadata
-echo "Creating disk image..."
-ISO_SIZE=$(du -sb iso_root | cut -f1)
-DISK_SIZE=$((ISO_SIZE * 110 / 100))
-dd if=/dev/zero of=NovumOS.img bs=1 count=0 seek=$DISK_SIZE 2>/dev/null
-./limine-build/limine bios-install NovumOS.img
-
 echo ""
 echo "=== Build Complete ==="
-echo "Disk:  NovumOS.img  ($(stat -c%s NovumOS.img | numfmt --to=iec))"
-if [ -f NovumOS.iso ]; then
-    echo "ISO:    NovumOS.iso  ($(stat -c%s NovumOS.iso | numfmt --to=iec))"
-fi
+echo "ISO:  NovumOS.iso  ($(stat -c%s NovumOS.iso | numfmt --to=iec))"
 echo ""
 echo "To run:"
-echo "  qemu-system-i386 -hda NovumOS.img"
-if [ -f NovumOS.iso ]; then
-    echo "  qemu-system-i386 -cdrom NovumOS.iso"
-fi
+echo "  qemu-system-i386 -cdrom NovumOS.iso"
 echo ""

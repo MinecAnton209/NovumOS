@@ -6,7 +6,6 @@ build/
 *.o
 *.elf
 os.img
-NovumOS.img
 NovumOS.iso
 qemu.log
 disk.img
