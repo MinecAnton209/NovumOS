@@ -3,6 +3,10 @@ set -e
 
 echo "Building NovumOS..."
 
+# Initialize/update limine submodule
+echo "Initializing Limine..."
+git submodule update --init --recursive limine
+
 mkdir -p build limine-build iso_root/boot
 
 # Build Limine
@@ -54,29 +58,40 @@ cp build/trampoline.bin iso_root/boot/
 # Copy Limine config
 cp limine.conf iso_root/
 
-# Create ISO image
-echo "Creating ISO..."
-xorriso -as mkisofs -b boot/limine-bios-cd.bin \
-        -no-emul-boot -boot-load-size 4 -boot-info-table \
-        --efi-boot boot/limine-uefi-cd.bin \
-        -efi-boot-part --efi-boot-image --protective-msdos-label \
-        iso_root -o NovumOS.iso
+# Create ISO image (if xorriso is available)
+if command -v xorriso &> /dev/null; then
+    echo "Creating ISO..."
+    xorriso -as mkisofs -b boot/limine-bios-cd.bin \
+            -no-emul-boot -boot-load-size 4 -boot-info-table \
+            --efi-boot boot/limine-uefi-cd.bin \
+            -efi-boot-part --efi-boot-image --protective-msdos-label \
+            iso_root -o NovumOS.iso
 
-# Install Limine bootloader to ISO
-echo "Installing Limine to ISO..."
-./limine-build/limine bios-install NovumOS.iso
+    # Install Limine bootloader to ISO
+    echo "Installing Limine to ISO..."
+    ./limine-build/limine bios-install NovumOS.iso
+else
+    echo "Skipping ISO (xorriso not found)"
+    echo "Install xorriso to create ISO: sudo apt install xorriso"
+fi
 
-# Create disk image
+# Calculate disk size based on iso_root + 10% for metadata
 echo "Creating disk image..."
-dd if=/dev/zero of=NovumOS.img bs=1M count=64 2>/dev/null
+ISO_SIZE=$(du -sb iso_root | cut -f1)
+DISK_SIZE=$((ISO_SIZE * 110 / 100))
+dd if=/dev/zero of=NovumOS.img bs=1 count=0 seek=$DISK_SIZE 2>/dev/null
 ./limine-build/limine bios-install NovumOS.img
 
 echo ""
 echo "=== Build Complete ==="
-echo "ISO:  NovumOS.iso  ($(stat -c%s NovumOS.iso | numfmt --to=iec))"
-echo "Disk: NovumOS.img  ($(stat -c%s NovumOS.img | numfmt --to=iec))"
+echo "Disk:  NovumOS.img  ($(stat -c%s NovumOS.img | numfmt --to=iec))"
+if [ -f NovumOS.iso ]; then
+    echo "ISO:    NovumOS.iso  ($(stat -c%s NovumOS.iso | numfmt --to=iec))"
+fi
 echo ""
 echo "To run:"
-echo "  qemu-system-i386 -cdrom NovumOS.iso"
 echo "  qemu-system-i386 -hda NovumOS.img"
+if [ -f NovumOS.iso ]; then
+    echo "  qemu-system-i386 -cdrom NovumOS.iso"
+fi
 echo ""

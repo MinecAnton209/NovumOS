@@ -5,6 +5,12 @@ echo Building NovumOS...
 if not exist build mkdir build
 if not exist limine-build mkdir limine-build
 
+:: Initialize Limine submodule if needed
+if not exist limine\Makefile (
+    echo Initializing Limine submodule...
+    git submodule update --init --recursive
+)
+
 :: Build Limine (use prebuilt on Windows)
 echo Building Limine...
 if exist limine\limine.exe (
