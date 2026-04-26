@@ -1,19 +1,25 @@
 @echo off
 echo Building NovumOS...
 
-:: Create build directory
+:: Create directories
 if not exist build mkdir build
+if not exist limine-build mkdir limine-build
 
-:: Assemble bootloader
-echo Assembling bootloader...
-nasm -f bin bootloader.asm -o build\bootloader.bin
-if %errorlevel% neq 0 (
-    echo Error assembling bootloader!
-    pause
-    exit /b 1
+:: Build Limine (use prebuilt on Windows)
+echo Building Limine...
+if exist limine\limine.exe (
+    copy limine\limine.exe limine-build\
+) else (
+    cd limine
+    make
+    cd ..
 )
+copy limine\limine-bios.sys limine-build\
+copy limine\limine-bios-cd.bin limine-build\
+copy limine\limine-uefi-cd.bin limine-build\
+copy limine\BOOTX64.EFI limine-build\
 
-:: Assemble kernel to ELF object file
+:: Assemble kernel
 echo Assembling kernel...
 nasm -f elf32 kernel32.asm -o build\kernel32.o
 if %errorlevel% neq 0 (
@@ -24,7 +30,7 @@ if %errorlevel% neq 0 (
 
 :: Assemble SMP Trampoline
 echo Assembling SMP Trampoline...
-nasm -f bin zig\smp_trampoline.asm -o zig\trampoline.bin
+nasm -f bin zig\smp_trampoline.asm -o build\trampoline.bin
 if %errorlevel% neq 0 (
     echo Error assembling SMP trampoline!
     pause
@@ -43,7 +49,7 @@ if %errorlevel% neq 0 (
 )
 popd
 
-:: Assemble User Mode modules
+:: Assemble User Mode
 echo Assembling User Mode...
 nasm -f elf32 user_mode.asm -o build\user_mode.o
 if %errorlevel% neq 0 (
@@ -52,7 +58,7 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: Link kernel with Zig modules and User Mode (strip during link)
+:: Link kernel
 echo Linking...
 zig ld.lld -m elf_i386 -T linker.ld --strip-all -o build\kernel32.elf build\kernel32.o build\user_mode.o zig\build\kernel.o
 if %errorlevel% neq 0 (
@@ -61,7 +67,7 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: Extract flat binary from ELF
+:: Extract binary
 echo Extracting binary...
 zig objcopy -O binary build\kernel32.elf build\kernel32.bin
 if %errorlevel% neq 0 (
@@ -70,23 +76,20 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: Create final image
+:: Create bootable image
 echo Creating image...
-copy /b build\bootloader.bin + build\kernel32.bin build\os-image.bin > nul
+copy /b limine-build\limine-bios.sys + build\kernel32.bin build\os-image.bin > nul
 
-:: Pad image to 2880 sectors (1.44MB floppy)
-:: This ensures everything is loaded correctly by the BIOS
-echo Padding image...
-fsutil file createnew build\pad.bin 1474560 > nul
+:: Pad to 1.44MB
+fsutil file createnorm build\pad.bin 1474560 > nul 2>nul
 copy /b build\os-image.bin + build\pad.bin build\temp.bin > nul
-fsutil file truncate build\temp.bin 1474560 > nul
-del build\os-image.bin
+del /f build\os-image.bin 2>nul
 ren build\temp.bin os-image.bin
-del build\pad.bin
+del /f build\pad.bin 2>nul
 
 echo.
 echo Build successful!
-dir build\*.bin
+dir build\*.bin os-image.bin
 
 echo.
-echo Run: qemu-system-i386 -drive format=raw,file=build\os-image.bin -serial stdio
+echo Run: qemu-system-i386 -drive format=raw,file=build\os-image.bin

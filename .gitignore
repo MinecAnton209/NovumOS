@@ -11,6 +11,7 @@ NovumOS.iso
 qemu.log
 disk.img
 iso_root/
+limine-build/
 
 # Tools
 tools/mkiso
