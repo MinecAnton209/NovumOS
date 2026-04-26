@@ -61,7 +61,24 @@ pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
     }
 
     if (common.selected_disk < 0) {
-        common.printError("Error: ELF loading from RAM FS not implemented yet\n");
+        const fs_mod = @import("fs.zig");
+        const file_id = fs_mod.fs_find(name.ptr, @intCast(@min(name.len, 12)));
+        if (file_id < 0) {
+            common.printError("Error: File not found in RAM FS\n");
+            return;
+        }
+
+        const file = &fs_mod.files[@intCast(file_id)];
+        if (!file.used or file.size == 0) {
+            common.printError("Error: Empty file\n");
+            return;
+        }
+
+        const data = file.data[0..file.size];
+        elf.load_and_run(data) catch |err| {
+            logger.err("Error loading ELF");
+            logger.debug(@errorName(err));
+        };
         return;
     }
 

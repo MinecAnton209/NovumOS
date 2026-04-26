@@ -7,7 +7,7 @@ pub const MAX_FILENAME = 12;
 pub const MAX_FILESIZE = 1024;
 
 // File entry structure
-const FileEntry = struct {
+pub const FileEntry = struct {
     name: [MAX_FILENAME]u8,
     data: [MAX_FILESIZE]u8,
     size: u16,
@@ -15,7 +15,7 @@ const FileEntry = struct {
 };
 
 // File system state
-var files: [MAX_FILES]FileEntry = undefined;
+pub var files: [MAX_FILES]FileEntry = undefined;
 var fs_initialized: bool = false;
 
 // Helper to zero memory (avoid @memset issues in freestanding)

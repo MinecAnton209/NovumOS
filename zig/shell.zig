@@ -119,7 +119,8 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "install", .help = "install <src> [name] - Install Nova script", .handler = cmd_handler_install },
     .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall },
     .{ .name = "ring3", .help = "Switch to Ring 3 (User Mode) test", .handler = cmd_handler_ring3 },
-    .{ .name = "run", .help = "run <elf> - Execute an ELF executable in Ring 3", .handler = cmd_handler_run },
+    .{ .name = "run", .help = "run <elf> - Execute an ELF (RAM FS or disk)", .handler = cmd_handler_run },
+    .{ .name = "exec", .help = "Alias for run", .handler = cmd_handler_run },
     .{ .name = "calc", .help = "Evaluate math & bitwise expressions (e.g. 1 << 8)", .handler = cmd_handler_calc },
     .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = cmd_handler_res },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{

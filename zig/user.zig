@@ -357,13 +357,40 @@ export fn handle_syscall_zig(regs: *Registers) void {
                 regs.eax = 0;
                 return;
             }
-            // Instead of moving IDTR (causes immediate crash),
-            // just modify one byte in IDT - watchdog will detect on next check
             const idt_watchdog = @import("idt_watchdog.zig");
             const idt_base = idt_watchdog.get_idt_base();
             const idt_ptr = @as([*]u8, @ptrFromInt(idt_base));
             idt_ptr[0x90 * 8] = 0xCC; // Modify unused vector
             regs.eax = 1;
+        },
+        40 => { // Execve(EBX = filename_ptr) - execute ELF from simplefs by name
+            const fs_mod = @import("fs.zig");
+            const elf_mod = @import("elf.zig");
+
+            const filename_ptr = @as([*]const u8, @ptrFromInt(regs.ebx));
+            const filename_len = safe_strlen_user(filename_ptr, 32) orelse {
+                regs.eax = 0xFFFFFFFF;
+                return;
+            };
+
+            const file_id = fs_mod.fs_find(filename_ptr, @intCast(filename_len));
+            if (file_id < 0) {
+                regs.eax = 0xFFFFFFFF;
+                return;
+            }
+
+            const file = &fs_mod.files[@intCast(file_id)];
+            if (!file.used or file.size == 0) {
+                regs.eax = 0xFFFFFFFF;
+                return;
+            }
+
+            const data = file.data[0..file.size];
+            elf_mod.load_and_run(data) catch {
+                regs.eax = 0xFFFFFFFF;
+                return;
+            };
+            unreachable;
         },
         else => {
             logger.err("Unknown syscall");
