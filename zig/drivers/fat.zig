@@ -3,6 +3,44 @@ const common = @import("../commands/common.zig");
 const ata = @import("ata.zig");
 const vga = @import("vga.zig");
 
+pub const FatCacheSize = 64; // Cache 64 FAT sectors
+
+var fat_cache_sectors: [FatCacheSize][512]u8 = undefined;
+var fat_cache_sector: [FatCacheSize]u32 = undefined;
+var fat_cache_count: usize = 0;
+var fat_cache_drive: ata.Drive = undefined;
+var fat_cache_init: bool = false;
+
+fn fat_cache_init_internal(drive: ata.Drive) void {
+    fat_cache_drive = drive;
+    fat_cache_count = 0;
+    fat_cache_init = true;
+}
+
+fn fat_read_cached_sector(drive: ata.Drive, sector: u32) [*]u8 {
+    if (!fat_cache_init or fat_cache_drive != drive) {
+        fat_cache_init_internal(drive);
+    }
+
+    for (0..fat_cache_count) |i| {
+        if (fat_cache_sector[i] == sector) {
+            return &fat_cache_sectors[i];
+        }
+    }
+
+    if (fat_cache_count < FatCacheSize) {
+        ata.read_sector(drive, sector, &fat_cache_sectors[fat_cache_count]);
+        fat_cache_sector[fat_cache_count] = sector;
+        fat_cache_count += 1;
+        return &fat_cache_sectors[fat_cache_count - 1];
+    }
+
+    const oldest = 0;
+    ata.read_sector(drive, sector, &fat_cache_sectors[oldest]);
+    fat_cache_sector[oldest] = sector;
+    return &fat_cache_sectors[oldest];
+}
+
 pub const FatType = enum {
     None,
     FAT12,
@@ -1286,81 +1324,77 @@ fn find_free_cluster(drive: ata.Drive, bpb: BPB) ?u32 {
 }
 
 pub fn get_fat_entry(drive: ata.Drive, bpb: BPB, cluster: u32) u32 {
-    var buffer: [1024]u8 = undefined; // 2 sectors for FAT12 safety
-
     if (bpb.fat_type == .FAT12) {
         const fat_offset = cluster + (cluster / 2);
         const sector = bpb.first_fat_sector + (fat_offset / 512);
         const ent_offset = fat_offset % 512;
 
-        ata.read_sector(drive, sector, buffer[0..512].ptr);
-        ata.read_sector(drive, sector + 1, buffer[512..1024].ptr);
+        const buf1 = fat_read_cached_sector(drive, sector);
+        const buf2 = fat_read_cached_sector(drive, sector + 1);
 
-        const val = @as(u16, buffer[ent_offset]) | (@as(u16, buffer[ent_offset + 1]) << 8);
+        const val = @as(u16, buf1[ent_offset]) | (@as(u16, buf2[ent_offset + 1]) << 8);
         return if (cluster % 2 == 1) val >> 4 else val & 0xFFF;
     } else if (bpb.fat_type == .FAT16) {
         const fat_offset = cluster * 2;
         const sector = bpb.first_fat_sector + (fat_offset / 512);
         const ent_offset = fat_offset % 512;
 
-        ata.read_sector(drive, sector, buffer[0..512].ptr);
-        return @as(u16, buffer[ent_offset]) | (@as(u16, buffer[ent_offset + 1]) << 8);
+        const buf = fat_read_cached_sector(drive, sector);
+        return @as(u16, buf[ent_offset]) | (@as(u16, buf[ent_offset + 1]) << 8);
     } else {
         const fat_offset = cluster * 4;
         const sector = bpb.first_fat_sector + (fat_offset / 512);
         const ent_offset = fat_offset % 512;
 
-        ata.read_sector(drive, sector, buffer[0..512].ptr);
-        const val = @as(u32, buffer[ent_offset]) | (@as(u32, buffer[ent_offset + 1]) << 8) | (@as(u32, buffer[ent_offset + 2]) << 16) | (@as(u32, buffer[ent_offset + 3]) << 24);
+        const buf = fat_read_cached_sector(drive, sector);
+        const val = @as(u32, buf[ent_offset]) | (@as(u32, buf[ent_offset + 1]) << 8) | (@as(u32, buf[ent_offset + 2]) << 16) | (@as(u32, buf[ent_offset + 3]) << 24);
         return val & 0x0FFFFFFF;
     }
 }
 
 fn set_fat_entry(drive: ata.Drive, bpb: BPB, cluster: u32, value: u32) void {
-    var buffer: [1024]u8 = undefined;
-
     if (bpb.fat_type == .FAT12) {
         const fat_offset = cluster + (cluster / 2);
         const sector = bpb.first_fat_sector + (fat_offset / 512);
         const ent_offset = fat_offset % 512;
 
-        ata.read_sector(drive, sector, buffer[0..512].ptr);
-        ata.read_sector(drive, sector + 1, buffer[512..1024].ptr);
+        const buf1 = fat_read_cached_sector(drive, sector);
+        const buf2 = fat_read_cached_sector(drive, sector + 1);
 
-        var val = @as(u16, buffer[ent_offset]) | (@as(u16, buffer[ent_offset + 1]) << 8);
+        var val = @as(u16, buf1[ent_offset]) | (@as(u16, buf2[ent_offset + 1]) << 8);
         if (cluster % 2 == 1) {
             val = (val & 0x000F) | (@as(u16, @intCast(value)) << 4);
         } else {
             val = (val & 0xF000) | (@as(u16, @intCast(value)) & 0x0FFF);
         }
 
-        buffer[ent_offset] = @intCast(val & 0xFF);
-        buffer[ent_offset + 1] = @intCast(val >> 8);
+        buf1[ent_offset] = @intCast(val & 0xFF);
+        buf2[ent_offset + 1] = @intCast(val >> 8);
 
-        ata.write_sector(drive, sector, buffer[0..512].ptr);
-        ata.write_sector(drive, sector + 1, buffer[512..1024].ptr);
+        ata.write_sector(drive, sector, buf1);
+        ata.write_sector(drive, sector + 1, buf2);
     } else if (bpb.fat_type == .FAT16) {
         const fat_offset = cluster * 2;
         const sector = bpb.first_fat_sector + (fat_offset / 512);
         const ent_offset = fat_offset % 512;
 
-        ata.read_sector(drive, sector, buffer[0..512].ptr);
-        buffer[ent_offset] = @intCast(value & 0xFF);
-        buffer[ent_offset + 1] = @intCast(value >> 8);
-        ata.write_sector(drive, sector, buffer[0..512].ptr);
+        const buf = fat_read_cached_sector(drive, sector);
+        buf[ent_offset] = @intCast(value & 0xFF);
+        buf[ent_offset + 1] = @intCast(value >> 8);
+        ata.write_sector(drive, sector, buf);
     } else {
         const fat_offset = cluster * 4;
         const sector = bpb.first_fat_sector + (fat_offset / 512);
         const ent_offset = fat_offset % 512;
 
-        ata.read_sector(drive, sector, buffer[0..512].ptr);
-        const old_val = @as(u32, buffer[ent_offset]) | (@as(u32, buffer[ent_offset + 1]) << 8) | (@as(u32, buffer[ent_offset + 2]) << 16) | (@as(u32, buffer[ent_offset + 3]) << 24);
+        const buf = fat_read_cached_sector(drive, sector);
+        const old_val = @as(u32, buf[ent_offset]) | (@as(u32, buf[ent_offset + 1]) << 8) | (@as(u32, buf[ent_offset + 2]) << 16) | (@as(u32, buf[ent_offset + 3]) << 24);
         const new_val = (old_val & 0xF0000000) | (value & 0x0FFFFFFF);
-        buffer[ent_offset] = @intCast(new_val & 0xFF);
-        buffer[ent_offset + 1] = @intCast((new_val >> 8) & 0xFF);
-        buffer[ent_offset + 2] = @intCast((new_val >> 16) & 0xFF);
-        buffer[ent_offset + 3] = @intCast((new_val >> 24) & 0xFF);
-        ata.write_sector(drive, sector, buffer[0..512].ptr);
+        buf[ent_offset] = @intCast(new_val & 0xFF);
+        buf[ent_offset + 1] = @intCast((new_val >> 8) & 0xFF);
+        buf[ent_offset + 2] = @intCast((new_val >> 16) & 0xFF);
+        buf[ent_offset + 3] = @intCast((new_val >> 24) & 0xFF);
+        ata.write_sector(drive, sector, buf);
     }
 }
 
