@@ -18,6 +18,8 @@ const libc_stubs = @import("libc_stubs.zig");
 const logger = @import("logger.zig");
 const user = @import("user.zig");
 const idt_watchdog = @import("idt_watchdog.zig");
+const ata = @import("drivers/ata.zig");
+const fat = @import("drivers/fat.zig");
 
 // Ensure all modules are included in the compilation
 comptime {
@@ -63,17 +65,14 @@ export fn kmain() void {
 
     // 3. Initialize display so we can show boot progress
     lfb.init();
-    vga.init_dimensions();
     vga.clear_screen();
 
     vga.set_color(11, 0); // Light Cyan
     common.printZ("\nInitializing NovumOS Kernel...\n\n");
 
-    // Step 1: Memory (Actually done earlier, just show progress)
+    // Step 1: Memory
     vga.set_color(15, 0);
-    common.printZ("Warming up PMM:  ");
-    vga.vga_flush();
-
+    common.printZ("Checking PMM: ");
     vga.set_color(10, 0);
     common.printZ("OK\n");
 
@@ -89,7 +88,6 @@ export fn kmain() void {
     while (i < 8) : (i += 1) {
         common.set_cursor(2, 17);
         common.print_char(spinner[i % 4]);
-        vga.vga_flush();
     }
     common.set_cursor(2, 17);
     vga.set_color(10, 0);
@@ -97,23 +95,51 @@ export fn kmain() void {
 
     // Step 3: File System
     vga.set_color(15, 0);
-    common.printZ("Mounting disks:  [                    ]");
+    common.printZ("Checking disks: ");
     vga.vga_flush();
 
-    // Actual FS init
-    shell_cmds.zig_init();
-    var p: u8 = 0;
-    while (p < 20) : (p += 1) {
-        common.set_cursor(3, 18 + p);
-        vga.set_color(14, 0);
-        common.print_char('#');
-        vga.vga_flush();
+    // Boot spinner + disk check
+    const boot_spinner = [_]u8{ '|', '/', '-', '\\' };
+    var boot_elapsed: usize = 0;
+    var boot_last: usize = 0;
+    var disk_found = false;
+
+    while (boot_elapsed < 2000) {
+        const now = timer.get_ticks();
+        if (now - boot_last >= 10) {
+            boot_last = now;
+            common.print_char(boot_spinner[(boot_elapsed / 100) % 4]);
+            common.print_char(8);
+        }
+
+        const size = ata.identify(.Slave);
+        if (size > 0) {
+            disk_found = true;
+            break;
+        }
+        timer.sleep(10);
+        boot_elapsed += 10;
     }
+
+    if (disk_found) {
+        if (fat.read_bpb(.Slave) != null) {
+            common.selected_disk = 1;
+        }
+    }
+    common.fs_init();
+
+    // Clear spinner and show OK
+    common.print_char(8);
+    common.print_char(' ');
+    common.print_char(8);
     vga.set_color(10, 0);
-    common.set_cursor(3, 40);
-    common.printZ("OK\n");
+    common.printZ(" OK\n");
+
+    // Now init LFB dimensions
+    vga.init_dimensions();
 
     vga.clear_screen();
+    vga.vga_flush();
 
     // Print welcome banner in LFB
     messages.print_welcome();

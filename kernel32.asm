@@ -125,6 +125,19 @@ limine_start:
     jmp 0x08:.reload_cs
 .reload_cs:
 
+%ifndef ENABLE_SERIAL_DEBUG
+%define ENABLE_SERIAL_DEBUG 0
+%endif
+%ifndef ENABLE_EARLY_LFB_DEBUG
+%define ENABLE_EARLY_LFB_DEBUG 0
+%endif
+
+%if ENABLE_SERIAL_DEBUG
+%define DEBUG_PUTC call debug_putc
+%else
+%define DEBUG_PUTC
+%endif
+
 section .text
 actual_code:
     ; Parse Multiboot2 info to get framebuffer address from bootloader
@@ -152,7 +165,6 @@ actual_code:
 
 .found_fb:
     ; Framebuffer tag: read fields
-    ; type(4) + size(4) + addr(8) + pitch(4) + width(4) + height(4) + bpp(1) + type(1) + reserved(2)
     mov eax, [ebp + 8]
     mov [fb_addr], eax
     mov eax, [ebp + 16]
@@ -166,13 +178,14 @@ actual_code:
     jmp .done_parse
 
 .no_framebuffer:
-    ; No framebuffer provided
     mov al, 'N'
-    call debug_putc
+    DEBUG_PUTC
 
 .done_parse:
     mov al, 'D'
-    call debug_putc
+    DEBUG_PUTC
+
+    %if ENABLE_EARLY_LFB_DEBUG
 
     ; Early boot visual feedback - draw test pattern to framebuffer
     mov eax, [fb_addr]
@@ -213,8 +226,9 @@ actual_code:
     jnz .fill_y
 
 .skip_fb_write:
+%endif
     mov al, 'K'
-    call debug_putc
+    DEBUG_PUTC
 
     ; Enable SSE (required by modern compilers like Zig/Clang)
     mov eax, cr0
@@ -233,13 +247,13 @@ actual_code:
     rep stosb
 
     mov al, 'P'
-    call debug_putc
+    DEBUG_PUTC
 
     ; Hardware Initialization
     call clear_screen
 
     mov al, 'C'
-    call debug_putc
+    DEBUG_PUTC
 
     ; Setup TSS in GDT
     call gdt_install_tss
@@ -250,15 +264,11 @@ actual_code:
     ltr ax
 
     mov al, 'G'
-    call debug_putc
+    DEBUG_PUTC
 
-    call idt_init               ; Setup IDT (now uses TSS 0x98 for vector 8)
+    call idt_init               ; Setup IDT
     call init_serial            ; Setup COM1 for logging
     call zig_init               ; Initialize Zig modules (FS, etc)
-
-    mov al, 'I'
-    call debug_putc
-
     sti                         ; Re-enable interrupts
 
     ; Transfer control to Zig Kernel
@@ -327,6 +337,7 @@ debug_putc:
     mov dx, 0x3f8
     out dx, al
     ret
+    ret
 
 ; Write 32-bit hex value to debug serial
 debug_putc_hex:
@@ -343,7 +354,7 @@ debug_putc_hex:
 .hex_skip:
     push eax
     mov al, bl
-    call debug_putc
+    DEBUG_PUTC
     pop eax
     loop .hex_loop
     popad
@@ -351,27 +362,43 @@ debug_putc_hex:
 
 ; Initialize Serial COM1 (38400 baud, 8N1)
 init_serial:
+    mov al, '1'
+    DEBUG_PUTC
     mov dx, 0x3f8 + 1    ; IER
     xor al, al
     out dx, al           ; Disable all interrupts
+    mov al, '2'
+    DEBUG_PUTC
     mov dx, 0x3f8 + 3    ; LCR
     mov al, 0x80
     out dx, al           ; Enable DLAB
+    mov al, '3'
+    DEBUG_PUTC
     mov dx, 0x3f8 + 0    ; DLL
     mov al, 0x03         ; 38400 baud
     out dx, al
+    mov al, '4'
+    DEBUG_PUTC
     mov dx, 0x3f8 + 1    ; DLM
     xor al, al
     out dx, al
+    mov al, '5'
+    DEBUG_PUTC
     mov dx, 0x3f8 + 3    ; LCR
     mov al, 0x03         ; 8 bits, no parity, one stop bit
     out dx, al
+    mov al, '6'
+    DEBUG_PUTC
     mov dx, 0x3f8 + 2    ; FCR
     mov al, 0xC7         ; Enable FIFO, clear them
     out dx, al
+    mov al, '7'
+    DEBUG_PUTC
     mov dx, 0x3f8 + 4    ; MCR
     mov al, 0x0B         ; IRQs enabled
     out dx, al
+    mov al, '8'
+    call debug_putc
     ret
 
 ; Include drivers

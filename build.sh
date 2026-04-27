@@ -24,7 +24,15 @@ cp limine/limine limine-build/
 
 # Assemble kernel
 echo "Assembling kernel..."
-nasm -f elf32 kernel32.asm -o build/kernel32.o
+SERIAL_DEBUG=0
+EARLY_LFB_DEBUG=0
+if grep -q 'ENABLE_SERIAL_DEBUG = true' zig/config.zig 2>/dev/null; then
+    SERIAL_DEBUG=1
+fi
+if grep -q 'ENABLE_EARLY_LFB_DEBUG = true' zig/config.zig 2>/dev/null; then
+    EARLY_LFB_DEBUG=1
+fi
+nasm -f elf32 kernel32.asm -o build/kernel32.o -DENABLE_SERIAL_DEBUG=$SERIAL_DEBUG -DENABLE_EARLY_LFB_DEBUG=$EARLY_LFB_DEBUG
 
 # Assemble SMP Trampoline
 echo "Assembling SMP Trampoline..."

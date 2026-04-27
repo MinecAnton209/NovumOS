@@ -14,7 +14,11 @@ pub const ATA_STATUS_REG = ATA_PRIMARY_BASE + 7;
 pub const ATA_COMMAND_REG = ATA_PRIMARY_BASE + 7;
 
 fn wait_bsy() void {
-    while ((common.inb(ATA_STATUS_REG) & 0x80) != 0) {}
+    var timeout: u32 = 0;
+    while ((common.inb(ATA_STATUS_REG) & 0x80) != 0) {
+        timeout += 1;
+        if (timeout > 0xFFFFFFF) return; // Timeout - no disk
+    }
 }
 
 fn interrupts_save() u32 {
@@ -45,7 +49,11 @@ fn spin_unlock(lock: *volatile u32) void {
 }
 
 fn wait_drq() void {
-    while ((common.inb(ATA_STATUS_REG) & 0x08) == 0) {}
+    var timeout: u32 = 0;
+    while ((common.inb(ATA_STATUS_REG) & 0x08) == 0) {
+        timeout += 1;
+        if (timeout > 0xFFFFFFF) return; // Timeout - no disk
+    }
 }
 
 pub fn identify(drive: Drive) u32 {
@@ -76,7 +84,9 @@ pub fn identify(drive: Drive) u32 {
     common.outb(ATA_COMMAND_REG, 0xEC);
 
     const status = common.inb(ATA_STATUS_REG);
-    if (status == 0) return 0;
+    if (status == 0 or status == 0xFF) {
+        return 0;
+    }
 
     wait_bsy();
 

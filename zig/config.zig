@@ -5,6 +5,7 @@ pub const HISTORY_SIZE = 50; // Default history size
 pub const ENABLE_DEBUG_CRASH_COMMANDS = false;
 pub const ENABLE_DEBUG_COMMANDS = false;
 pub const ENABLE_EARLY_LFB_DEBUG = false; // Print pattern to LFB at boot (from Multiboot2 fb)
+pub const ENABLE_SERIAL_DEBUG = false; // Serial debug output (DKPCG...)
 pub const ENABLE_IDT_WATCHDOG = true; // Watchdog to check IDT integrity periodically
 pub const ENABLE_RSOD_REBOOT = true;
 pub const ENABLE_EMBEDDED_ELFS = false;
