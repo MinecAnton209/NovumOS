@@ -98,6 +98,11 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "mkfs-fat16", .help = "Format drive as FAT16 (standard)", .handler = cmd_handler_mkfs16 },
     .{ .name = "mkfs-fat32", .help = "Format drive as FAT32 (advanced)", .handler = cmd_handler_mkfs32 },
     .{ .name = "touch", .help = "Create an empty file", .handler = cmd_handler_touch },
+    .{ .name = "lseek", .help = "lseek <f> <off> [SET|CUR|END]", .handler = cmd_handler_lseek },
+    .{ .name = "truncate", .help = "truncate <f> <size> - Truncate file", .handler = cmd_handler_truncate },
+    .{ .name = "sync", .help = "Sync filesystem to disk", .handler = cmd_handler_sync },
+    .{ .name = "expand", .help = "expand <f> <size> - Expand file", .handler = cmd_handler_expand },
+    .{ .name = "forward", .help = "forward <f> <count> - Move forward", .handler = cmd_handler_forward },
     .{ .name = "attrib", .help = "Set file attributes [+R|+H|+S|+A]", .handler = cmd_handler_attrib },
     .{ .name = "write", .help = "write [-a] <f> <t> - Write string to file (-a to append)", .handler = cmd_handler_write },
     .{ .name = "rm", .help = "rm [-d] [-r] <f|*> - Delete file/dir", .handler = cmd_handler_rm },
@@ -1259,6 +1264,48 @@ fn cmd_handler_touch(args: []const u8) void {
         shell_cmds.cmd_touch(args.ptr, @intCast(args.len));
     } else {
         common.printZ("Usage: touch <file>\n");
+    }
+}
+
+fn cmd_handler_lseek(args: []const u8) void {
+    if (args.len > 0) {
+        shell_cmds.cmd_lseek(args.ptr, @intCast(args.len));
+    } else {
+        common.printZ("Usage: lseek <file> <offset> [SEEK_SET|SEEK_CUR|SEEK_END]\n");
+        common.printZ("  SEEK_SET = 0 (from start)\n");
+        common.printZ("  SEEK_CUR = 1 (from current)\n");
+        common.printZ("  SEEK_END = 2 (from end)\n");
+    }
+}
+
+fn cmd_handler_truncate(args: []const u8) void {
+    if (args.len > 0) {
+        shell_cmds.cmd_truncate(args.ptr, @intCast(args.len));
+    } else {
+        common.printZ("Usage: truncate <file> <size>\n");
+        common.printZ("  Truncate file to specified size in bytes\n");
+    }
+}
+
+fn cmd_handler_sync(_: []const u8) void {
+    shell_cmds.cmd_sync();
+}
+
+fn cmd_handler_expand(args: []const u8) void {
+    if (args.len > 0) {
+        shell_cmds.cmd_expand(args.ptr, @intCast(args.len));
+    } else {
+        common.printZ("Usage: expand <file> <size>\n");
+        common.printZ("  Expand file to specified size in bytes\n");
+    }
+}
+
+fn cmd_handler_forward(args: []const u8) void {
+    if (args.len > 0) {
+        shell_cmds.cmd_forward(args.ptr, @intCast(args.len));
+    } else {
+        common.printZ("Usage: forward <file> <count>\n");
+        common.printZ("  Forward file position by count bytes\n");
     }
 }
 

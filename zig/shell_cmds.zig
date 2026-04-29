@@ -275,6 +275,290 @@ pub export fn cmd_touch(name_ptr: [*]const u8, name_len: u32) void {
     }
 }
 
+/// Execute 'lseek' command to change file position
+pub export fn cmd_lseek(args_ptr: [*]const u8, args_len: u32) void {
+    if (common.selected_disk < 0) {
+        common.printZ("Error: No disk selected\n");
+        return;
+    }
+
+    const args_raw = args_ptr[0..args_len];
+    var argv: [8][]const u8 = undefined;
+    const argc = common.parseArgs(args_raw, &argv);
+
+    if (argc < 2) {
+        common.printZ("Usage: lseek <file> <offset> [SEEK_SET|SEEK_CUR|SEEK_END]\n");
+        return;
+    }
+
+    const filename = argv[0];
+
+    var offset: i64 = 0;
+    var i: usize = 0;
+    var neg = false;
+    if (argv[1][0] == '-') {
+        neg = true;
+        i = 1;
+    }
+    while (i < argv[1].len) {
+        const c = argv[1][i];
+        if (c >= '0' and c <= '9') {
+            offset = offset * 10 + (c - '0');
+        }
+        i += 1;
+    }
+    if (neg) offset = -offset;
+
+    var whence: i32 = 0;
+    if (argc > 2) {
+        if (common.std_mem_eql(argv[2], "SEEK_CUR") or common.std_mem_eql(argv[2], "CUR")) {
+            whence = 1;
+        } else if (common.std_mem_eql(argv[2], "SEEK_END") or common.std_mem_eql(argv[2], "END")) {
+            whence = 2;
+        } else {
+            whence = 0;
+        }
+    }
+
+    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    if (fat.read_bpb(drive)) |bpb| {
+        const entry = fat.find_entry_literal(drive, bpb, common.current_dir_cluster, filename);
+        if (entry == null) {
+            common.printError("Error: File not found\n");
+            return;
+        }
+
+        const handle = fat.fat_open(drive, bpb, common.current_dir_cluster, filename);
+        if (handle) |h| {
+            var mut_handle = h;
+            const result = fat.fat_lseek(&mut_handle, offset, whence);
+            if (result >= 0) {
+                common.printZ("Position: ");
+                common.printNum(@intCast(result));
+                common.printZ("\n");
+            } else {
+                common.printError("Error: Invalid offset\n");
+            }
+        } else {
+            common.printError("Error: Could not open file\n");
+        }
+    } else {
+        common.printError("Error: Disk not formatted\n");
+    }
+}
+
+/// Execute 'truncate' command to truncate file to specified size
+pub export fn cmd_truncate(args_ptr: [*]const u8, args_len: u32) void {
+    if (common.selected_disk < 0) {
+        common.printZ("Error: No disk selected\n");
+        return;
+    }
+
+    const args_raw = args_ptr[0..args_len];
+    var argv: [8][]const u8 = undefined;
+    const argc = common.parseArgs(args_raw, &argv);
+
+    if (argc < 2) {
+        common.printZ("Usage: truncate <file> <size>\n");
+        return;
+    }
+
+    const filename = argv[0];
+
+    var size: u32 = 0;
+    var i: usize = 0;
+    while (i < argv[1].len) {
+        const c = argv[1][i];
+        if (c >= '0' and c <= '9') {
+            size = size * 10 + (c - '0');
+        }
+        i += 1;
+    }
+
+    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    if (fat.read_bpb(drive)) |bpb| {
+        const entry = fat.find_entry_literal(drive, bpb, common.current_dir_cluster, filename);
+        if (entry) |e| {
+            if ((e.attr & 0x01) != 0) {
+                common.printError("Error: Cannot truncate read-only file\n");
+                return;
+            }
+            if ((e.attr & 0x04) != 0) {
+                common.printError("Error: Cannot truncate system file\n");
+                return;
+            }
+        } else {
+            common.printError("Error: File not found\n");
+            return;
+        }
+
+        const handle = fat.fat_open(drive, bpb, common.current_dir_cluster, filename);
+        if (handle) |h| {
+            var mut_handle = h;
+            const result = fat.fat_truncate(&mut_handle, size);
+            if (result == 0) {
+                common.printZ("File truncated to ");
+                common.printNum(@intCast(size));
+                common.printZ(" bytes\n");
+            } else {
+                common.printError("Error: Could not truncate\n");
+            }
+        } else {
+            common.printError("Error: Could not open file\n");
+        }
+    } else {
+        common.printError("Error: Disk not formatted\n");
+    }
+}
+
+/// Execute 'sync' command to sync filesystem
+pub export fn cmd_sync() void {
+    if (common.selected_disk < 0) {
+        common.printZ("Error: No disk selected\n");
+        return;
+    }
+
+    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    if (fat.read_bpb(drive)) |bpb| {
+        const result = fat.fat_sync(drive, bpb);
+        if (result == 0) {
+            common.printZ("Filesystem synced\n");
+        } else {
+            common.printError("Error: Sync failed\n");
+        }
+    } else {
+        common.printError("Error: Disk not formatted\n");
+    }
+}
+
+/// Execute 'expand' command to expand file to specified size
+pub export fn cmd_expand(args_ptr: [*]const u8, args_len: u32) void {
+    if (common.selected_disk < 0) {
+        common.printZ("Error: No disk selected\n");
+        return;
+    }
+
+    const args_raw = args_ptr[0..args_len];
+    var argv: [8][]const u8 = undefined;
+    const argc = common.parseArgs(args_raw, &argv);
+
+    if (argc < 2) {
+        common.printZ("Usage: expand <file> <size>\n");
+        return;
+    }
+
+    const filename = argv[0];
+
+    var size: u32 = 0;
+    var i: usize = 0;
+    while (i < argv[1].len) {
+        const c = argv[1][i];
+        if (c >= '0' and c <= '9') {
+            size = size * 10 + (c - '0');
+        }
+        i += 1;
+    }
+
+    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    if (fat.read_bpb(drive)) |bpb| {
+        const entry = fat.find_entry_literal(drive, bpb, common.current_dir_cluster, filename);
+        if (entry) |e| {
+            if ((e.attr & 0x01) != 0) {
+                common.printError("Error: Cannot expand read-only file\n");
+                return;
+            }
+            if ((e.attr & 0x04) != 0) {
+                common.printError("Error: Cannot expand system file\n");
+                return;
+            }
+        } else {
+            common.printError("Error: File not found\n");
+            return;
+        }
+
+        const handle = fat.fat_open(drive, bpb, common.current_dir_cluster, filename);
+        if (handle) |h| {
+            var mut_handle = h;
+            const result = fat.fat_expand(&mut_handle, size);
+            if (result == 0) {
+                common.printZ("File expanded to ");
+                common.printNum(@intCast(size));
+                common.printZ(" bytes\n");
+            } else {
+                common.printError("Error: Could not expand\n");
+            }
+        } else {
+            common.printError("Error: Could not open file\n");
+        }
+    } else {
+        common.printError("Error: Disk not formatted\n");
+    }
+}
+
+/// Execute 'forward' command to move file position forward
+pub export fn cmd_forward(args_ptr: [*]const u8, args_len: u32) void {
+    if (common.selected_disk < 0) {
+        common.printZ("Error: No disk selected\n");
+        return;
+    }
+
+    const args_raw = args_ptr[0..args_len];
+    var argv: [8][]const u8 = undefined;
+    const argc = common.parseArgs(args_raw, &argv);
+
+    if (argc < 2) {
+        common.printZ("Usage: forward <file> <count>\n");
+        return;
+    }
+
+    const filename = argv[0];
+
+    var count: u32 = 0;
+    var i: usize = 0;
+    while (i < argv[1].len) {
+        const c = argv[1][i];
+        if (c >= '0' and c <= '9') {
+            count = count * 10 + (c - '0');
+        }
+        i += 1;
+    }
+
+    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    if (fat.read_bpb(drive)) |bpb| {
+        const entry = fat.find_entry_literal(drive, bpb, common.current_dir_cluster, filename);
+        if (entry) |e| {
+            if ((e.attr & 0x01) != 0) {
+                common.printError("Error: Cannot modify read-only file\n");
+                return;
+            }
+            if ((e.attr & 0x04) != 0) {
+                common.printError("Error: Cannot modify system file\n");
+                return;
+            }
+        } else {
+            common.printError("Error: File not found\n");
+            return;
+        }
+
+        const handle = fat.fat_open(drive, bpb, common.current_dir_cluster, filename);
+        if (handle) |h| {
+            var mut_handle = h;
+            const result = fat.fat_forward(&mut_handle, count);
+            if (result >= 0) {
+                common.printZ("Position: ");
+                common.printNum(result);
+                common.printZ("\n");
+            } else {
+                common.printError("Error: Cannot forward past end of file\n");
+            }
+        } else {
+            common.printError("Error: Could not open file\n");
+        }
+    } else {
+        common.printError("Error: Disk not formatted\n");
+    }
+}
+
 /// Execute 'attrib' command to set file attributes
 pub export fn cmd_attrib(args_ptr: [*]const u8, args_len: u32) void {
     if (common.selected_disk < 0) {

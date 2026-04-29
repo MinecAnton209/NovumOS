@@ -51,6 +51,21 @@ pub const stream_to_console_literal = file.stream_to_console_literal;
 pub const write_file = file.write_file;
 pub const append_to_file = file.append_to_file;
 
+pub const FileHandle = file.FileHandle;
+pub const fat_open = file.fat_open;
+pub const fat_size = file.fat_size;
+pub const fat_getcwd = file.fat_getcwd;
+pub const fat_getcwd_len = file.fat_getcwd_len;
+pub const fat_lseek = file.fat_lseek;
+pub const fat_tell = file.fat_tell;
+pub const fat_truncate = file.fat_truncate;
+pub const fat_sync = file.fat_sync;
+pub const fat_expand = file.fat_expand;
+pub const fat_forward = file.fat_forward;
+pub const fat_gets = file.fat_gets;
+pub const fat_puts = file.fat_puts;
+pub const fat_putc = file.fat_putc;
+
 pub fn format(drive: ata.Drive, bpb: BPB, progress_cb: ?*const fn (u32, u32) void) bool {
     var buffer: [512]u8 = [_]u8{0} ** 512;
 

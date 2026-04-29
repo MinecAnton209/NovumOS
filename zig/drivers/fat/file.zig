@@ -4,6 +4,346 @@ const dir = @import("dir.zig");
 
 pub const getCurrentTimestamp = dir.getCurrentTimestamp;
 
+pub const FileHandle = struct {
+    drive: ata.Drive,
+    bpb: BPB,
+    dir_cluster: u32,
+    name: []const u8,
+    cluster: u32,
+    offset: u32,
+    size: u32,
+};
+
+pub fn fat_open(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u8) ?FileHandle {
+    const res = resolve_path(drive, bpb, dir_cluster, path) orelse return null;
+    const entry = find_entry_literal(drive, bpb, res.dir_cluster, res.file_name) orelse return null;
+
+    if ((entry.attr & 0x10) != 0) return null;
+
+    return FileHandle{
+        .drive = drive,
+        .bpb = bpb,
+        .dir_cluster = res.dir_cluster,
+        .name = res.file_name,
+        .cluster = @as(u32, entry.first_cluster_low) | (@as(u32, entry.first_cluster_high) << 16),
+        .offset = 0,
+        .size = entry.file_size,
+    };
+}
+
+pub fn fat_size(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u8) u32 {
+    const res = resolve_path(drive, bpb, dir_cluster, path) orelse return 0;
+    const entry = find_entry_literal(drive, bpb, res.dir_cluster, res.file_name) orelse return 0;
+    return entry.file_size;
+}
+
+pub fn fat_getcwd() [*]u8 {
+    return @ptrCast(&common.current_path);
+}
+
+pub fn fat_getcwd_len() usize {
+    return common.current_path_len;
+}
+
+pub fn fat_lseek(handle: *FileHandle, offset: i64, whence: i32) i64 {
+    var new_offset: i64 = 0;
+
+    switch (whence) {
+        0 => new_offset = offset,
+        1 => new_offset = @as(i64, @intCast(handle.offset)) + offset,
+        2 => new_offset = @as(i64, @intCast(handle.size)) + offset,
+        else => return -1,
+    }
+
+    if (new_offset < 0) return -1;
+    if (new_offset > handle.size) new_offset = handle.size;
+
+    handle.offset = @intCast(new_offset);
+
+    const cluster_offset = handle.offset / (@as(u32, handle.bpb.sectors_per_cluster) * 512);
+    var current = handle.cluster;
+    var i: u32 = 0;
+    while (i < cluster_offset and current >= 2) {
+        current = get_fat_entry(handle.drive, handle.bpb, current);
+        i += 1;
+    }
+    handle.cluster = current;
+
+    return new_offset;
+}
+
+pub fn fat_tell(handle: *FileHandle) u32 {
+    return handle.offset;
+}
+
+pub fn fat_truncate(handle: *FileHandle, length: u32) i32 {
+    if (length > handle.size) {
+        return 0;
+    }
+
+    const bytes_per_cluster = @as(u32, handle.bpb.sectors_per_cluster) * 512;
+    const old_clusters_needed = (handle.size + bytes_per_cluster - 1) / bytes_per_cluster;
+    const new_clusters_needed = (length + bytes_per_cluster - 1) / bytes_per_cluster;
+
+    if (new_clusters_needed < old_clusters_needed) {
+        var current = handle.cluster;
+        var i: u32 = 0;
+        while (i < new_clusters_needed - 1 and current >= 2) {
+            current = get_fat_entry(handle.drive, handle.bpb, current);
+            i += 1;
+        }
+
+        if (current >= 2) {
+            const next = get_fat_entry(handle.drive, handle.bpb, current);
+            if (next >= 2) {
+                _ = free_cluster_chain(handle.drive, handle.bpb, next);
+                const eof_val: u32 = switch (handle.bpb.fat_type) {
+                    .FAT12 => 0xFF8,
+                    .FAT16 => 0xFFF8,
+                    .FAT32 => 0x0FFFFFF8,
+                    else => 0xFFF8,
+                };
+                set_fat_entry(handle.drive, handle.bpb, current, eof_val);
+            }
+        }
+    }
+
+    const entry_loc = find_entry_location_literal(handle.drive, handle.bpb, handle.dir_cluster, handle.name) orelse return -1;
+    var sector_buf: [512]u8 = undefined;
+    ata.read_sector(handle.drive, entry_loc.sector, &sector_buf);
+
+    const timestamp = dir.getCurrentTimestamp();
+    const i = entry_loc.offset;
+
+    sector_buf[i + 28] = @intCast(length & 0xFF);
+    sector_buf[i + 29] = @intCast((length >> 8) & 0xFF);
+    sector_buf[i + 30] = @intCast((length >> 16) & 0xFF);
+    sector_buf[i + 31] = @intCast((length >> 24) & 0xFF);
+    sector_buf[i + 11] = sector_buf[i + 11] | 0x20;
+
+    sector_buf[i + 22] = @intCast(timestamp.time & 0xFF);
+    sector_buf[i + 23] = @intCast((timestamp.time >> 8) & 0xFF);
+    sector_buf[i + 24] = @intCast(timestamp.date & 0xFF);
+    sector_buf[i + 25] = @intCast((timestamp.date >> 8) & 0xFF);
+
+    ata.write_sector(handle.drive, entry_loc.sector, &sector_buf);
+
+    handle.size = length;
+    if (handle.offset > length) {
+        handle.offset = length;
+    }
+
+    return 0;
+}
+
+pub fn fat_sync(drive: ata.Drive, bpb: BPB) i32 {
+    _ = drive;
+    _ = bpb;
+    return 0;
+}
+
+pub fn fat_expand(handle: *FileHandle, length: u32) i32 {
+    if (length <= handle.size) {
+        return 0;
+    }
+
+    const bytes_per_cluster = @as(u32, handle.bpb.sectors_per_cluster) * 512;
+    const old_size = handle.size;
+    const old_clusters_needed = (old_size + bytes_per_cluster - 1) / bytes_per_cluster;
+    const new_clusters_needed = (length + bytes_per_cluster - 1) / bytes_per_cluster;
+
+    if (new_clusters_needed > old_clusters_needed) {
+        const clusters_to_add = new_clusters_needed - old_clusters_needed;
+        var current = handle.cluster;
+
+        var i: u32 = 0;
+        while (i < old_clusters_needed - 1 and current >= 2) {
+            current = get_fat_entry(handle.drive, handle.bpb, current);
+            i += 1;
+        }
+
+        if (current >= 2) {
+            var added: u32 = 0;
+            while (added < clusters_to_add) {
+                const new_cluster = find_free_cluster(handle.drive, handle.bpb) orelse return -1;
+                set_fat_entry(handle.drive, handle.bpb, current, new_cluster);
+                current = new_cluster;
+                added += 1;
+            }
+
+            const eof_val: u32 = switch (handle.bpb.fat_type) {
+                .FAT12 => 0xFF8,
+                .FAT16 => 0xFFF8,
+                .FAT32 => 0x0FFFFFF8,
+                else => 0xFFF8,
+            };
+            set_fat_entry(handle.drive, handle.bpb, current, eof_val);
+        }
+    }
+
+    const entry_loc = find_entry_location_literal(handle.drive, handle.bpb, handle.dir_cluster, handle.name) orelse return -1;
+    var sector_buf: [512]u8 = undefined;
+    ata.read_sector(handle.drive, entry_loc.sector, &sector_buf);
+
+    const timestamp = dir.getCurrentTimestamp();
+    const i = entry_loc.offset;
+
+    sector_buf[i + 28] = @intCast(length & 0xFF);
+    sector_buf[i + 29] = @intCast((length >> 8) & 0xFF);
+    sector_buf[i + 30] = @intCast((length >> 16) & 0xFF);
+    sector_buf[i + 31] = @intCast((length >> 24) & 0xFF);
+    sector_buf[i + 11] = sector_buf[i + 11] | 0x20;
+
+    sector_buf[i + 22] = @intCast(timestamp.time & 0xFF);
+    sector_buf[i + 23] = @intCast((timestamp.time >> 8) & 0xFF);
+    sector_buf[i + 24] = @intCast(timestamp.date & 0xFF);
+    sector_buf[i + 25] = @intCast((timestamp.date >> 8) & 0xFF);
+
+    ata.write_sector(handle.drive, entry_loc.sector, &sector_buf);
+
+    handle.size = length;
+    return 0;
+}
+
+pub fn fat_forward(handle: *FileHandle, count: u32) i32 {
+    const new_offset = handle.offset + count;
+    if (new_offset > handle.size) {
+        return -1;
+    }
+    handle.offset = new_offset;
+
+    const cluster_size = @as(u32, handle.bpb.sectors_per_cluster) * 512;
+    const cluster_offset = handle.offset / cluster_size;
+    var current = handle.cluster;
+    var i: u32 = 0;
+    while (i < cluster_offset and current >= 2) {
+        current = get_fat_entry(handle.drive, handle.bpb, current);
+        i += 1;
+    }
+    handle.cluster = current;
+
+    return @intCast(new_offset);
+}
+
+pub fn fat_gets(handle: *FileHandle, buffer: [*]u8, max_len: u32) i32 {
+    if (handle.offset >= handle.size) return -1;
+
+    var bytes_read: u32 = 0;
+    const cluster_size = @as(u32, handle.bpb.sectors_per_cluster) * 512;
+    var sector_buf: [512]u8 = undefined;
+
+    while (bytes_read < max_len and handle.offset < handle.size) {
+        const sector_lba = handle.bpb.first_data_sector + (handle.cluster - 2) * @as(u32, handle.bpb.sectors_per_cluster);
+        const offset_in_cluster = handle.offset % cluster_size;
+        const sector_offset = offset_in_cluster / 512;
+
+        const lba = sector_lba + sector_offset;
+        ata.read_sector(handle.drive, @intCast(lba), &sector_buf);
+
+        const remaining_in_sector = 512 - (offset_in_cluster % 512);
+        const to_read = @min(remaining_in_sector, max_len - bytes_read);
+
+        var j: u32 = 0;
+        while (j < to_read and handle.offset < handle.size) {
+            const ch = sector_buf[(offset_in_cluster % 512) + j];
+            buffer[bytes_read] = ch;
+            bytes_read += 1;
+            handle.offset += 1;
+            j += 1;
+            if (ch == '\n') break;
+        }
+
+        if (j < to_read) break;
+
+        const next_cluster = get_fat_entry(handle.drive, handle.bpb, handle.cluster);
+        const eof_val: u32 = switch (handle.bpb.fat_type) {
+            .FAT12 => 0xFF8,
+            .FAT16 => 0xFFF8,
+            .FAT32 => 0x0FFFFFF8,
+            else => 0xFFF8,
+        };
+        if (next_cluster >= eof_val) break;
+        handle.cluster = next_cluster;
+    }
+
+    if (bytes_read == 0 and handle.offset >= handle.size) return -1;
+    return @intCast(bytes_read);
+}
+
+pub fn fat_puts(handle: *FileHandle, str: [*]const u8, len: u32) i32 {
+    if (len == 0) return 0;
+
+    const cluster_size = @as(u32, handle.bpb.sectors_per_cluster) * 512;
+    var sector_buf: [512]u8 = undefined;
+    var written: u32 = 0;
+
+    while (written < len) {
+        const sector_lba = handle.bpb.first_data_sector + (handle.cluster - 2) * @as(u32, handle.bpb.sectors_per_cluster);
+        const offset_in_cluster = handle.offset % cluster_size;
+        const sector_offset = offset_in_cluster / 512;
+        const lba = sector_lba + sector_offset;
+
+        const offset_in_sector = offset_in_cluster % 512;
+        const to_write = @min(512 - offset_in_sector, len - written);
+
+        if (offset_in_sector > 0) {
+            ata.read_sector(handle.drive, @intCast(lba), &sector_buf);
+        }
+
+        @memcpy(sector_buf[offset_in_sector..offset_in_sector + to_write], str[written..written + to_write]);
+        ata.write_sector(handle.drive, @intCast(lba), &sector_buf);
+
+        written += to_write;
+        handle.offset += to_write;
+
+        if (handle.offset > handle.size) {
+            handle.size = handle.offset;
+        }
+
+        const new_cluster_needed = (handle.offset + cluster_size - 1) / cluster_size;
+        const current_cluster = (handle.size + cluster_size - 1) / cluster_size;
+
+        if (new_cluster_needed > current_cluster) {
+            const new_cluster = find_free_cluster(handle.drive, handle.bpb) orelse return -1;
+            const eof_val: u32 = switch (handle.bpb.fat_type) {
+                .FAT12 => 0xFF8,
+                .FAT16 => 0xFFF8,
+                .FAT32 => 0x0FFFFFF8,
+                else => 0xFFF8,
+            };
+            set_fat_entry(handle.drive, handle.bpb, handle.cluster, new_cluster);
+            set_fat_entry(handle.drive, handle.bpb, new_cluster, eof_val);
+            handle.cluster = new_cluster;
+        }
+    }
+
+    const entry_loc = find_entry_location_literal(handle.drive, handle.bpb, handle.dir_cluster, handle.name);
+    if (entry_loc) |loc| {
+        var sec_buf: [512]u8 = undefined;
+        ata.read_sector(handle.drive, loc.sector, &sec_buf);
+        const i = loc.offset;
+        sec_buf[i + 28] = @intCast(handle.size & 0xFF);
+        sec_buf[i + 29] = @intCast((handle.size >> 8) & 0xFF);
+        sec_buf[i + 30] = @intCast((handle.size >> 16) & 0xFF);
+        sec_buf[i + 31] = @intCast((handle.size >> 24) & 0xFF);
+        sec_buf[i + 11] = sec_buf[i + 11] | 0x20;
+
+        const ts = dir.getCurrentTimestamp();
+        sec_buf[i + 22] = @intCast(ts.time & 0xFF);
+        sec_buf[i + 23] = @intCast((ts.time >> 8) & 0xFF);
+        sec_buf[i + 24] = @intCast(ts.date & 0xFF);
+        sec_buf[i + 25] = @intCast((ts.date >> 8) & 0xFF);
+
+        ata.write_sector(handle.drive, loc.sector, &sec_buf);
+    }
+
+    return @intCast(written);
+}
+
+pub fn fat_putc(handle: *FileHandle, c: u8) i32 {
+    return fat_puts(handle, @ptrCast(&c), 1);
+}
+
 pub const BPB = dir.BPB;
 pub const DirEntry = dir.DirEntry;
 pub const resolve_path = dir.resolve_path;

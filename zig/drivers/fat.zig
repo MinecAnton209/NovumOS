@@ -47,4 +47,19 @@ pub const stream_to_console_literal = fat.stream_to_console_literal;
 pub const write_file = fat.write_file;
 pub const append_to_file = fat.append_to_file;
 
+pub const FileHandle = fat.FileHandle;
+pub const fat_open = fat.fat_open;
+pub const fat_size = fat.fat_size;
+pub const fat_getcwd = fat.fat_getcwd;
+pub const fat_getcwd_len = fat.fat_getcwd_len;
+pub const fat_lseek = fat.fat_lseek;
+pub const fat_tell = fat.fat_tell;
+pub const fat_truncate = fat.fat_truncate;
+pub const fat_sync = fat.fat_sync;
+pub const fat_expand = fat.fat_expand;
+pub const fat_forward = fat.fat_forward;
+pub const fat_gets = fat.fat_gets;
+pub const fat_puts = fat.fat_puts;
+pub const fat_putc = fat.fat_putc;
+
 pub const format = fat.format;
