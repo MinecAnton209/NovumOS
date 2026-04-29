@@ -12,7 +12,7 @@ const disk_cmds = @import("commands/disk_cmds.zig");
 const fat = @import("drivers/fat.zig");
 const ata = @import("drivers/ata.zig");
 const edit = @import("commands/edit.zig");
-const rtc = @import("drivers/rtc.zig");
+const rtc = @import("drivers/time/time.zig");
 const sysinfo = @import("commands/sysinfo.zig");
 const keyboard_isr = @import("keyboard_isr.zig");
 const file_utils = @import("commands/file_utils.zig");
@@ -614,6 +614,7 @@ pub export fn cmd_mkfs_fat32(drive_num_ptr: [*]const u8, drive_num_len: u32) voi
 /// Global initialization for Zig-based modules (FS, etc.)
 pub export fn zig_init() void {
     common.fs_init();
+    rtc.init();
 
     // Auto-select only Disk 1 (Slave) by default if it exists and is formatted
     if (ata.identify(.Slave) > 0) {

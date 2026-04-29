@@ -1,5 +1,5 @@
 // CMOS Real Time Clock (RTC) Driver
-const common = @import("../commands/common.zig");
+const common = @import("../../commands/common.zig");
 
 const CMOS_ADDR = 0x70;
 const CMOS_DATA = 0x71;

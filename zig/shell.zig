@@ -14,7 +14,7 @@ const nova_interpreter = @import("nova/interpreter.zig");
 const nova_commands = @import("nova/commands.zig");
 const top_cmd = @import("commands/top.zig");
 const lfb = @import("drivers/lfb.zig");
-const rtc = @import("drivers/rtc.zig");
+const rtc = @import("drivers/time/time.zig");
 const idt_watchdog = @import("idt_watchdog.zig");
 
 extern const mb2_info: u32;

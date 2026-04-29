@@ -7,7 +7,7 @@ const timer = @import("drivers/timer.zig");
 const memory = @import("memory.zig");
 const logger = @import("logger.zig");
 const ata = @import("drivers/ata.zig");
-const rtc = @import("drivers/rtc.zig");
+const rtc = @import("drivers/time/time.zig");
 const config = @import("config.zig");
 
 // External jump target to return to kernel shell

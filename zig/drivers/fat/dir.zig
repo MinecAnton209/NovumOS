@@ -2,7 +2,7 @@ const common = @import("../../commands/common.zig");
 const ata = @import("../ata.zig");
 const vga = @import("../vga.zig");
 const bpb_mod = @import("bpb.zig");
-const rtc = @import("../rtc.zig");
+const rtc = @import("../time/time.zig");
 
 pub fn getCurrentTimestamp() struct { time: u16, date: u16 } {
     const dt = rtc.get_datetime();
