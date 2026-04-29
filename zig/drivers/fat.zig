@@ -31,6 +31,7 @@ pub const copy_file_literal = fat.copy_file_literal;
 pub const copy_directory = fat.copy_directory;
 pub const copy_directory_literal = fat.copy_directory_literal;
 pub const create_directory = fat.create_directory;
+pub const set_file_attrib = fat.set_file_attrib;
 pub const rename_file = fat.rename_file;
 pub const get_name_from_raw = fat.get_name_from_raw;
 pub const get_fat_entry = fat.get_fat_entry;

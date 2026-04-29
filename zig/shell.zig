@@ -98,6 +98,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "mkfs-fat16", .help = "Format drive as FAT16 (standard)", .handler = cmd_handler_mkfs16 },
     .{ .name = "mkfs-fat32", .help = "Format drive as FAT32 (advanced)", .handler = cmd_handler_mkfs32 },
     .{ .name = "touch", .help = "Create an empty file", .handler = cmd_handler_touch },
+    .{ .name = "attrib", .help = "Set file attributes [+R|+H|+S|+A]", .handler = cmd_handler_attrib },
     .{ .name = "write", .help = "write [-a] <f> <t> - Write string to file (-a to append)", .handler = cmd_handler_write },
     .{ .name = "rm", .help = "rm [-d] [-r] <f|*> - Delete file/dir", .handler = cmd_handler_rm },
     .{ .name = "cat", .help = "Display text file contents", .handler = cmd_handler_cat },
@@ -1258,6 +1259,14 @@ fn cmd_handler_touch(args: []const u8) void {
         shell_cmds.cmd_touch(args.ptr, @intCast(args.len));
     } else {
         common.printZ("Usage: touch <file>\n");
+    }
+}
+
+fn cmd_handler_attrib(args: []const u8) void {
+    if (args.len > 0) {
+        shell_cmds.cmd_attrib(args.ptr, @intCast(args.len));
+    } else {
+        common.printZ("Usage: attrib [+R|-R] [+H|-H] [+S|-S] [+A|-A] <file>\n");
     }
 }
 

@@ -4,6 +4,9 @@ const common = @import("../commands/common.zig");
 const CMOS_ADDR = 0x70;
 const CMOS_DATA = 0x71;
 
+var last_good_time: DateTime = .{ .year = 2026, .month = 1, .day = 1, .hour = 0, .minute = 0, .second = 0 };
+var time_valid: bool = false;
+
 pub fn read_rtc(reg: u8) u8 {
     outb(CMOS_ADDR, reg);
     return inb(CMOS_DATA);
@@ -24,6 +27,10 @@ pub const DateTime = extern struct {
 };
 
 pub fn get_datetime() DateTime {
+    if (time_valid) {
+        return last_good_time;
+    }
+
     var cs: u16 = 0;
     asm volatile ("mov %%cs, %[cs]"
         : [cs] "=r" (cs),
@@ -35,6 +42,11 @@ pub fn get_datetime() DateTime {
             : [sys] "{eax}" (@as(u32, 19)),
               [ptr] "{ebx}" (@intFromPtr(&dt)),
             : .{ .memory = true });
+
+        if (dt.year >= 2020 and dt.year <= 2100) {
+            last_good_time = dt;
+            time_valid = true;
+        }
         return dt;
     }
 
@@ -49,7 +61,6 @@ pub fn get_datetime() DateTime {
 
     const registerB = read_rtc(0x0B);
 
-    // Convert BCD to Binary if needed
     if ((registerB & 0x04) == 0) {
         second = (second & 0x0F) + ((second / 16) * 10);
         minute = (minute & 0x0F) + ((minute / 16) * 10);
@@ -59,12 +70,23 @@ pub fn get_datetime() DateTime {
         year = (year & 0x0F) + ((year / 16) * 10);
     }
 
-    // Convert 12h to 24h if needed
     if ((registerB & 0x02) == 0 and (hour & 0x80) != 0) {
         hour = ((hour & 0x7F) + 12) % 24;
     }
 
-    year += 2000; // Simplified
+    year += 2000;
+
+    if (year >= 2020 and year <= 2100) {
+        last_good_time = .{
+            .year = year,
+            .month = month,
+            .day = day,
+            .hour = hour,
+            .minute = minute,
+            .second = second,
+        };
+        time_valid = true;
+    }
 
     return .{
         .year = year,
@@ -74,6 +96,10 @@ pub fn get_datetime() DateTime {
         .minute = minute,
         .second = second,
     };
+}
+
+pub fn reset_time() void {
+    time_valid = false;
 }
 
 fn outb(port: u16, val: u8) void {

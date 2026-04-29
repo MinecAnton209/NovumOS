@@ -2,6 +2,8 @@ const common = @import("../../commands/common.zig");
 const ata = @import("../ata.zig");
 const dir = @import("dir.zig");
 
+pub const getCurrentTimestamp = dir.getCurrentTimestamp;
+
 pub const BPB = dir.BPB;
 pub const DirEntry = dir.DirEntry;
 pub const resolve_path = dir.resolve_path;
@@ -123,6 +125,8 @@ fn get_last_cluster(drive: ata.Drive, bpb: BPB, start_cluster: u32) u32 {
 fn append_to_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []const u8, data: []const u8) bool {
     const entry = find_entry_literal(drive, bpb, dir_cluster, name) orelse return write_file_literal(drive, bpb, dir_cluster, name, data);
 
+    if ((entry.attr & 0x04) != 0) return false;
+
     if (data.len == 0) return true;
 
     const start_cluster = entry.first_cluster_low | (@as(u32, entry.first_cluster_high) << 16);
@@ -181,10 +185,14 @@ fn append_to_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []
 
 fn write_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []const u8, data: []const u8) bool {
     var cluster: u32 = 0;
+    var entry_attr: u8 = 0x20;
     const exists = find_entry_literal(drive, bpb, dir_cluster, name);
 
     if (exists) |entry| {
-        cluster = @as(u32, entry.first_cluster_low) | (@as(u32, entry.first_cluster_high) << 16);
+        if ((entry.attr & 0x04) != 0) {
+            return false;
+        }
+        entry_attr = entry.attr | 0x20;
     } else {
         cluster = find_free_cluster(drive, bpb) orelse return false;
         const eof_val: u32 = switch (bpb.fat_type) {
@@ -195,7 +203,7 @@ fn write_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []cons
         };
         set_fat_entry(drive, bpb, cluster, eof_val);
         const data_len: u32 = @intCast(data.len);
-        if (!add_directory_entry(drive, bpb, dir_cluster, name, cluster, data_len, 0x20)) return false;
+        if (!add_directory_entry(drive, bpb, dir_cluster, name, cluster, data_len, entry_attr)) return false;
     }
 
     var bytes_written: u32 = 0;
@@ -246,11 +254,19 @@ fn update_entry_size_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name:
     var buffer: [512]u8 = undefined;
     ata.read_sector(drive, loc.sector, &buffer);
 
+    const ts = getCurrentTimestamp();
+
     const i = loc.offset;
     buffer[i + 28] = @intCast(size & 0xFF);
     buffer[i + 29] = @intCast((size >> 8) & 0xFF);
     buffer[i + 30] = @intCast((size >> 16) & 0xFF);
     buffer[i + 31] = @intCast((size >> 24) & 0xFF);
+    buffer[i + 11] = buffer[i + 11] | 0x20;
+
+    buffer[i + 22] = @intCast(ts.time & 0xFF);
+    buffer[i + 23] = @intCast((ts.time >> 8) & 0xFF);
+    buffer[i + 24] = @intCast(ts.date & 0xFF);
+    buffer[i + 25] = @intCast((ts.date >> 8) & 0xFF);
 
     ata.write_sector(drive, loc.sector, &buffer);
     return true;

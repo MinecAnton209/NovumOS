@@ -2,6 +2,25 @@ const common = @import("../../commands/common.zig");
 const ata = @import("../ata.zig");
 const vga = @import("../vga.zig");
 const bpb_mod = @import("bpb.zig");
+const rtc = @import("../rtc.zig");
+
+pub fn getCurrentTimestamp() struct { time: u16, date: u16 } {
+    const dt = rtc.get_datetime();
+
+    const hour16: u16 = dt.hour;
+    const minute16: u16 = dt.minute;
+    const second16: u16 = dt.second / 2;
+
+    const time: u16 = (hour16 << 11) | (minute16 << 5) | second16;
+
+    const year: u16 = @intCast((dt.year - 1980) & 0x7F);
+    const month16: u16 = dt.month;
+    const day16: u16 = dt.day;
+
+    const date: u16 = (year << 9) | (month16 << 5) | day16;
+
+    return .{ .time = time, .date = date };
+}
 
 fn printSize(size: u32) void {
     if (size == 0) {
@@ -780,10 +799,12 @@ pub fn find_entry_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []
 }
 
 pub fn delete_file(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u8) bool {
-    if (resolve_path(drive, bpb, dir_cluster, path)) |res| {
-        return delete_file_literal(drive, bpb, res.dir_cluster, res.file_name);
+    const res = resolve_path(drive, bpb, dir_cluster, path) orelse return false;
+    const entry = find_entry_literal(drive, bpb, res.dir_cluster, res.file_name) orelse return false;
+    if ((entry.attr & 0x04) != 0) {
+        return false;
     }
-    return false;
+    return delete_file_literal(drive, bpb, res.dir_cluster, res.file_name);
 }
 
 fn delete_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []const u8) bool {
@@ -1364,12 +1385,23 @@ fn write_short_entry(buffer: *[512]u8, offset: usize, short_name: *[11]u8, clust
     buffer[offset + 11] = attr;
     buffer[offset + 12] = 0;
 
-    for (13..20) |k| buffer[offset + k] = 0;
+    const ts = getCurrentTimestamp();
+
+    buffer[offset + 13] = 0;
+    buffer[offset + 14] = @intCast(ts.time & 0xFF);
+    buffer[offset + 15] = @intCast((ts.time >> 8) & 0xFF);
+    buffer[offset + 16] = @intCast(ts.date & 0xFF);
+    buffer[offset + 17] = @intCast((ts.date >> 8) & 0xFF);
+    buffer[offset + 18] = @intCast(ts.date & 0xFF);
+    buffer[offset + 19] = @intCast((ts.date >> 8) & 0xFF);
 
     buffer[offset + 20] = @intCast((cluster >> 16) & 0xFF);
     buffer[offset + 21] = @intCast((cluster >> 24) & 0xFF);
 
-    for (22..26) |k| buffer[offset + k] = 0;
+    buffer[offset + 22] = @intCast(ts.time & 0xFF);
+    buffer[offset + 23] = @intCast((ts.time >> 8) & 0xFF);
+    buffer[offset + 24] = @intCast(ts.date & 0xFF);
+    buffer[offset + 25] = @intCast((ts.date >> 8) & 0xFF);
 
     buffer[offset + 26] = @intCast(cluster & 0xFF);
     buffer[offset + 27] = @intCast((cluster >> 8) & 0xFF);
@@ -1435,6 +1467,26 @@ fn zero_sector(buf: *[512]u8) void {
     for (0..512) |i| buf[i] = 0;
 }
 
+pub fn set_file_attrib(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u8, read_only: bool, hidden: bool, system: bool, archive: bool) bool {
+    const res = resolve_path(drive, bpb, dir_cluster, path) orelse return false;
+    const loc = find_entry_location_literal(drive, bpb, res.dir_cluster, res.file_name) orelse return false;
+
+    var buffer: [512]u8 = undefined;
+    ata.read_sector(drive, loc.sector, &buffer);
+
+    const i = loc.offset;
+    var attr: u8 = buffer[i + 11];
+
+    if (read_only) attr |= 0x01 else attr &= 0xFE;
+    if (hidden) attr |= 0x02 else attr &= 0xFD;
+    if (system) attr |= 0x04 else attr &= 0xFB;
+    if (archive) attr |= 0x20 else attr &= 0xDF;
+
+    buffer[i + 11] = attr;
+    ata.write_sector(drive, loc.sector, &buffer);
+    return true;
+}
+
 pub fn rename_file(drive: ata.Drive, bpb: BPB, dir_cluster: u32, old_path: []const u8, new_path: []const u8) bool {
     const old_res = resolve_path(drive, bpb, dir_cluster, old_path) orelse return false;
     const new_res = resolve_path(drive, bpb, dir_cluster, new_path) orelse return false;
@@ -1442,6 +1494,8 @@ pub fn rename_file(drive: ata.Drive, bpb: BPB, dir_cluster: u32, old_path: []con
     if (find_entry_literal(drive, bpb, new_res.dir_cluster, new_res.file_name) != null) return false;
 
     const entry = find_entry_literal(drive, bpb, old_res.dir_cluster, old_res.file_name) orelse return false;
+
+    if ((entry.attr & 0x04) != 0) return false;
 
     if (!add_directory_entry(drive, bpb, new_res.dir_cluster, new_res.file_name, entry.first_cluster_low, entry.file_size, entry.attr)) return false;
 

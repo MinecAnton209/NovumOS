@@ -275,6 +275,78 @@ pub export fn cmd_touch(name_ptr: [*]const u8, name_len: u32) void {
     }
 }
 
+/// Execute 'attrib' command to set file attributes
+pub export fn cmd_attrib(args_ptr: [*]const u8, args_len: u32) void {
+    if (common.selected_disk < 0) {
+        common.printZ("Error: No disk selected\n");
+        return;
+    }
+
+    const args_raw = args_ptr[0..args_len];
+    var argv: [16][]const u8 = undefined;
+    const argc = common.parseArgs(args_raw, &argv);
+
+    if (argc == 0) {
+        common.printZ("Usage: attrib [+R|-R] [+H|-H] [+S|-S] [+A|-A] <file>\n");
+        common.printZ("  +R  Set Read-only\n");
+        common.printZ("  +H  Set Hidden\n");
+        common.printZ("  +S  Set System\n");
+        common.printZ("  +A  Set Archive\n");
+        return;
+    }
+
+    var read_only: ?bool = null;
+    var hidden: ?bool = null;
+    var system: ?bool = null;
+    var archive: ?bool = null;
+    var filename: ?[]const u8 = null;
+
+    for (argv[0..argc]) |arg| {
+        if (common.std_mem_eql(arg, "+R")) {
+            read_only = true;
+        } else if (common.std_mem_eql(arg, "-R")) {
+            read_only = false;
+        } else if (common.std_mem_eql(arg, "+H")) {
+            hidden = true;
+        } else if (common.std_mem_eql(arg, "-H")) {
+            hidden = false;
+        } else if (common.std_mem_eql(arg, "+S")) {
+            system = true;
+        } else if (common.std_mem_eql(arg, "-S")) {
+            system = false;
+        } else if (common.std_mem_eql(arg, "+A")) {
+            archive = true;
+        } else if (common.std_mem_eql(arg, "-A")) {
+            archive = false;
+        } else if (filename == null) {
+            filename = arg;
+        }
+    }
+
+    if (filename == null) {
+        common.printZ("Error: No file specified\n");
+        return;
+    }
+
+    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    if (fat.read_bpb(drive)) |bpb| {
+        const ro = read_only orelse false;
+        const h = hidden orelse false;
+        const s = system orelse false;
+        const a = archive orelse false;
+
+        if (fat.set_file_attrib(drive, bpb, common.current_dir_cluster, filename.?, ro, h, s, a)) {
+            common.printZ("OK: ");
+            common.printZ(filename.?);
+            common.printZ("\n");
+        } else {
+            common.printError("Error: File not found\n");
+        }
+    } else {
+        common.printError("Error: Disk not formatted\n");
+    }
+}
+
 /// Execute 'rm' command to delete a file or directory
 pub export fn cmd_rm(args_ptr: [*]const u8, args_len: u32) void {
     if (common.selected_disk < 0) {

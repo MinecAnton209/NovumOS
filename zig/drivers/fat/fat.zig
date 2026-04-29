@@ -35,6 +35,7 @@ pub const copy_file_literal = dir.copy_file_literal;
 pub const copy_directory = dir.copy_directory;
 pub const copy_directory_literal = dir.copy_directory_literal;
 pub const create_directory = dir.create_directory;
+pub const set_file_attrib = dir.set_file_attrib;
 pub const rename_file = dir.rename_file;
 pub const get_name_from_raw = dir.get_name_from_raw;
 pub const get_fat_entry = dir.get_fat_entry;
