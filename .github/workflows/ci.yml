@@ -20,6 +20,9 @@ jobs:
     - name: Setup NASM
       uses: ilammy/setup-nasm@v1
 
+    - name: Install xorriso
+      run: choco install xorriso --no-progress
+
     - name: Cache Zig
       uses: actions/cache@v5
       with:
@@ -65,6 +68,9 @@ jobs:
 
     - name: Setup NASM
       uses: ilammy/setup-nasm@v1
+
+    - name: Install xorriso
+      run: sudo apt-get update && sudo apt-get install -y xorriso
 
     - name: Cache Zig
       uses: actions/cache@v5
