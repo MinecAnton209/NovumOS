@@ -6,7 +6,6 @@ extern handle_syscall_zig
 
 section .text
 
-; Function called from Zig: jump_to_ring3_entry(entry_address, stack_address)
 ; Function called from Zig: jump_to_ring1_entry(entry_address, stack_address)
 jump_to_ring3_entry:
     cli
