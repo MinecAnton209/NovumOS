@@ -21,7 +21,12 @@ jobs:
       uses: ilammy/setup-nasm@v1
 
     - name: Install xorriso
-      run: choco install xorriso --no-progress
+      shell: pwsh
+      run: |
+        $dest = Join-Path $env:GITHUB_WORKSPACE 'xorriso.exe'
+        Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/PeyTy/xorriso-exe-for-windows/master/xorriso.exe' -OutFile $dest
+        echo $env:GITHUB_WORKSPACE | Out-File -FilePath $env:GITHUB_PATH -Append
+        & $dest --version
 
     - name: Cache Zig
       uses: actions/cache@v5
