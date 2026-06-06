@@ -4,7 +4,7 @@ This document describes the high-performance memory management and paging system
 
 ---
 
-## 🏗 Physical Memory Management (PMM)
+## Physical Memory Management (PMM)
 
 ### Detection
 The kernel uses **BIOS CMOS** registers (`0x30/31` and `0x34/35`) to detect available Physical RAM at boot. 
@@ -26,7 +26,7 @@ NovumOS explicitly activates the **A20 Line** (using BIOS Int 15h and the Fast A
 
 ---
 
-## ⚡ Virtual Memory & Paging
+## Virtual Memory & Paging
 
 ### Huge Pages (PSE)
 NovumOS utilizes **Page Size Extensions (PSE)** to enable **4 MB Huge Pages**.
@@ -45,7 +45,7 @@ For performance-critical allocations (like the `mem --test` tool), the kernel pr
 
 ---
 
-## 🧹 Heap & Garbage Collection
+## Heap & Garbage Collection
 
 ### Linked List Allocator
 The kernel heap uses a header-based linked list system for dynamic allocation.
@@ -59,7 +59,7 @@ A manual/automatic garbage collection routine (`garbage_collect`) can be trigger
 
 ---
 
-## 🛠 Testing Tools
+## Testing Tools
 The `mem --test [MB]` command performs a stress test:
 1. Allocates the requested size.
 2. Uses `map_range` for fast PSE mapping.

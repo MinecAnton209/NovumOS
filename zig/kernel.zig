@@ -20,6 +20,8 @@ const user = @import("user.zig");
 const idt_watchdog = @import("idt_watchdog.zig");
 const ata = @import("drivers/ata.zig");
 const fat = @import("drivers/fat.zig");
+const speaker = @import("drivers/speaker.zig");
+const config = @import("config.zig");
 
 // Ensure all modules are included in the compilation
 comptime {
@@ -35,6 +37,7 @@ comptime {
     _ = smp;
     _ = @import("user.zig");
     _ = @import("drivers/vga.zig");
+    _ = speaker;
     _ = libc_stubs;
 }
 
@@ -158,6 +161,12 @@ export fn kmain() void {
 
     // Save IDT snapshot for watchdog (after all IDT setup is complete)
     idt_watchdog.save_snapshot();
+
+    speaker.init();
+    timer.set_tick_callback(&speaker.beep_async_tick);
+    if (config.ENABLE_BOOT_BEEP) {
+        speaker.beep(1000, 100);
+    }
 
     // Jump to Shell in Ring 3 (User Mode)
     user.jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true);

@@ -3,6 +3,7 @@ const lfb = @import("drivers/lfb.zig");
 const serial = @import("drivers/serial.zig");
 const config = @import("config.zig");
 const memory = @import("memory.zig");
+const speaker = @import("drivers/speaker.zig");
 
 pub const ExceptionFrame = extern struct {
     // Pushed by pushad
@@ -309,6 +310,7 @@ pub fn panic(msg: []const u8) noreturn {
 
 fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]const u8, fault_addr: ?u32) noreturn {
     asm volatile ("cli");
+    speaker.silence();
 
     // Disable Write Protect to allow kernel to write to protected pages (like VGA)
     var cr0: u32 = undefined;
@@ -676,6 +678,27 @@ fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]cons
         }
         serial.serial_print_str("\r\n");
     }
+
+    // Backtrace
+    if (ebp != 0) {
+        serial.serial_print_str("BACKTRACE: ");
+        var current_ebp_ser = ebp;
+        var bt_frames_ser: usize = 0;
+        while (current_ebp_ser != 0 and bt_frames_ser < 6) : (bt_frames_ser += 1) {
+            if (!memory.is_ptr_present(current_ebp_ser) or !memory.is_ptr_present(current_ebp_ser + 4)) {
+                serial.serial_print_str("\r\n");
+                break;
+            }
+            const fp_ser: [*]u32 = @ptrFromInt(current_ebp_ser);
+            serial_print_hex(fp_ser[1]);
+            serial.serial_print_str(" ");
+            const prev_ebp_ser = fp_ser[0];
+            if (prev_ebp_ser <= current_ebp_ser) break;
+            current_ebp_ser = prev_ebp_ser;
+        }
+        serial.serial_print_str("\r\n");
+    }
+
     serial.serial_print_str("============================================================\r\n");
     if (config.ENABLE_RSOD_REBOOT) {
         serial.serial_print_str("SYSTEM HALTED. Press ENTER to reboot.\r\n");

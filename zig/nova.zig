@@ -23,7 +23,7 @@ export fn nova_ring3_entry() noreturn {
     while (true) {}
 }
 
-// Export nova_start for ASM/Shell - now jumps to Ring 3
+// Export nova_start for ASM/Shell - jumps to Ring 3 or calls directly
 pub export fn nova_start(arg_ptr: [*]const u8, arg_len: usize) void {
     if (arg_len == 0) {
         has_arg = false;
@@ -33,6 +33,22 @@ pub export fn nova_start(arg_ptr: [*]const u8, arg_len: usize) void {
         has_arg = true;
     }
 
-    // Jump to Ring 3 and start Nova there at the specified entry point
-    user.jump_to_user_mode_with_entry(@intFromPtr(&nova_ring3_entry), false);
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]" : [cs] "=r" (cs));
+    if ((cs & 3) == 3) {
+        // Already in Ring 3 — call interpreter directly.
+        // Avoids syscall 12 which rejects kernel-space entry points.
+        if (has_arg) {
+            interpreter.start(ring3_arg_ptr[0..ring3_arg_len]);
+        } else {
+            interpreter.start(null);
+        }
+        asm volatile ("int $0x80"
+            :
+            : [sys] "{eax}" (@as(u32, 0)),
+        );
+    } else {
+        // In Ring 0 — jump to Ring 3 entry
+        user.jump_to_user_mode_with_entry(@intFromPtr(&nova_ring3_entry), false);
+    }
 }

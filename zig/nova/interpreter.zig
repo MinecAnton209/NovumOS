@@ -12,6 +12,7 @@ const global_common = @import("../commands/common.zig");
 const fat = @import("../drivers/fat.zig");
 const ata = @import("../drivers/ata.zig");
 const shell = @import("../shell.zig");
+const speaker = @import("../drivers/speaker.zig");
 const lexer = @import("lexer.zig");
 const vm_mod = @import("vm.zig");
 const hash_table = @import("hash_table.zig");
@@ -369,6 +370,7 @@ fn readLine() void {
     refreshLine(); // Initial draw of status bar
 
     while (true) {
+        speaker.beep_async_check();
         const key = common.get_char();
 
         if (key == 3) {
@@ -398,41 +400,29 @@ fn readLine() void {
                 buf_len -= 1;
                 refreshLine();
             }
-        } else if (key == 0xB) { // KEY_LEFT (approx, use common constants if available)
-        } else if (key == 0xC) { // KEY_RIGHT
         } else {
-            // Check for special keys from keyboard_isr
-            const KEY_LEFT = 0x11;
-            const KEY_RIGHT = 0x12;
-            const KEY_UP = 0x13;
-            const KEY_DOWN = 0x14;
-            const KEY_HOME = 0x15;
-            const KEY_END = 0x16;
-            const KEY_DELETE = 0x17;
-            const KEY_INSERT = 0x18;
-
-            if (key == KEY_LEFT) {
+            if (key == keyboard.KEY_LEFT) {
                 if (buf_pos > 0) {
                     buf_pos -= 1;
                     moveScreenCursor();
                 }
-            } else if (key == KEY_RIGHT) {
+            } else if (key == keyboard.KEY_RIGHT) {
                 if (buf_pos < buf_len) {
                     buf_pos += 1;
                     moveScreenCursor();
                 }
-            } else if (key == KEY_HOME) {
+            } else if (key == keyboard.KEY_HOME) {
                 buf_pos = 0;
                 moveScreenCursor();
-            } else if (key == KEY_END) {
+            } else if (key == keyboard.KEY_END) {
                 buf_pos = buf_len;
                 moveScreenCursor();
-            } else if (key == KEY_UP) {
+            } else if (key == keyboard.KEY_UP) {
                 if (history_count > 0 and history_index > 0) {
                     history_index -= 1;
                     loadHistory();
                 }
-            } else if (key == KEY_DOWN) {
+            } else if (key == keyboard.KEY_DOWN) {
                 if (history_index < history_count) {
                     history_index += 1;
                     if (history_index == history_count) {
@@ -444,7 +434,7 @@ fn readLine() void {
                         loadHistory();
                     }
                 }
-            } else if (key == KEY_DELETE) {
+            } else if (key == keyboard.KEY_DELETE) {
                 if (buf_pos < buf_len) {
                     var i: usize = buf_pos;
                     while (i < buf_len - 1) : (i += 1) {
@@ -454,7 +444,7 @@ fn readLine() void {
                     buf_len -= 1;
                     refreshLine();
                 }
-            } else if (key == KEY_INSERT) {
+            } else if (key == keyboard.KEY_INSERT) {
                 insert_mode = !insert_mode;
                 refreshLine();
             } else if (key >= 32 and key <= 126) { // Printable characters

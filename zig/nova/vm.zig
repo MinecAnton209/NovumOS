@@ -12,6 +12,7 @@ const keyboard = @import("../keyboard_isr.zig");
 const vga = @import("../drivers/vga.zig");
 const math_mod = @import("modules/math.zig");
 const sys_mod = @import("modules/sys.zig");
+const speaker_mod = @import("modules/speaker.zig");
 const user = @import("../user.zig");
 
 pub const VM = struct {
@@ -30,6 +31,7 @@ pub const VM = struct {
     script_args: []const []const u8 = &[_][]const u8{},
     is_math_loaded: bool = false,
     is_sys_loaded: bool = false,
+    is_speaker_loaded: bool = false,
     repl_mode: bool = false,
     return_flag: bool = false,
     return_value: hash_table.VariableValue = .{ .vtype = .int, .int_val = 0 },
@@ -499,6 +501,14 @@ pub const VM = struct {
             }
             if (sys_mod.handleSys(self, name)) |res| return res;
             self.reportError("Unknown sys function");
+            return .{ .vtype = .int, .int_val = 0 };
+        } else if (common.startsWith(name, "speaker.")) {
+            if (!self.is_speaker_loaded) {
+                self.reportError("Module 'speaker' not imported");
+                return .{ .vtype = .int, .int_val = 0 };
+            }
+            if (speaker_mod.handleSpeaker(self, name)) |res| return res;
+            self.reportError("Unknown speaker function");
             return .{ .vtype = .int, .int_val = 0 };
         } else if (common.streq(name, "create_file")) {
             const path = self.evaluateExpression();
@@ -996,6 +1006,11 @@ pub const VM = struct {
             }
             if (common.streq(raw_path, "sys")) {
                 self.is_sys_loaded = true;
+                self.ip += 1;
+                return;
+            }
+            if (common.streq(raw_path, "speaker")) {
+                self.is_speaker_loaded = true;
                 self.ip += 1;
                 return;
             }

@@ -9,6 +9,7 @@ const logger = @import("logger.zig");
 const ata = @import("drivers/ata.zig");
 const rtc = @import("drivers/time/time.zig");
 const config = @import("config.zig");
+const speaker = @import("drivers/speaker.zig");
 
 // External jump target to return to kernel shell
 extern fn kernel_loop() noreturn;
@@ -395,6 +396,17 @@ export fn handle_syscall_zig(regs: *Registers) void {
         41 => { // Yield() - yield CPU to other processes
             asm volatile ("int $0x20");
             regs.eax = 0;
+        },
+        42 => { // SpeakerOp(EBX=op, ECX=freq, EDX=dur_ms, ESI=gap_ms)
+            // op=0: beep_async, op=1: check, op=2: pattern
+            if (regs.ebx == 0) {
+                speaker.beep_async(regs.ecx, regs.edx);
+            } else if (regs.ebx == 1) {
+                speaker.beep_async_check();
+            } else if (regs.ebx == 2) {
+                speaker.beep_pattern_async(regs.ecx, regs.edx, regs.esi);
+            }
+            regs.eax = if (speaker.beep_async_is_pending()) 1 else 0;
         },
         else => {
             logger.err("Unknown syscall");

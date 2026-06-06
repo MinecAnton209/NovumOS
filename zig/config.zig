@@ -17,3 +17,9 @@ pub const WATCHDOG_INTERVAL_TICKS = 1000 + (BUILD_HASH % 500); // 1000-1500
 pub const WATCHDOG_CHANCE_ALLOC = 1 + (BUILD_HASH % 16); // 1-16
 pub const WATCHDOG_CHANCE_SCHED = 1 + (BUILD_HASH % 32); // 1-32
 pub const WATCHDOG_CHANCE_TIMER = 1 + (BUILD_HASH % 8); // 1-8
+
+// PC Speaker configuration
+pub const ENABLE_SPEAKER = true;
+pub const ENABLE_BOOT_BEEP = true;
+pub const ENABLE_ERROR_BEEP = true;
+pub const ENABLE_NOTIFICATION_BEEP = true;

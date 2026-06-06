@@ -1,6 +1,14 @@
 // PIT (Programmable Interval Timer) Driver
 const common = @import("../commands/common.zig");
 const config = @import("../config.zig");
+const keyboard = @import("../keyboard_isr.zig");
+
+var tick_callback: ?*const fn () void = null;
+
+/// Register a callback to be invoked on every timer tick (100Hz)
+pub fn set_tick_callback(cb: ?*const fn () void) void {
+    tick_callback = cb;
+}
 
 // PIT Ports
 const PIT_COMMAND = 0x43;
@@ -38,7 +46,6 @@ pub export fn isr_timer(esp: u32) u32 {
     if (serial.serial_has_data()) {
         const c = serial.serial_getchar();
         if (c != 0) {
-            const keyboard = @import("../keyboard_isr.zig");
             keyboard.serial_inject_char(c);
         }
     }
@@ -52,6 +59,8 @@ pub export fn isr_timer(esp: u32) u32 {
         }
     }
 
+    if (tick_callback) |cb| cb();
+
     const scheduler = @import("../scheduler.zig");
     return scheduler.schedule(esp);
 }
@@ -62,8 +71,18 @@ pub fn get_uptime() usize {
     return ptr.* / TARGET_FREQ;
 }
 
-/// Get elapsed ticks (ms) since boot
+/// Get elapsed ticks since boot
 pub fn get_ticks() usize {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        return asm volatile ("int $0x80"
+            : [ret] "={eax}" (-> u32),
+            : [sys] "{eax}" (@as(u32, 11)),
+        );
+    }
     return ticks;
 }
 
@@ -88,8 +107,8 @@ pub fn sleep(ms: usize) void {
     const ticks_to_wait = (ms + ms_per_tick - 1) / ms_per_tick;
 
     while (ptr.* - start_ticks < ticks_to_wait) {
-        // Wait for next interrupt
         asm volatile ("sti");
         asm volatile ("hlt");
+        if (keyboard.check_ctrl_c_kernel()) break;
     }
 }

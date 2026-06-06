@@ -16,6 +16,8 @@ const top_cmd = @import("commands/top.zig");
 const lfb = @import("drivers/lfb.zig");
 const rtc = @import("drivers/time/time.zig");
 const idt_watchdog = @import("idt_watchdog.zig");
+const speaker = @import("drivers/speaker.zig");
+const speaker_timer = @import("drivers/timer.zig");
 
 extern const mb2_info: u32;
 extern const fb_addr: u32;
@@ -129,6 +131,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "exec", .help = "Alias for run", .handler = cmd_handler_run },
     .{ .name = "calc", .help = "Evaluate math & bitwise expressions (e.g. 1 << 8)", .handler = cmd_handler_calc },
     .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = cmd_handler_res },
+    .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
     .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = cmd_handler_panic },
     .{ .name = "abort", .help = "Trigger a manual kernel panic", .handler = cmd_handler_abort },
@@ -198,6 +201,7 @@ pub export fn read_command() void {
     refresh_line(); // Initial draw of status bar
 
     while (true) {
+        if (config.ENABLE_SPEAKER) speaker.beep_async_check();
         const char = keyboard.keyboard_wait_char();
 
         if (char == 3) {
@@ -1112,6 +1116,38 @@ pub fn shell_execute_literal(cmd: []const u8) void {
     common.printError("shell: command not found: ");
     common.printError(cmd_name);
     common.printError("\n");
+    if (config.ENABLE_ERROR_BEEP) {
+        speaker.beep_pattern_async(200, 80, 50);
+    }
+}
+
+fn note_name_to_freq(name: []const u8) ?u32 {
+    if (common.std_mem_eql(name, "C4")) return 262;
+    if (common.std_mem_eql(name, "CSH4")) return 277;
+    if (common.std_mem_eql(name, "D4")) return 294;
+    if (common.std_mem_eql(name, "DSH4")) return 311;
+    if (common.std_mem_eql(name, "E4")) return 330;
+    if (common.std_mem_eql(name, "F4")) return 349;
+    if (common.std_mem_eql(name, "FSH4")) return 370;
+    if (common.std_mem_eql(name, "G4")) return 392;
+    if (common.std_mem_eql(name, "GSH4")) return 415;
+    if (common.std_mem_eql(name, "A4")) return 440;
+    if (common.std_mem_eql(name, "ASH4")) return 466;
+    if (common.std_mem_eql(name, "B4")) return 494;
+    if (common.std_mem_eql(name, "C5")) return 523;
+    if (common.std_mem_eql(name, "CSH5")) return 554;
+    if (common.std_mem_eql(name, "D5")) return 587;
+    if (common.std_mem_eql(name, "DSH5")) return 622;
+    if (common.std_mem_eql(name, "E5")) return 659;
+    if (common.std_mem_eql(name, "F5")) return 698;
+    if (common.std_mem_eql(name, "FSH5")) return 740;
+    if (common.std_mem_eql(name, "G5")) return 784;
+    if (common.std_mem_eql(name, "GSH5")) return 831;
+    if (common.std_mem_eql(name, "A5")) return 880;
+    if (common.std_mem_eql(name, "ASH5")) return 932;
+    if (common.std_mem_eql(name, "B5")) return 988;
+    if (common.std_mem_eql(name, "C6")) return 1047;
+    return null;
 }
 
 // Handler functions for commands
@@ -1733,6 +1769,34 @@ fn cmd_handler_pwd(_: []const u8) void {
 
 fn cmd_handler_tree(_: []const u8) void {
     shell_cmds.cmd_tree();
+}
+
+fn cmd_handler_beep(args: []const u8) void {
+    var argv: [4][]const u8 = undefined;
+    const argc = common.parseArgs(args, &argv);
+    var freq: u32 = 440;
+    var dur_ms: u32 = 200;
+
+    if (argc >= 1) {
+        const parsed = common.parse_int(argv[0]);
+        if (parsed) |val| {
+            freq = @intCast(@max(20, @min(val, 20000)));
+        } else if (note_name_to_freq(argv[0])) |note_freq| {
+            freq = note_freq;
+        } else {
+            common.printZ("Usage: beep [freq|note] [dur_ms]\n");
+            return;
+        }
+    }
+
+    if (argc >= 2) {
+        const parsed = common.parse_int(argv[1]);
+        if (parsed) |val| {
+            dur_ms = @intCast(@max(0, val));
+        }
+    }
+
+    speaker.beep_async(freq, dur_ms);
 }
 
 fn display_prompt() void {

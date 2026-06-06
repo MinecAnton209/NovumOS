@@ -4,12 +4,12 @@ Nova is a statement-based interpreted language for the NovumOS kernel. It provid
 
 ---
 
-## ⚡ Quick Rules (v0.22+)
+## Quick Rules (v0.22+)
 - **Semicolons are Mandatory**: Every statement must end with a `;` (e.g., `print("hi");`).
 - **Modular Access**: Standard functions like `sin` or `delay` are now in modules (`math`, `sys`) and require an `import`.
 - **Case Sensitivity**: Keywords (`if`, `while`, `set`) are lowercase.
 
-## 🚀 1. Variable Management
+## 1. Variable Management
 
 Nova uses direct assignment, type hints, or the optional `set` keyword. Typing is dynamic.
 
@@ -38,7 +38,7 @@ print("Precise: " + ftemp);           // "Precise: 36.600"
 
 ---
 
-## 🔧 2. Built-in Functions
+## 2. Built-in Functions
 
 ### System & Hardware (Module `sys`)
 *Requires `import "sys"`*
@@ -74,6 +74,13 @@ print("Precise: " + ftemp);           // "Precise: 36.600"
 | `delete(path)` | Remove file or directory | `delete("tmp.txt");` |
 | `rename(o, n)` | Rename or move file | `rename("a.txt", "b.txt");`|
 | `copy(s, d)` | Copy file to destination | `copy("a.txt", "b.txt");` |
+
+### PC Speaker (Module `speaker`)
+*Requires `import "speaker"`*
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `speaker.beep(freq, dur_ms)` | Play a tone at frequency (Hz) for duration (ms) | `speaker.beep(440, 200);` |
 
 ### Math & Trigonometry (Module `math`)
 *Requires `import "math"`*
@@ -115,7 +122,7 @@ print("Precise: " + ftemp);           // "Precise: 36.600"
 
 ---
 
-## 🏗 3. Module System
+## 3. Module System
 
 Nova supports loading external modules using the `import` keyword.
 
@@ -132,7 +139,7 @@ import "/lib/utils.nv";
 
 ---
 
-## 🧊 4. Control Flow
+## 4. Control Flow
 
 ### If / Else
 ```nova
@@ -161,7 +168,7 @@ for (i = 0; i < 10; i++) {
 
 ---
 
-## 🛠 5. User Functions
+## 5. User Functions
 Functions in Nova can take parameters and return values using the `return` keyword.
 
 ```nova
@@ -176,7 +183,7 @@ print("Result: " + val); // 20
 
 ---
 
-## 🔟 6. Bitwise & Boolean Operators
+## 6. Bitwise & Boolean Operators
 
 Nova supports standard bitwise operators for integer values.
 
@@ -215,10 +222,10 @@ print("After clear: " + FLAGS);    // 1
 
 ---
 
-## 📝 7. Comments & Formatting
+## 7. Comments & Formatting
 Nova supports single-line (`//`) and multi-line (`/* ... */`) comments.
 
-### ⌨️ Multi-line REPL
+### Multi-line REPL
 The Nova REPL supports multi-line input. If a statement is not terminated with a `;` or a closing brace `}`, the REPL will switch to continuation mode (`...` prompt):
 ```nova
 nova> print("Hello " +
@@ -230,7 +237,7 @@ Hello World
 
 ---
 
-## 🎨 8. VGA Color Guide
+## 8. VGA Color Guide
 
 The `sys.color(fg, bg)` function uses standard 16-color VGA palette indices (0-15).
 
@@ -254,7 +261,7 @@ print("Warning: System Overload");
 
 ---
 
-## 🎭 9. Pangram Showcase
+## 9. Pangram Showcase
 Testing all core features in one script:
 
 ```nova
@@ -293,7 +300,7 @@ sys.color(15, 0);
 
 ---
 
-## 💻 10. Technical Specifications
+## 10. Technical Specifications
 - **Execution**: Recursive block-based interpreter with dynamic heap allocation.
 - **Math Engine**: High-speed fixed-approximation trigonometry optimized for x86 kernel space.
 - **FS Support**: Full integration with NovumOS FAT driver (v0.22.0).

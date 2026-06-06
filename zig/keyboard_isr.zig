@@ -424,4 +424,22 @@ pub fn check_ctrl_c() bool {
     return check_ctrl_c_kernel();
 }
 
+/// Peek at buffer for Ctrl+C without consuming it
+pub fn keyboard_has_ctrl_c_pending() bool {
+    const smp = @import("smp.zig");
+    const eflags = interrupts_save();
+    smp.spin_lock(&keyboard_lock);
+    defer {
+        smp.spin_unlock(&keyboard_lock);
+        interrupts_restore(eflags);
+    }
+
+    var i = buffer_tail;
+    while (i != buffer_head) {
+        if (keyboard_buffer[i] == 3) return true;
+        i = (i + 1) % BUFFER_SIZE;
+    }
+    return false;
+}
+
 // Temporary backwards compat if someone calls old check_ctrl_c implementation

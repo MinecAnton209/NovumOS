@@ -4,7 +4,7 @@ Comprehensive documentation for all built-in NovumOS shell commands.
 
 ---
 
-## 🚀 Quick Reference Table
+## Quick Reference Table
 
 | Command | Description | Usage |
 |---------|-------------|-------|
@@ -29,13 +29,14 @@ Comprehensive documentation for all built-in NovumOS shell commands.
 | `calc` | Expressions evaluator | `calc <expr>` |
 | `res` | Change resolution | `res <w> <h>` |
 | `top` | Task Monitor | `top` |
+| `beep` | Play a tone via PC speaker | `beep [freq|note] [dur]` |
 | `matrix` | Screensaver | `matrix` |
 | `reboot` | Restart system | `reboot` |
 | `shutdown` | Power off | `shutdown` |
 
 ---
 
-## 🛠 System Control
+## System Control
 
 ### `help`
 Displays a list of available commands.
@@ -94,7 +95,7 @@ Powers off the system using ACPI commands.
 
 ---
 
-## 📁 File System Navigation
+## File System Navigation
 
 ### `ls`
 Lists files and directories in the target path or current directory.
@@ -145,7 +146,7 @@ Visualizes the entire directory structure starting from the current location.
 
 ---
 
-## 📄 File Manipulation
+## File Manipulation
 
 ### `touch`
 Creates a new empty file at the specified path.
@@ -197,7 +198,7 @@ Moves or renames a file or directory.
 
 ---
 
-## 🔧 Tools & Utilities
+## Tools & Utilities
 
 ### `edit`
 Starts the primitive text editor to create or modify text files.
@@ -216,6 +217,18 @@ Displays the current status of the System Heap and memory allocator.
   - **Interruptible:** Press **Ctrl+C** at any time to abort the test.
   - **Garbage Collection:** Automatically triggers a heap cleanup after the test completes or is aborted.
 
+### `beep`
+Plays a tone through the PC speaker.
+- **Usage:** `beep [freq|note] [dur_ms]`
+- **Arguments:**
+  - `freq`: Frequency in Hz (20–20000). Default: 440
+  - `note`: Note name (e.g. `C4`, `A4`, `CSH4`, `B5`, `C6`)
+  - `dur_ms`: Duration in milliseconds. Default: 200
+- **Examples:**
+  - `beep` — 440 Hz, 200 ms
+  - `beep 1000 500` — 1000 Hz, 500 ms
+  - `beep A4 300` — note A4 (440 Hz), 300 ms
+
 ### `history`
 Lists the most recently executed commands.
 - **Usage:** `history`
@@ -232,7 +245,7 @@ Evaluates mathematical and bitwise expressions using the Nova core. Supports hex
 
 ---
 
-## 📀 Formatting
+## Formatting
 
 ### `format`
 Performs a low-level format of the selected drive.
@@ -244,7 +257,7 @@ Creates a FAT filesystem on the target drive.
 - **Usage:** `mkfs-fat16 0` (Formats Master as FAT16)
 
 ---
-## 🔄 Redirection & Piping
+## Redirection & Piping
 NovumOS shell supports standard output redirection and inter-process piping.
 
 ### Output Redirection
