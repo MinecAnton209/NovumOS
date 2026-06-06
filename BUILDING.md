@@ -8,13 +8,20 @@ This guide covers building and running NovumOS in detail.
 
 | Tool | Version | Purpose |
 |------|---------|---------|
+| git | latest | Clone repo, init submodules |
 | NASM | latest | Assembler for x86 assembly |
-| Zig | master (0.12+) | Build system & compiler |
+| Zig | 0.16.0 | Build system, linker, compiler |
+| xorriso | latest | Create bootable ISO image |
 | QEMU | latest | Emulator for testing |
+| make, cc (gcc/clang) | latest | Build Limine bootloader (Linux only) |
 
 ### Installing Dependencies
 
 #### Windows
+
+**git:**
+- Download from https://git-scm.com/
+- Add to PATH
 
 **NASM:**
 - Download from https://www.nasm.us/
@@ -25,6 +32,13 @@ This guide covers building and running NovumOS in detail.
 winget install zig.zig
 # or
 choco install zig
+```
+
+**xorriso:**
+```powershell
+winget install xorriso
+# or
+choco install xorriso
 ```
 
 **QEMU:**
@@ -38,14 +52,18 @@ choco install qemu
 
 ```bash
 sudo apt update
-sudo apt install nasm qemu-system-x86 zig
+sudo apt install build-essential nasm qemu-system-x86 xorriso
 ```
+
+Install Zig from https://ziglang.org/download/ (add to PATH).
 
 #### macOS
 
 ```bash
-brew install nasm qemu zig
+brew install git nasm qemu xorriso
 ```
+
+Install Zig from https://ziglang.org/download/ (add to PATH).
 
 ## Building
 
@@ -56,8 +74,7 @@ brew install nasm qemu zig
 ```
 
 Output:
-- `build/os-image.bin` - Kernel image
-- `NovumOS.img` - Disk image with filesystem
+- `NovumOS.iso` - Bootable ISO image (with Limine + kernel)
 
 ### Linux/macOS
 
@@ -66,35 +83,21 @@ chmod +x build.sh
 ./build.sh
 ```
 
-### Building Components Separately
-
-```bash
-# Build kernel only (NASM)
-nasm -f bin bootloader.asm -o build/bootloader.bin
-nasm -f bin kernel32.asm -o build/kernel32.bin
-
-# Build SDK
-cd sdk/libnovum
-.\build.bat  # Windows
-./build.sh  # Linux/macOS
-
-# Build example apps
-cd ..
-.\build-app.bat examples\hello_world\main.c examples\hello_world\hello.elf
-```
+Output:
+- `NovumOS.iso` - Bootable ISO image (with Limine + kernel)
 
 ## Running
 
 ### Basic
 
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso
+qemu-system-i386 -cdrom NovumOS.iso -serial stdio
 ```
 
 ### With Disk Image
 
 ```bash
-qemu-system-i386 -drive format=raw,file=build/os-image.bin -drive format=raw,file=NovumOS.img
+qemu-system-i386 -cdrom NovumOS.iso -drive format=raw,file=disk.img -serial stdio
 ```
 
 ### Serial Console (No Graphics)
@@ -103,26 +106,20 @@ qemu-system-i386 -drive format=raw,file=build/os-image.bin -drive format=raw,fil
 qemu-system-i386 -cdrom NovumOS.iso -nographic
 ```
 
-Connect via:
-```bash
-# In another terminal
-nc localhost 4444
-```
-
-### Custom Resolution (BGA)
+### PC Speaker Audio (QEMU)
 
 ```bash
-qemu-system-i386 -drive format=raw,file=build/os-image.bin -drive format=raw,file=NovumOS.img -vga std
+qemu-system-i386 -cdrom NovumOS.iso -audiodev sdl,id=audio0 -machine pc,pcspk-audiodev=audio0 -serial stdio
 ```
 
 ### Debugging
 
 ```bash
 # With QEMU monitor
-qemu-system-i386 -cdrom NovumOS.iso -monitor stdio
+qemu-system-i386 -cdrom NovumOS.iso -serial stdio -monitor stdio
 
 # With GDB
-qemu-system-i386 -cdrom NovumOS.iso -s -S
+qemu-system-i386 -cdrom NovumOS.iso -serial stdio -s -S
 # Then in gdb: target remote localhost:1234
 ```
 

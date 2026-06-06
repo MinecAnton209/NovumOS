@@ -4,6 +4,7 @@ echo Building NovumOS...
 :: Create directories
 if not exist build mkdir build
 if not exist limine-build mkdir limine-build
+if not exist iso_root\boot mkdir iso_root\boot
 
 :: Initialize Limine submodule if needed
 if not exist limine\Makefile (
@@ -25,9 +26,17 @@ copy limine\limine-bios-cd.bin limine-build\
 copy limine\limine-uefi-cd.bin limine-build\
 copy limine\BOOTX64.EFI limine-build\
 
+:: Detect config flags from zig/config.zig
+set SERIAL_DEBUG=0
+set EARLY_LFB_DEBUG=0
+findstr /c:"ENABLE_SERIAL_DEBUG = true" zig\config.zig > nul 2>&1
+if %errorlevel% equ 0 set SERIAL_DEBUG=1
+findstr /c:"ENABLE_EARLY_LFB_DEBUG = true" zig\config.zig > nul 2>&1
+if %errorlevel% equ 0 set EARLY_LFB_DEBUG=1
+
 :: Assemble kernel
 echo Assembling kernel...
-nasm -f elf32 kernel32.asm -o build\kernel32.o
+nasm -f elf32 kernel32.asm -o build\kernel32.o -DENABLE_SERIAL_DEBUG=%SERIAL_DEBUG% -DENABLE_EARLY_LFB_DEBUG=%EARLY_LFB_DEBUG%
 if %errorlevel% neq 0 (
     echo Error assembling kernel!
     pause
@@ -73,29 +82,39 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: Extract binary
-echo Extracting binary...
-zig objcopy -O binary build\kernel32.elf build\kernel32.bin
+:: Copy files to ISO directory
+echo Creating ISO...
+copy limine-build\limine-bios.sys iso_root\boot\ > nul
+copy limine-build\limine-bios.sys iso_root\ > nul
+copy limine-build\limine-bios-cd.bin iso_root\boot\ > nul
+copy limine-build\limine-uefi-cd.bin iso_root\boot\ > nul
+copy limine-build\BOOTX64.EFI iso_root\boot\ > nul
+copy build\kernel32.elf iso_root\boot\ > nul
+copy build\trampoline.bin iso_root\boot\ > nul
+copy limine.conf iso_root\ > nul
+
+:: Create ISO image
+xorriso -as mkisofs -b boot/limine-bios-cd.bin ^
+        -no-emul-boot -boot-load-size 4 -boot-info-table ^
+        --efi-boot boot/limine-uefi-cd.bin ^
+        -efi-boot-part --efi-boot-image --protective-msdos-label ^
+        iso_root -o NovumOS.iso
 if %errorlevel% neq 0 (
-    echo Error extracting binary!
+    echo Error creating ISO!
     pause
     exit /b 1
 )
 
-:: Create bootable image
-echo Creating image...
-copy /b limine-build\limine-bios.sys + build\kernel32.bin build\os-image.bin > nul
-
-:: Pad to 1.44MB
-fsutil file createnorm build\pad.bin 1474560 > nul 2>nul
-copy /b build\os-image.bin + build\pad.bin build\temp.bin > nul
-del /f build\os-image.bin 2>nul
-ren build\temp.bin os-image.bin
-del /f build\pad.bin 2>nul
+:: Install Limine bootloader to ISO
+echo Installing Limine to ISO...
+limine-build\limine bios-install NovumOS.iso
+if %errorlevel% neq 0 (
+    echo Error installing Limine!
+    pause
+    exit /b 1
+)
 
 echo.
-echo Build successful!
-dir build\*.bin os-image.bin
-
+echo === Build Complete ===
 echo.
-echo Run: qemu-system-i386 -drive format=raw,file=build\os-image.bin
+echo To run: qemu-system-i386 -cdrom NovumOS.iso -serial stdio
