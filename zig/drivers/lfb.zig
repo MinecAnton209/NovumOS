@@ -105,20 +105,20 @@ pub fn init() void {
         height = fb_height;
         bpp = fb_bpp;
         pitch = fb_pitch;
-        
+
         if (pitch == 0) pitch = width * (bpp / 8);
         fb_mapped_size = @as(usize, pitch) * height;
-        
+
         memory.user_mmio_start = fb_phys_base;
         memory.user_mmio_end = fb_phys_base + fb_mapped_size;
-        
+
         memory.map_range(fb_phys_base, fb_mapped_size, true);
         framebuffer = @ptrFromInt(fb_phys_base);
         ensure_backbuffer(fb_mapped_size);
         initialized = true;
         return;
     }
-    
+
     // Fallback to VBE info
     const raw_info: *VbeModeInfo = @ptrFromInt(0x8000);
 

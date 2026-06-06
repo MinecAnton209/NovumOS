@@ -1575,11 +1575,21 @@ fn cmd_handler_calc(args: []const u8) void {
 fn cmd_handler_fbinfo(args: []const u8) void {
     _ = args;
     common.printZ("\n=== Multiboot2 Framebuffer ===\n");
-    common.printZ("fb_addr:   "); common.printHex(fb_addr); common.printZ("\n");
-    common.printZ("fb_pitch: "); common.printHex(fb_pitch); common.printZ("\n");
-    common.printZ("fb_width: "); common.printHex(fb_width); common.printZ("\n");
-    common.printZ("fb_h:     "); common.printHex(fb_height); common.printZ("\n");
-    common.printZ("fb_bpp:   "); common.printHex(fb_bpp); common.printZ("\n");
+    common.printZ("fb_addr:   ");
+    common.printHex(fb_addr);
+    common.printZ("\n");
+    common.printZ("fb_pitch: ");
+    common.printHex(fb_pitch);
+    common.printZ("\n");
+    common.printZ("fb_width: ");
+    common.printHex(fb_width);
+    common.printZ("\n");
+    common.printZ("fb_h:     ");
+    common.printHex(fb_height);
+    common.printZ("\n");
+    common.printZ("fb_bpp:   ");
+    common.printHex(fb_bpp);
+    common.printZ("\n");
 }
 
 fn cmd_handler_fbtest(args: []const u8) void {

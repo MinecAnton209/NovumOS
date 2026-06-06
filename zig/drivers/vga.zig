@@ -95,11 +95,11 @@ pub export fn restore_screen_buffer() void {
 pub export fn clear_screen() void {
     // Direct VGA text output (fallback)
     const vga_mem = @as([*]volatile u16, @ptrFromInt(0xB8000));
-    for (0..80*25) |i| {
+    for (0..80 * 25) |i| {
         vga_mem[i] = @as(u16, 0x0f20); // white ' '
     }
     vga_mem[0] = @as(u16, 0x0f4B); // 'K' - test
-    
+
     if (!lfb.initialized) return;
     lfb.fill_screen(0x000000); // Black
 

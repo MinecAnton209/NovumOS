@@ -34,7 +34,9 @@ pub export fn nova_start(arg_ptr: [*]const u8, arg_len: usize) void {
     }
 
     var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]" : [cs] "=r" (cs));
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
     if ((cs & 3) == 3) {
         // Already in Ring 3 — call interpreter directly.
         // Avoids syscall 12 which rejects kernel-space entry points.

@@ -290,7 +290,7 @@ pub fn fat_puts(handle: *FileHandle, str: [*]const u8, len: u32) i32 {
             ata.read_sector(handle.drive, @intCast(lba), &sector_buf);
         }
 
-        @memcpy(sector_buf[offset_in_sector..offset_in_sector + to_write], str[written..written + to_write]);
+        @memcpy(sector_buf[offset_in_sector .. offset_in_sector + to_write], str[written .. written + to_write]);
         ata.write_sector(handle.drive, @intCast(lba), &sector_buf);
 
         written += to_write;

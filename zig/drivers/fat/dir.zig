@@ -593,8 +593,7 @@ pub fn resolve_path(drive: ata.Drive, bpb: BPB, start_dir: u32, path: []const u8
         }
 
         if (component.len > 0) {
-            if (common.std_mem_eql(component, ".")) {
-            } else if (common.std_mem_eql(component, "..")) {
+            if (common.std_mem_eql(component, ".")) {} else if (common.std_mem_eql(component, "..")) {
                 if (current_dir != 0) {
                     const entry = find_entry_literal(drive, bpb, current_dir, "..") orelse return null;
                     current_dir = entry.first_cluster_low;
@@ -627,7 +626,7 @@ fn fat_parse_name(name: []const u8) FatName {
             return FatName{ .name = name[0..i], .ext = "" };
         }
 
-        return FatName{ .name = name[0..dot], .ext = name[dot + 1 ..i] };
+        return FatName{ .name = name[0..dot], .ext = name[dot + 1 .. i] };
     }
 
     return FatName{ .name = name[0..i], .ext = "" };
@@ -1312,7 +1311,6 @@ fn try_add_entry_to_sector(drive: ata.Drive, sector: u32, name: []const u8, shor
             if (free_count == 0) start_index = i;
             free_count += 1;
             if (free_count == slots) {
-
                 if (use_lfn) {
                     const lfn_count = slots - 1;
                     const chk = lfn_checksum(short_name);
