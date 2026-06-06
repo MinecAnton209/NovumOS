@@ -109,7 +109,8 @@ pub fn load_and_run(data: []const u8) !noreturn {
                     const page_addr = addr & 0xFFFFF000;
 
                     // Map if not already present
-                    _ = memory.map_page_at(page_addr, memory.pmm.alloc_page() orelse @panic("OOM in ELF BSS"), true);
+                    const frame = memory.pmm.alloc_page() orelse return error.OutOfMemory;
+                    _ = memory.map_page_at(page_addr, frame, true);
 
                     const to_zero = @min(bss_size - offset, memory.PAGE_SIZE - (addr % 4096));
                     @memset(@as([*]u8, @ptrFromInt(addr))[0..to_zero], 0);

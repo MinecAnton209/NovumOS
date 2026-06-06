@@ -15,16 +15,22 @@ pub fn handleSys(vm: anytype, name: []const u8) ?hash_table.VariableValue {
         } else {
             vm.reportError("Expected ')' in sys.get_mem");
         }
-        return .{ .vtype = .int, .int_val = @intCast(0) }; // TODO: Replace with syscall if needed
+        // Syscall 44 returns free physical memory in bytes.
+        var result: u32 = 0;
+        asm volatile ("int $0x80"
+            : [ret] "={eax}" (result),
+            : [sys] "{eax}" (@as(u32, 44)),
+        );
+        return .{ .vtype = .int, .int_val = @intCast(result) };
     } else if (common.streq(name, "sys.get_temp")) {
         if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) {
             vm.ip += 1;
         } else {
             vm.reportError("Expected ')' in sys.get_temp");
         }
-        // rdmsr is privileged and will crash in Ring 3.
-        // For now, return a placeholder or use a syscall if implemented.
-        return .{ .vtype = .int, .int_val = 0 };
+        // CPU temperature requires ACPI thermal zone support which isn't
+        // implemented. Return -1 as a sentinel so callers can detect absence.
+        return .{ .vtype = .int, .int_val = -1 };
     } else if (common.streq(name, "sys.delay") or common.streq(name, "sys.sleep")) {
         const val = vm.evaluateExpression();
         if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) {

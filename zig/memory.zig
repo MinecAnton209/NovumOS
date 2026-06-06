@@ -732,6 +732,9 @@ pub const heap = struct {
                 logger.security("Free: Invalid or unaligned pointer from User Mode");
                 return false;
             }
+            common.printZ("[heap] free(invalid pointer addr=");
+            common.printHex(@intCast(addr));
+            common.printZ(")\n");
             @panic("Heap: Attempt to free invalid or unaligned pointer");
         }
 
@@ -744,6 +747,14 @@ pub const heap = struct {
                 logger.security("Free: Corruption detected (invalid magic)");
                 return false;
             }
+            var hex_buf: [16]u8 = undefined;
+            common.printZ("[heap] free(corruption: ptr=");
+            common.printHex(@intCast(addr));
+            common.printZ(" magic=");
+            common.printHex(header.magic);
+            common.printZ(" expected=");
+            common.printZ(common.intToHex(HEAP_MAGIC, &hex_buf));
+            common.printZ(")\n");
             @panic("Heap: Corruption detected (invalid magic)! Potential buffer overflow or invalid free.");
         }
 
@@ -753,6 +764,12 @@ pub const heap = struct {
                 logger.security("Free: Double-free attempt from User Mode");
                 return false;
             }
+            var dec_buf: [16]u8 = undefined;
+            common.printZ("[heap] double-free at ptr=");
+            common.printHex(@intCast(addr));
+            common.printZ(" size=");
+            common.printZ(common.intToString(@intCast(header.size), &dec_buf));
+            common.printZ("\n");
             @panic("Heap: Double-free detected!");
         }
 
@@ -762,6 +779,12 @@ pub const heap = struct {
                 logger.security("Free: Insane block size detected");
                 return false;
             }
+            var dec_buf: [16]u8 = undefined;
+            common.printZ("[heap] implausible size ptr=");
+            common.printHex(@intCast(addr));
+            common.printZ(" size=");
+            common.printZ(common.intToString(@intCast(header.size), &dec_buf));
+            common.printZ("\n");
             @panic("Heap: Corruption detected (implausible block size)!");
         }
 

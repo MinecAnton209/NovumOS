@@ -391,7 +391,6 @@ export fn handle_syscall_zig(regs: *Registers) void {
                 regs.eax = 0xFFFFFFFF;
                 return;
             };
-            unreachable;
         },
         41 => { // Yield() - yield CPU to other processes
             asm volatile ("int $0x20");
@@ -407,6 +406,25 @@ export fn handle_syscall_zig(regs: *Registers) void {
                 speaker.beep_pattern_async(regs.ecx, regs.edx, regs.esi);
             }
             regs.eax = if (speaker.beep_async_is_pending()) 1 else 0;
+        },
+        43 => { // WriteBuf(EBX = ptr, ECX = len) - batched Ring-3 print of binary-safe buffer
+            const ptr = @as([*]const u8, @ptrFromInt(regs.ebx));
+            const len: usize = @intCast(regs.ecx);
+            if (len > MAX_SYSCALL_STR_LEN) {
+                logger.security("WriteBuf: length exceeds MAX_SYSCALL_STR_LEN");
+                regs.eax = 0;
+            } else if (len == 0) {
+                regs.eax = 0;
+            } else if (is_user_ptr(regs.ebx) and is_user_ptr(regs.ebx + len - 1)) {
+                common.printBuf(ptr[0..len]);
+                regs.eax = len;
+            } else {
+                logger.security("WriteBuf: invalid user buffer");
+                regs.eax = 0;
+            }
+        },
+        44 => { // GetFreeMemory() -> EAX (bytes)
+            regs.eax = @intCast(memory.get_free_memory());
         },
         else => {
             logger.err("Unknown syscall");

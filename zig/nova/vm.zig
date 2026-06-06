@@ -100,6 +100,16 @@ pub const VM = struct {
             .IF => self.handleIf(),
             .WHILE => self.handleWhile(),
             .FOR => self.handleFor(),
+            .BREAK => {
+                self.break_flag = true;
+                self.ip += 1;
+                if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .SEMICOLON) self.ip += 1;
+            },
+            .CONTINUE => {
+                self.continue_flag = true;
+                self.ip += 1;
+                if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .SEMICOLON) self.ip += 1;
+            },
             .SET, .INT_TYPE, .STRING_TYPE => self.handleSet(),
             .IDENTIFIER => self.handleAssignmentOrCall(),
             .RETURN => self.handleReturn(),

@@ -177,6 +177,14 @@ pub fn printZ(str: []const u8) void {
     }
 }
 
+/// Print a raw byte buffer of exact length (no null terminator search).
+/// Safe for binary data; caller-provided length is authoritative.
+pub fn printBuf(buf: []const u8) void {
+    for (buf) |c| {
+        print_char(c);
+    }
+}
+
 /// Print an error message in red
 pub fn printError(str: []const u8) void {
     vga.set_color(12, 0); // Red

@@ -2,6 +2,7 @@ const config = @import("../config.zig");
 const common = @import("../commands/common.zig");
 const timer = @import("timer.zig");
 const smp = @import("../smp.zig");
+const logger = @import("../logger.zig");
 
 const PIT_COMMAND = 0x43;
 const PIT_CHANNEL2 = 0x42;
@@ -9,6 +10,19 @@ const PPI_PORT_B = 0x61;
 const PIT_BASE_FREQ = 1193182;
 const FREQ_MIN = 20;
 const FREQ_MAX = 20000;
+
+pub const NOTE_C3 = 131;
+pub const NOTE_CSH3 = 139;
+pub const NOTE_D3 = 147;
+pub const NOTE_DSH3 = 156;
+pub const NOTE_E3 = 165;
+pub const NOTE_F3 = 175;
+pub const NOTE_FSH3 = 185;
+pub const NOTE_G3 = 196;
+pub const NOTE_GSH3 = 208;
+pub const NOTE_A3 = 220;
+pub const NOTE_ASH3 = 233;
+pub const NOTE_B3 = 247;
 
 pub const NOTE_C4 = 262;
 pub const NOTE_CSH4 = 277;
@@ -37,6 +51,17 @@ pub const NOTE_ASH5 = 932;
 pub const NOTE_B5 = 988;
 
 pub const NOTE_C6 = 1047;
+pub const NOTE_CSH6 = 1109;
+pub const NOTE_D6 = 1175;
+pub const NOTE_DSH6 = 1245;
+pub const NOTE_E6 = 1319;
+pub const NOTE_F6 = 1397;
+pub const NOTE_FSH6 = 1480;
+pub const NOTE_G6 = 1568;
+pub const NOTE_GSH6 = 1661;
+pub const NOTE_A6 = 1760;
+pub const NOTE_ASH6 = 1865;
+pub const NOTE_B6 = 1976;
 
 var speaker_lock: u32 = 0;
 var saved_port_b: u8 = 0;
@@ -116,7 +141,10 @@ pub fn beep_async(freq: u32, dur_ms: u32) void {
         );
         return;
     }
-    if (freq < FREQ_MIN or freq > FREQ_MAX) return;
+    if (freq < FREQ_MIN or freq > FREQ_MAX) {
+        logger.warn("speaker: frequency out of range");
+        return;
+    }
     if (is_playing()) return;
     on(freq);
     beep_state = .on;
@@ -142,7 +170,10 @@ pub fn beep_pattern_async(freq: u32, dur_ms: u32, gap_ms: u32) void {
         );
         return;
     }
-    if (freq < FREQ_MIN or freq > FREQ_MAX) return;
+    if (freq < FREQ_MIN or freq > FREQ_MAX) {
+        logger.warn("speaker: frequency out of range");
+        return;
+    }
     if (is_playing()) return;
     on(freq);
     beep_state = .on;
@@ -207,7 +238,10 @@ pub fn beep_async_tick() void {
 }
 
 pub fn beep(freq: u32, dur_ms: u32) void {
-    if (freq < FREQ_MIN or freq > FREQ_MAX) return;
+    if (freq < FREQ_MIN or freq > FREQ_MAX) {
+        logger.warn("speaker: frequency out of range");
+        return;
+    }
     if (is_playing()) return;
 
     on(freq);

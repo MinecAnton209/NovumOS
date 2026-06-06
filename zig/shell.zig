@@ -1122,6 +1122,18 @@ pub fn shell_execute_literal(cmd: []const u8) void {
 }
 
 fn note_name_to_freq(name: []const u8) ?u32 {
+    if (common.std_mem_eql(name, "C3")) return 131;
+    if (common.std_mem_eql(name, "CSH3")) return 139;
+    if (common.std_mem_eql(name, "D3")) return 147;
+    if (common.std_mem_eql(name, "DSH3")) return 156;
+    if (common.std_mem_eql(name, "E3")) return 165;
+    if (common.std_mem_eql(name, "F3")) return 175;
+    if (common.std_mem_eql(name, "FSH3")) return 185;
+    if (common.std_mem_eql(name, "G3")) return 196;
+    if (common.std_mem_eql(name, "GSH3")) return 208;
+    if (common.std_mem_eql(name, "A3")) return 220;
+    if (common.std_mem_eql(name, "ASH3")) return 233;
+    if (common.std_mem_eql(name, "B3")) return 247;
     if (common.std_mem_eql(name, "C4")) return 262;
     if (common.std_mem_eql(name, "CSH4")) return 277;
     if (common.std_mem_eql(name, "D4")) return 294;
@@ -1147,6 +1159,17 @@ fn note_name_to_freq(name: []const u8) ?u32 {
     if (common.std_mem_eql(name, "ASH5")) return 932;
     if (common.std_mem_eql(name, "B5")) return 988;
     if (common.std_mem_eql(name, "C6")) return 1047;
+    if (common.std_mem_eql(name, "CSH6")) return 1109;
+    if (common.std_mem_eql(name, "D6")) return 1175;
+    if (common.std_mem_eql(name, "DSH6")) return 1245;
+    if (common.std_mem_eql(name, "E6")) return 1319;
+    if (common.std_mem_eql(name, "F6")) return 1397;
+    if (common.std_mem_eql(name, "FSH6")) return 1480;
+    if (common.std_mem_eql(name, "G6")) return 1568;
+    if (common.std_mem_eql(name, "GSH6")) return 1661;
+    if (common.std_mem_eql(name, "A6")) return 1760;
+    if (common.std_mem_eql(name, "ASH6")) return 1865;
+    if (common.std_mem_eql(name, "B6")) return 1976;
     return null;
 }
 
