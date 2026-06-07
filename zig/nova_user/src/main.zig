@@ -2,6 +2,9 @@
 // Nova user-space ELF entry point (Ring 3).
 // No kernel imports — everything via syscall inline asm.
 
+const interpreter = @import("nova_legacy/interpreter.zig");
+const commands = @import("nova_legacy/commands.zig");
+
 fn syscall0(n: u32) u32 {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> u32),
@@ -23,8 +26,13 @@ fn print(msg: []const u8) void {
 }
 
 export fn _start() noreturn {
-    const msg = "Nova ELF: Ring 3 VM loaded\n";
+    const msg = "Nova ELF v0.2 — Ring 3 VM\n";
     print(msg);
+
+    // If there's a script path as argv[1], run it
+    // argv is at [esp+4] per ELF convention, but we'd need a new syscall
+    // to read it properly. For now, start the REPL.
+    interpreter.start(null);
 
     _ = syscall0(0); // Exit
     unreachable;

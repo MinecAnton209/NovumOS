@@ -2,7 +2,7 @@
 const common = @import("commands/common.zig");
 const keyboard = @import("keyboard_isr.zig");
 const shell_cmds = @import("shell_cmds.zig");
-const nova = @import("nova.zig");
+const elf = @import("elf.zig");
 const messages = @import("messages.zig");
 const vga = @import("drivers/vga.zig");
 const versioning = @import("versioning.zig");
@@ -1231,8 +1231,10 @@ fn cmd_handler_about(_: []const u8) void {
     common.printZ("=== By MinecAnton209 ===\n\n");
 }
 
-fn cmd_handler_nova(args: []const u8) void {
-    nova.nova_start(args.ptr, args.len);
+fn cmd_handler_nova(_: []const u8) void {
+    elf.load_and_run_nova() catch {
+        common.printZ("Error: Failed to load nova.elf\n");
+    };
 }
 
 fn cmd_handler_uptime(_: []const u8) void {

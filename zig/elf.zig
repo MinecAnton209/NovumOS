@@ -123,3 +123,10 @@ pub fn load_and_run(data: []const u8) !noreturn {
     logger.info("Jumping to Ring 3 ELF...");
     user.jump_to_user_mode_with_entry(header.entry, false);
 }
+
+/// Load and run the embedded nova.elf (Ring 3 Nova VM).
+pub fn load_and_run_nova() !noreturn {
+    const data = @embedFile("build/nova");
+    logger.info("Loading embedded nova.elf...");
+    return load_and_run(data);
+}
