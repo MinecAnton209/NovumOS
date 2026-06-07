@@ -48,6 +48,27 @@ pub fn build(b: *std.Build) void {
 
     b.default_step.dependOn(&install_kernel.step);
 
+    // --- Nova User-Space ELF ---
+    const nova_mod = b.createModule(.{
+        .root_source_file = b.path("nova_user/src/main.zig"),
+        .target = target,
+        .optimize = .ReleaseSmall,
+    });
+    const nova_exe = b.addExecutable(.{
+        .name = "nova",
+        .root_module = nova_mod,
+    });
+    nova_exe.setLinkerScript(b.path("nova_user/linker.ld"));
+
+    // Install nova.elf next to the kernel
+    const install_nova = b.addInstallArtifact(nova_exe, .{
+        .dest_dir = .{ .override = .{ .custom = "../build" } },
+    });
+    b.default_step.dependOn(&install_nova.step);
+
+    // Make kernel compile depend on nova install (for @embedFile)
+    kernel.step.dependOn(&install_nova.step);
+
     // --- Developer Commands ---
 
     // 1. Run the OS without disk
