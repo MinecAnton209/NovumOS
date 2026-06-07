@@ -1,5 +1,6 @@
 // zig/syscalls/process.zig
 // Process control syscalls: Exit, Execve, JumpToUser, Yield.
+// Also hosts per-process alloc tracking for Nova Ring 3 protection.
 
 const user = @import("../user.zig");
 const memory = @import("../memory.zig");
@@ -9,9 +10,67 @@ const syscalls = @import("mod.zig");
 extern fn kernel_loop() noreturn;
 extern fn jump_to_ring3_entry(entry: usize, stack: usize, eflags: u32) noreturn;
 
+// Per-process allocation tracking (CVE-2026-40573 mitigation)
+// When current_is_nova is true, malloc/free (syscalls 30/31) are strict:
+// - max 256 simultaneous allocations
+// - free only succeeds if pointer is found in tracker (prevents UAF via fake header)
+// - no degraded mode: if tracker full → OOM; untracked free → security log + no-op
+
+pub const MAX_PROCESS_ALLOCS = 256;
+
+const ProcessAlloc = struct {
+    ptr: u32,
+    size: u32,
+};
+
+pub var process_allocs: [MAX_PROCESS_ALLOCS]ProcessAlloc = [_]ProcessAlloc{.{ .ptr = 0, .size = 0 }} ** MAX_PROCESS_ALLOCS;
+pub var process_alloc_count: u32 = 0;
+pub var current_is_nova: bool = false;
+
+/// Track a new allocation. Returns false if tracker is full.
+pub fn track_alloc(ptr: u32, size: u32) bool {
+    if (!current_is_nova) return true; // not tracking for non-Nova
+    if (process_alloc_count >= MAX_PROCESS_ALLOCS) return false;
+    process_allocs[process_alloc_count] = .{ .ptr = ptr, .size = size };
+    process_alloc_count += 1;
+    return true;
+}
+
+/// Find and remove an allocation from the tracker. Returns true if found.
+pub fn untrack_alloc(ptr: u32) bool {
+    if (!current_is_nova) return true; // no tracking for non-Nova
+    var i: u32 = 0;
+    while (i < process_alloc_count) : (i += 1) {
+        if (process_allocs[i].ptr == ptr) {
+            // Swap with last and decrement
+            process_alloc_count -= 1;
+            if (i < process_alloc_count) {
+                process_allocs[i] = process_allocs[process_alloc_count];
+            }
+            return true;
+        }
+    }
+    return false; // not found
+}
+
+pub fn is_nova_filename(name: []const u8) bool {
+    return name.len >= 4 and
+        (name[0] | 0x20) == 'n' and
+        (name[1] | 0x20) == 'o' and
+        (name[2] | 0x20) == 'v' and
+        (name[3] | 0x20) == 'a';
+}
+
+/// Reset tracking state (called before launching a new user process)
+pub fn reset_alloc_tracking() void {
+    process_alloc_count = 0;
+    current_is_nova = false;
+}
+
 /// Syscall 0: Exit — return to kernel shell
 pub fn exit(_: *user.Registers) void {
     logger.info("User mode process exited. Returning to Shell...");
+    reset_alloc_tracking();
     user.jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true);
 }
 
@@ -38,6 +97,9 @@ pub fn execve(regs: *user.Registers) void {
     const elf_mod = @import("../elf.zig");
 
     if (syscalls.safe_str_from_user(regs.ebx, 32)) |filename| {
+        // Reset tracking and detect Nova
+        reset_alloc_tracking();
+        current_is_nova = is_nova_filename(filename);
         const file_id = fs_mod.fs_find(filename.ptr, @intCast(filename.len));
         if (file_id < 0) {
             regs.eax = 0xFFFFFFFF;

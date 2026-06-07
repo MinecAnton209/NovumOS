@@ -83,6 +83,7 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     const storage_mod = @import("storage.zig");
     const speaker_mod = @import("speaker.zig");
     const debug_mod = @import("debug.zig");
+    const file_mod = @import("file.zig");
 
     var table: [256]?HandlerPtr = [_]?HandlerPtr{null} ** 256;
     // Console
@@ -127,6 +128,15 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     table[33] = &debug_mod.idtCheck;
     table[34] = &debug_mod.idtMove;
     table[43] = &debug_mod.writeBuf;
+    // File (Ring 3 file syscalls via FAT)
+    table[45] = &file_mod.readFile;
+    table[46] = &file_mod.writeFile;
+    table[47] = &file_mod.deleteFile;
+    table[48] = &file_mod.renameFile;
+    table[49] = &file_mod.statFile;
+    table[50] = &file_mod.getRes;
+    table[51] = &file_mod.existsFile;
+    table[52] = &file_mod.copyFile;
     break :blk table;
 };
 

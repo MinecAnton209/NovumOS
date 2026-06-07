@@ -6,6 +6,7 @@ const memory = @import("../memory.zig");
 const user = @import("../user.zig");
 const logger = @import("../logger.zig");
 const syscalls = @import("mod.zig");
+const process_mod = @import("process.zig");
 
 /// Syscall 15: MemoryMapRange(EBX=vaddr, ECX=size)
 /// Maps a range of user-space virtual addresses to physical frames.
@@ -62,20 +63,40 @@ pub fn memoryMapRange(regs: *user.Registers) void {
 }
 
 /// Syscall 30: Malloc(EBX = size) -> EAX (ptr)
+/// If current process is Nova, enforces strict tracking (max 256 allocs).
 pub fn malloc(regs: *user.Registers) void {
+    if (process_mod.current_is_nova and process_mod.process_alloc_count >= process_mod.MAX_PROCESS_ALLOCS) {
+        logger.security("Nova malloc: max allocs reached (256)");
+        regs.eax = 0;
+        return;
+    }
     const size = regs.ebx;
     if (memory.heap.alloc(size)) |ptr| {
-        regs.eax = @intFromPtr(ptr);
+        const addr = @intFromPtr(ptr);
+        if (!process_mod.track_alloc(@intCast(addr), size)) {
+            // Tracker full for Nova — free the just-allocated memory and return OOM
+            _ = memory.heap.free_safe(ptr);
+            logger.security("Nova malloc: tracker full, freeing and returning OOM");
+            regs.eax = 0;
+            return;
+        }
+        regs.eax = addr;
     } else {
         regs.eax = 0;
     }
 }
 
 /// Syscall 31: Free(EBX = ptr)
+/// If current process is Nova, only frees if pointer is tracked.
 pub fn free(regs: *user.Registers) void {
-    if (regs.ebx != 0) {
-        _ = memory.heap.free_safe(@ptrFromInt(regs.ebx));
+    if (regs.ebx == 0) return;
+    if (process_mod.current_is_nova) {
+        if (!process_mod.untrack_alloc(regs.ebx)) {
+            logger.security("Nova free: untracked pointer (UAF attempt?)");
+            return; // Don't free untracked pointers
+        }
     }
+    _ = memory.heap.free_safe(@ptrFromInt(regs.ebx));
 }
 
 /// Syscall 44: GetFreeMemory() -> EAX (bytes)
