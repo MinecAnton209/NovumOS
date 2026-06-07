@@ -1,8 +1,8 @@
 // Calc command - evaluate expressions using Nova evaluator
 const common = @import("common.zig");
-const lexer = @import("../nova/lexer.zig");
-const vm_mod = @import("../nova/vm.zig");
-const nova_common = @import("../nova/common.zig");
+const lexer = @import("../nova_legacy/lexer.zig");
+const vm_mod = @import("../nova_legacy/vm.zig");
+const nova_common = @import("../nova_legacy/common.zig");
 
 pub fn execute(expr_ptr: [*]const u8, expr_len: u32) void {
     const expr = expr_ptr[0..expr_len];

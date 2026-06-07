@@ -1,5 +1,5 @@
 // Nova Language - Main export module
-const interpreter = @import("nova/interpreter.zig");
+const interpreter = @import("nova_legacy/interpreter.zig");
 const user = @import("user.zig");
 
 // Global storage for arguments when jumping to Ring 3

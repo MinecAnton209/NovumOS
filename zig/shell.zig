@@ -10,8 +10,8 @@ const serial = @import("drivers/serial.zig");
 const fat = @import("drivers/fat.zig");
 const ata = @import("drivers/ata.zig");
 const config = @import("config.zig");
-const nova_interpreter = @import("nova/interpreter.zig");
-const nova_commands = @import("nova/commands.zig");
+const nova_interpreter = @import("nova_legacy/interpreter.zig");
+const nova_commands = @import("nova_legacy/commands.zig");
 const top_cmd = @import("commands/top.zig");
 const lfb = @import("drivers/lfb.zig");
 const rtc = @import("drivers/time/time.zig");
@@ -33,8 +33,8 @@ const EmbeddedScript = struct {
 };
 
 const BUILTIN_SCRIPTS = [_]EmbeddedScript{
-    .{ .name = "hello", .source = @embedFile("nova/scripts/hello.nv") },
-    .{ .name = "syscheck", .source = @embedFile("nova/scripts/syscheck.nv") },
+    .{ .name = "hello", .source = @embedFile("nova_legacy/scripts/hello.nv") },
+    .{ .name = "syscheck", .source = @embedFile("nova_legacy/scripts/syscheck.nv") },
 };
 
 // Shell configuration

@@ -598,12 +598,15 @@ pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
 
 /// --- Linked List Heap Allocator ---
 const HEAP_MAGIC = 0x48454150; // "HEAP" in ASCII
+const END_CANARY = 0xCAFEBABE;
+const CANARY_BYTE = 0xCB;
 
 const BlockHeader = struct {
     magic: u32,
     size: usize,
     is_free: bool,
     next: ?*BlockHeader,
+    requested: usize,
 };
 
 var first_block: ?*BlockHeader = null;
@@ -618,6 +621,7 @@ pub const heap = struct {
                 .size = PAGE_SIZE - @sizeOf(BlockHeader),
                 .is_free = true,
                 .next = null,
+                .requested = 0,
             };
         }
     }
@@ -638,6 +642,8 @@ pub const heap = struct {
 
         // Align to 8 bytes
         const aligned_size = (size + 7) & ~@as(usize, 7);
+        // Reserve 4 bytes at the end for the END_CANARY
+        const canaried_size = aligned_size + 4;
 
         // Scatter watchdog check - random based on build hash
         if (config.ENABLE_IDT_WATCHDOG) {
@@ -654,22 +660,29 @@ pub const heap = struct {
 
             // 1. Search for a free block
             while (current) |block| : (current = block.next) {
-                if (block.is_free and block.size >= aligned_size) {
+                if (block.is_free and block.size >= canaried_size) {
                     // If the block is significantly larger, split it
-                    if (block.size > aligned_size + @sizeOf(BlockHeader) + 16) {
-                        const next_ptr = @intFromPtr(block) + @sizeOf(BlockHeader) + aligned_size;
+                    if (block.size > canaried_size + @sizeOf(BlockHeader) + 16) {
+                        const next_ptr = @intFromPtr(block) + @sizeOf(BlockHeader) + canaried_size;
                         const new_block = @as(*BlockHeader, @ptrFromInt(next_ptr));
                         new_block.* = .{
                             .magic = HEAP_MAGIC,
-                            .size = block.size - aligned_size - @sizeOf(BlockHeader),
+                            .size = block.size - canaried_size - @sizeOf(BlockHeader),
                             .is_free = true,
                             .next = block.next,
+                            .requested = 0,
                         };
-                        block.size = aligned_size;
+                        block.size = canaried_size;
                         block.next = new_block;
                     }
                     block.is_free = false;
-                    return @as([*]u8, @ptrFromInt(@intFromPtr(block) + @sizeOf(BlockHeader)));
+                    block.requested = size;
+                    const data_ptr = @as([*]u8, @ptrFromInt(@intFromPtr(block) + @sizeOf(BlockHeader)));
+                    // Fill padding bytes between requested and aligned_size with CANARY_BYTE
+                    @memset(data_ptr[block.requested..aligned_size], CANARY_BYTE);
+                    // Write END_CANARY at aligned_size..aligned_size+3
+                    @as(*align(1) u32, @ptrFromInt(@intFromPtr(data_ptr) + aligned_size)).* = END_CANARY;
+                    return data_ptr;
                 }
             }
 
@@ -681,6 +694,7 @@ pub const heap = struct {
                     .size = PAGE_SIZE - @sizeOf(BlockHeader),
                     .is_free = true,
                     .next = null,
+                    .requested = 0,
                 };
 
                 // Link to the end of the chain
@@ -773,7 +787,42 @@ pub const heap = struct {
             @panic("Heap: Double-free detected!");
         }
 
-        // 4. Sanity check on size
+        // 4. Check END_CANARY (buffer overflow detection)
+        const data_ptr = @as([*]u8, @ptrFromInt(addr));
+        const data_size = header.size;
+        if (data_size >= 4) {
+            const stored_canary = @as(*align(1) const u32, @ptrFromInt(@intFromPtr(data_ptr) + data_size - 4)).*;
+            if (stored_canary != END_CANARY) {
+                if (safe) {
+                    logger.security("Free: Buffer overflow detected (END_CANARY corrupted)");
+                    return false;
+                }
+                common.printZ("[heap] buffer overflow: END_CANARY corrupted at ptr=");
+                common.printHex(@intCast(addr));
+                common.printZ("\n");
+                @panic("Heap: Buffer overflow detected (END_CANARY corrupted)!");
+            }
+        }
+
+        // 5. Check padding bytes (small overflows)
+        if (header.requested < data_size - 4) {
+            const pad_start = header.requested;
+            const pad_end = data_size - 4;
+            for (pad_start..pad_end) |i| {
+                if (data_ptr[i] != CANARY_BYTE) {
+                    if (safe) {
+                        logger.security("Free: Small buffer overflow detected (padding corrupted)");
+                        return false;
+                    }
+                    common.printZ("[heap] small buffer overflow at byte offset ");
+                    common.printHex(@intCast(i));
+                    common.printZ("\n");
+                    @panic("Heap: Small buffer overflow detected (padding corrupted)!");
+                }
+            }
+        }
+
+        // 6. Sanity check on size
         if (header.size > 128 * 1024 * 1024) {
             if (safe) {
                 logger.security("Free: Insane block size detected");
