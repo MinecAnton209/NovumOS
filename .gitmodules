@@ -2,3 +2,6 @@
 	path = limine
 	url = https://github.com/Limine-Bootloader/Limine/
 	branch = v11.x-binary
+[submodule "libs/mlibc"]
+	path = libs/mlibc
+	url = https://github.com/managarm/mlibc.git
