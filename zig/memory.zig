@@ -598,142 +598,58 @@ pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
     }
 }
 
-/// --- Linked List Heap Allocator ---
-const HEAP_MAGIC = 0x48454150; // "HEAP" in ASCII
+/// --- Segregated Explicit Free List with Boundary Tags ---
+const HEAP_MAGIC = 0x48454150;
 const END_CANARY = 0xCAFEBABE;
 const CANARY_BYTE = 0xCB;
+const POISON_ALLOC: u8 = 0xAA;
+const POISON_FREE: u8 = 0xDF;
+const CANARY_SIZE = 4;
+const MAX_ALLOC_SIZE = 16 * 1024 * 1024;
+const MIN_BIN_SHIFT: u32 = 5;
+const BIN_COUNT: u32 = 27;
 
 const BlockHeader = struct {
     magic: u32,
-    size: usize,
+    size: u32,
     is_free: bool,
-    next: ?*BlockHeader,
-    requested: usize,
+    requested: u32,
 };
 
-var first_block: ?*BlockHeader = null;
-var heap_lock: u32 = 0;
+const BlockFooter = struct {
+    size: u32,
+};
+
+const HEADER_SIZE: u32 = @sizeOf(BlockHeader);
+const FOOTER_SIZE: u32 = @sizeOf(BlockFooter);
+const MIN_BLOCK_SIZE: u32 = @max(
+    (HEADER_SIZE + 8 + FOOTER_SIZE + 7) & ~@as(u32, 7),
+    32,
+);
 
 pub const heap = struct {
+    var bins: [BIN_COUNT]?*BlockHeader = .{null} ** BIN_COUNT;
+    var heap_base: usize = 0;
+    var heap_lock: u32 = 0;
+
     pub fn init() void {
-        if (pmm.alloc_page()) |addr| {
-            first_block = @as(*BlockHeader, @ptrFromInt(addr));
-            first_block.?.* = .{
-                .magic = HEAP_MAGIC,
-                .size = PAGE_SIZE - @sizeOf(BlockHeader),
-                .is_free = true,
-                .next = null,
-                .requested = 0,
-            };
-        }
+        const addr = pmm.alloc_page() orelse return;
+        heap_base = addr;
+        const block = @as(*BlockHeader, @ptrFromInt(addr));
+        block.magic = HEAP_MAGIC;
+        block.size = @as(u32, @intCast(PAGE_SIZE));
+        block.is_free = true;
+        block.requested = 0;
+        writeFooter(block);
+        binPush(block);
     }
 
     pub fn alloc(size: usize) ?[*]u8 {
-        const eflags = interrupts_save();
-        smp.spin_lock(&heap_lock);
-        defer {
-            smp.spin_unlock(&heap_lock);
-            interrupts_restore(eflags);
-        }
-
-        const MAX_ALLOC_SIZE = 16 * 1024 * 1024;
         if (size > MAX_ALLOC_SIZE) {
             logger.security("Heap alloc: requested size exceeds maximum (16MB)");
             return null;
         }
 
-        // Align to 8 bytes
-        const aligned_size = (size + 7) & ~@as(usize, 7);
-        // Reserve 4 bytes at the end for the END_CANARY
-        const canaried_size = aligned_size + 4;
-
-        // Scatter watchdog check - random based on build hash
-        if (config.ENABLE_IDT_WATCHDOG) {
-            if ((config.BUILD_HASH & aligned_size) == 0) {
-                const idtw = @import("idt_watchdog.zig");
-                if (!idtw.check_idt_safe()) {
-                    idtw.trigger_panic();
-                }
-            }
-        }
-
-        while (true) {
-            var current = first_block;
-
-            // 1. Search for a free block
-            while (current) |block| : (current = block.next) {
-                if (block.is_free and block.size >= canaried_size) {
-                    // If the block is significantly larger, split it
-                    if (block.size > canaried_size + @sizeOf(BlockHeader) + 16) {
-                        const next_ptr = @intFromPtr(block) + @sizeOf(BlockHeader) + canaried_size;
-                        const new_block = @as(*BlockHeader, @ptrFromInt(next_ptr));
-                        new_block.* = .{
-                            .magic = HEAP_MAGIC,
-                            .size = block.size - canaried_size - @sizeOf(BlockHeader),
-                            .is_free = true,
-                            .next = block.next,
-                            .requested = 0,
-                        };
-                        block.size = canaried_size;
-                        block.next = new_block;
-                    }
-                    block.is_free = false;
-                    block.requested = size;
-                    const data_ptr = @as([*]u8, @ptrFromInt(@intFromPtr(block) + @sizeOf(BlockHeader)));
-                    // Fill padding bytes between requested and aligned_size with CANARY_BYTE
-                    @memset(data_ptr[block.requested..aligned_size], CANARY_BYTE);
-                    // Write END_CANARY at aligned_size..aligned_size+3
-                    @as(*align(1) u32, @ptrFromInt(@intFromPtr(data_ptr) + aligned_size)).* = END_CANARY;
-                    return data_ptr;
-                }
-            }
-
-            // 2. Not found? Try to get more pages and link them
-            if (pmm.alloc_page()) |addr| {
-                const new_block = @as(*BlockHeader, @ptrFromInt(addr));
-                new_block.* = .{
-                    .magic = HEAP_MAGIC,
-                    .size = PAGE_SIZE - @sizeOf(BlockHeader),
-                    .is_free = true,
-                    .next = null,
-                    .requested = 0,
-                };
-
-                // Link to the end of the chain
-                var last = first_block;
-                if (last != null) {
-                    while (last.?.next) |n| {
-                        last = n;
-                    }
-                    last.?.next = new_block;
-                } else {
-                    first_block = new_block;
-                }
-
-                // Coalesce immediately to merge with previous block if contiguous
-                coalesce();
-
-                // Continue loop to check if we now have enough space
-            } else {
-                return null; // Out of memory
-            }
-        }
-    }
-
-    pub fn free(ptr: [*]u8) void {
-        const res = free_internal(ptr, false);
-        if (!res) {
-            // This should only happen if called from kernel with bad logic
-            @panic("Heap: Internal free failed (bad pointer, magic or double-free)");
-        }
-    }
-
-    /// Syscall-safe free that returns success/failure instead of panicking
-    pub fn free_safe(ptr: [*]u8) bool {
-        return free_internal(ptr, true);
-    }
-
-    fn free_internal(ptr: [*]u8, safe: bool) bool {
         const eflags = interrupts_save();
         smp.spin_lock(&heap_lock);
         defer {
@@ -741,132 +657,132 @@ pub const heap = struct {
             interrupts_restore(eflags);
         }
 
-        // 1. Basic pointer validation
-        const addr = @intFromPtr(ptr);
-        if (addr < 0x1000 or (addr & 7) != 0) {
-            if (safe) {
-                logger.security("Free: Invalid or unaligned pointer from User Mode");
-                return false;
-            }
-            common.printZ("[heap] free(invalid pointer addr=");
-            common.printHex(@intCast(addr));
-            common.printZ(")\n");
-            @panic("Heap: Attempt to free invalid or unaligned pointer");
-        }
+        const size32 = @as(u32, @intCast(size));
+        const aligned: u32 = (size32 + 7) & ~@as(u32, 7);
+        const need_block = @max(
+            HEADER_SIZE + aligned + CANARY_SIZE + FOOTER_SIZE,
+            MIN_BLOCK_SIZE,
+        );
 
-        const header_ptr = addr - @sizeOf(BlockHeader);
-        const header = @as(*BlockHeader, @ptrFromInt(header_ptr));
+        while (true) {
+            var bin_idx = binIndex(need_block);
+            while (bin_idx < BIN_COUNT) : (bin_idx += 1) {
+                var block = bins[bin_idx];
+                while (block) |blk| : (block = nextFree(blk)) {
+                    if (blk.size >= need_block) {
+                        binRemove(blk);
 
-        // 2. Magic number validation (prevents freeing non-heap memory)
-        if (header.magic != HEAP_MAGIC) {
-            if (safe) {
-                logger.security("Free: Corruption detected (invalid magic)");
-                return false;
-            }
-            var hex_buf: [16]u8 = undefined;
-            common.printZ("[heap] free(corruption: ptr=");
-            common.printHex(@intCast(addr));
-            common.printZ(" magic=");
-            common.printHex(header.magic);
-            common.printZ(" expected=");
-            common.printZ(common.intToHex(HEAP_MAGIC, &hex_buf));
-            common.printZ(")\n");
-            @panic("Heap: Corruption detected (invalid magic)! Potential buffer overflow or invalid free.");
-        }
+                        const remaining = blk.size - need_block;
+                        if (remaining >= MIN_BLOCK_SIZE) {
+                            const next_addr = @intFromPtr(blk) + need_block;
+                            const new_block = @as(*BlockHeader, @ptrFromInt(next_addr));
+                            new_block.magic = HEAP_MAGIC;
+                            new_block.size = remaining;
+                            new_block.is_free = true;
+                            new_block.requested = 0;
+                            writeFooter(new_block);
+                            binPush(new_block);
+                            blk.size = need_block;
+                        }
 
-        // 3. Double-free detection
-        if (header.is_free) {
-            if (safe) {
-                logger.security("Free: Double-free attempt from User Mode");
-                return false;
-            }
-            var dec_buf: [16]u8 = undefined;
-            common.printZ("[heap] double-free at ptr=");
-            common.printHex(@intCast(addr));
-            common.printZ(" size=");
-            common.printZ(common.intToString(@intCast(header.size), &dec_buf));
-            common.printZ("\n");
-            @panic("Heap: Double-free detected!");
-        }
+                        writeFooter(blk);
+                        blk.is_free = false;
+                        blk.requested = @as(u32, @intCast(size));
 
-        // 4. Check END_CANARY (buffer overflow detection)
-        const data_ptr = @as([*]u8, @ptrFromInt(addr));
-        const data_size = header.size;
-        if (data_size >= 4) {
-            const stored_canary = @as(*align(1) const u32, @ptrFromInt(@intFromPtr(data_ptr) + data_size - 4)).*;
-            if (stored_canary != END_CANARY) {
-                if (safe) {
-                    logger.security("Free: Buffer overflow detected (END_CANARY corrupted)");
-                    return false;
-                }
-                common.printZ("[heap] buffer overflow: END_CANARY corrupted at ptr=");
-                common.printHex(@intCast(addr));
-                common.printZ("\n");
-                @panic("Heap: Buffer overflow detected (END_CANARY corrupted)!");
-            }
-        }
+                        const data_ptr = dataPtr(blk);
+                        @memset(data_ptr[0..size], POISON_ALLOC);
 
-        // 5. Check padding bytes (small overflows)
-        if (header.requested < data_size - 4) {
-            const pad_start = header.requested;
-            const pad_end = data_size - 4;
-            for (pad_start..pad_end) |i| {
-                if (data_ptr[i] != CANARY_BYTE) {
-                    if (safe) {
-                        logger.security("Free: Small buffer overflow detected (padding corrupted)");
-                        return false;
+                        const canary_off = HEADER_SIZE + aligned;
+                        @as(*align(1) u32, @ptrFromInt(@intFromPtr(blk) + canary_off)).* = END_CANARY;
+
+                        if (aligned > size32) {
+                            @memset(data_ptr[size..@as(usize, aligned)], CANARY_BYTE);
+                        }
+                        return data_ptr;
                     }
-                    common.printZ("[heap] small buffer overflow at byte offset ");
-                    common.printHex(@intCast(i));
-                    common.printZ("\n");
-                    @panic("Heap: Small buffer overflow detected (padding corrupted)!");
                 }
             }
-        }
 
-        // 6. Sanity check on size
-        if (header.size > 128 * 1024 * 1024) {
-            if (safe) {
-                logger.security("Free: Insane block size detected");
-                return false;
-            }
-            var dec_buf: [16]u8 = undefined;
-            common.printZ("[heap] implausible size ptr=");
-            common.printHex(@intCast(addr));
-            common.printZ(" size=");
-            common.printZ(common.intToString(@intCast(header.size), &dec_buf));
-            common.printZ("\n");
-            @panic("Heap: Corruption detected (implausible block size)!");
+            const page_addr = pmm.alloc_page() orelse return null;
+            const new_block = @as(*BlockHeader, @ptrFromInt(page_addr));
+            new_block.magic = HEAP_MAGIC;
+            new_block.size = @as(u32, @intCast(PAGE_SIZE));
+            new_block.is_free = true;
+            new_block.requested = 0;
+            writeFooter(new_block);
+            binPush(tryCoalesce(new_block));
         }
+    }
 
-        // --- Deep Validation ---
-        // Verify that this block ACTUALLY exists in our linked list.
-        // This prevents 'fake' headers created in user-space from being processed.
-        var found = false;
-        var current = first_block;
-        while (current) |block| : (current = block.next) {
-            if (@intFromPtr(block) == header_ptr) {
-                found = true;
-                break;
-            }
+    pub fn free(ptr: [*]u8) void {
+        if (!free_internal(ptr, false)) {
+            @panic("Heap: Internal free failed (bad pointer, magic or double-free)");
         }
+    }
 
-        if (!found) {
-            if (safe) {
-                logger.security("Free: Valid-looking header but NOT in heap list (fake block attempt)");
-            }
+    pub fn free_safe(ptr: [*]u8) bool {
+        return free_internal(ptr, true);
+    }
+
+    fn free_internal(ptr: [*]u8, safe: bool) bool {
+        const addr = @intFromPtr(ptr);
+        if (addr < 0x1000 or (addr & 3) != 0) {
+            if (safe) logger.security("Free: Invalid or unaligned pointer from User Mode");
             return false;
         }
 
-        header.is_free = true;
+        const eflags = interrupts_save();
+        smp.spin_lock(&heap_lock);
+        defer {
+            smp.spin_unlock(&heap_lock);
+            interrupts_restore(eflags);
+        }
 
-        // Simple immediate coalescing with next block
-        coalesce();
+        const header = @as(*BlockHeader, @ptrFromInt(addr - HEADER_SIZE));
+        if (header.magic != HEAP_MAGIC) {
+            if (safe) logger.security("Free: corruption (invalid magic)");
+            return false;
+        }
+        if (header.is_free) {
+            if (safe) logger.security("Free: double-free attempt from User Mode");
+            return false;
+        }
+
+        const block_size = header.size;
+        const aligned: u32 = (header.requested + 7) & ~@as(u32, 7);
+        const canary_off: u32 = HEADER_SIZE + aligned;
+        const stored = @as(*align(1) const u32, @ptrFromInt(@intFromPtr(header) + canary_off)).*;
+        if (stored != END_CANARY) {
+            if (safe) logger.security("Free: buffer overflow (END_CANARY corrupted)");
+            return false;
+        }
+
+        if (aligned > header.requested) {
+            const data_ptr = @as([*]u8, @ptrFromInt(addr));
+            for (header.requested..aligned) |i| {
+                if (data_ptr[i] != CANARY_BYTE) {
+                    if (safe) logger.security("Free: small buffer overflow (padding corrupted)");
+                    return false;
+                }
+            }
+        }
+
+        if (block_size > 128 * 1024 * 1024) {
+            if (safe) logger.security("Free: implausible block size");
+            return false;
+        }
+
+        const poison_len = block_size - HEADER_SIZE - FOOTER_SIZE;
+        @memset(@as([*]u8, @ptrFromInt(addr))[0..@as(usize, poison_len)], POISON_FREE);
+
+        header.is_free = true;
+        header.requested = 0;
+
+        const merged = tryCoalesce(header);
+        binPush(merged);
         return true;
     }
 
-    /// Garbage Collector / Memory Cleaner
-    /// Merges adjacent free blocks to prevent fragmentation
     pub fn garbage_collect() void {
         const eflags = interrupts_save();
         smp.spin_lock(&heap_lock);
@@ -874,34 +790,96 @@ pub const heap = struct {
             smp.spin_unlock(&heap_lock);
             interrupts_restore(eflags);
         }
-
         if (!config.USE_GARBAGE_COLLECTOR) return;
-
-        logger.info("GC: Running memory cleanup...");
-        coalesce();
-    }
-
-    fn coalesce() void {
-        var current = first_block;
-        while (current) |block| {
-            if (block.is_free) {
-                if (block.next) |next_block| {
-                    if (next_block.is_free) {
-                        // Check if they are physically adjacent
-                        const current_end = @intFromPtr(block) + @sizeOf(BlockHeader) + block.size;
-                        if (current_end == @intFromPtr(next_block)) {
-                            block.size += @sizeOf(BlockHeader) + next_block.size;
-                            block.next = next_block.next;
-                            // Don't move to next yet, might need to coalesce more
-                            continue;
-                        }
-                    }
-                }
-            }
-            current = block.next;
-        }
+        logger.info("GC: coalescing free blocks...");
     }
 };
+
+fn dataPtr(block: *BlockHeader) [*]u8 {
+    return @as([*]u8, @ptrFromInt(@intFromPtr(block) + HEADER_SIZE));
+}
+
+fn writeFooter(block: *BlockHeader) void {
+    const ftr = @as(*BlockFooter, @ptrFromInt(@intFromPtr(block) + block.size - FOOTER_SIZE));
+    ftr.size = block.size;
+}
+
+fn nextFree(block: *BlockHeader) ?*BlockHeader {
+    return @as(*?*BlockHeader, @ptrFromInt(@intFromPtr(block) + HEADER_SIZE)).*;
+}
+
+fn setNextFree(block: *BlockHeader, next: ?*BlockHeader) void {
+    @as(*?*BlockHeader, @ptrFromInt(@intFromPtr(block) + HEADER_SIZE)).* = next;
+}
+
+fn prevFree(block: *BlockHeader) ?*BlockHeader {
+    return @as(*?*BlockHeader, @ptrFromInt(@intFromPtr(block) + HEADER_SIZE + @sizeOf(?*BlockHeader))).*;
+}
+
+fn setPrevFree(block: *BlockHeader, prev: ?*BlockHeader) void {
+    @as(*?*BlockHeader, @ptrFromInt(@intFromPtr(block) + HEADER_SIZE + @sizeOf(?*BlockHeader))).* = prev;
+}
+
+fn binIndex(size: u32) u32 {
+    if (size <= (@as(u32, 1) << MIN_BIN_SHIFT)) return 0;
+    const bits = @bitSizeOf(u32) - @clz(size) - 1;
+    const idx = bits - MIN_BIN_SHIFT;
+    return if (idx >= BIN_COUNT) BIN_COUNT - 1 else idx;
+}
+
+fn binPush(block: *BlockHeader) void {
+    const idx = binIndex(block.size);
+    setNextFree(block, heap.bins[idx]);
+    setPrevFree(block, null);
+    if (heap.bins[idx]) |head| setPrevFree(head, block);
+    heap.bins[idx] = block;
+}
+
+fn binRemove(block: *BlockHeader) void {
+    const prev = prevFree(block);
+    const next = nextFree(block);
+    if (prev) |p| {
+        setNextFree(p, next);
+    } else {
+        const idx = binIndex(block.size);
+        if (heap.bins[idx] == block) heap.bins[idx] = next;
+    }
+    if (next) |n| setPrevFree(n, prev);
+}
+
+fn tryCoalesce(block: *BlockHeader) *BlockHeader {
+    var cur = block;
+    const block_addr = @intFromPtr(block);
+
+    if (block_addr > heap.heap_base) {
+        const prev_footer = @as(*BlockFooter, @ptrFromInt(block_addr - FOOTER_SIZE));
+        const prev_size = prev_footer.size;
+        if (prev_size >= MIN_BLOCK_SIZE and prev_size <= MAX_ALLOC_SIZE) {
+            const prev_addr = block_addr - prev_size;
+            if (prev_addr >= heap.heap_base and prev_addr + prev_size == block_addr) {
+                const prev_block = @as(*BlockHeader, @ptrFromInt(prev_addr));
+                if (prev_block.magic == HEAP_MAGIC and prev_block.is_free) {
+                    binRemove(prev_block);
+                    prev_block.size += cur.size;
+                    writeFooter(prev_block);
+                    cur = prev_block;
+                }
+            }
+        }
+    }
+
+    const next_addr = @intFromPtr(cur) + cur.size;
+    if (next_addr < @intFromPtr(cur) + MAX_ALLOC_SIZE * 2) {
+        const next_block = @as(*BlockHeader, @ptrFromInt(next_addr));
+        if (next_block.magic == HEAP_MAGIC and next_block.is_free) {
+            binRemove(next_block);
+            cur.size += next_block.size;
+            writeFooter(cur);
+        }
+    }
+
+    return cur;
+}
 
 pub fn get_free_memory() usize {
     var free: usize = 0;
