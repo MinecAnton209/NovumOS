@@ -84,6 +84,7 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     const speaker_mod = @import("speaker.zig");
     const debug_mod = @import("debug.zig");
     const file_mod = @import("file.zig");
+    const nova_mod = @import("nova.zig");
 
     var table: [256]?HandlerPtr = [_]?HandlerPtr{null} ** 256;
     // Console
@@ -137,6 +138,9 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     table[50] = &file_mod.getRes;
     table[51] = &file_mod.existsFile;
     table[52] = &file_mod.copyFile;
+    // Nova
+    table[53] = &nova_mod.shellExec;
+    table[54] = &nova_mod.setColor;
     break :blk table;
 };
 

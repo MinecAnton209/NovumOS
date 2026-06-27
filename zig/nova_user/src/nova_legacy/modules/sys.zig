@@ -1,10 +1,6 @@
 const common = @import("../common.zig");
 const global_common = @import("../../commands/common.zig");
 const hash_table = @import("../hash_table.zig");
-const memory = @import("../../memory.zig");
-const keyboard = @import("../../keyboard_isr.zig");
-const vga = @import("../../drivers/vga.zig");
-const shell = @import("../../shell.zig");
 const lfb = @import("../../drivers/lfb.zig");
 const timer = @import("../../drivers/timer.zig");
 
@@ -42,23 +38,16 @@ pub fn handleSys(vm: anytype, name: []const u8) ?hash_table.VariableValue {
             global_common.sleep(@intCast(val.int_val));
         }
         return .{ .vtype = .string, .str_val = "" };
-        } else if (common.streq(name, "sys.exec")) {
-            _ = vm.evaluateExpression();
+        } else if (common.streq(name, "sys.exec") or common.streq(name, "sys.shell")) {
+            const cmd = vm.evaluateExpression();
             if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) {
                 vm.ip += 1;
             } else {
                 vm.reportError("Expected ')' in sys.exec");
             }
-            vm.reportError("sys.exec: Not supported in Ring 3");
-            return .{ .vtype = .string, .str_val = "" };
-        } else if (common.streq(name, "sys.shell")) {
-            _ = vm.evaluateExpression();
-            if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) {
-                vm.ip += 1;
-            } else {
-                vm.reportError("Expected ')' in sys.shell");
+            if (cmd.vtype == .string) {
+                _ = global_common.syscall1(53, @intFromPtr(cmd.str_val.ptr));
             }
-            vm.reportError("sys.shell: Not supported in Ring 3");
             return .{ .vtype = .string, .str_val = "" };
     } else if (common.streq(name, "sys.color")) {
         const fg = vm.evaluateExpression();
@@ -74,12 +63,10 @@ pub fn handleSys(vm: anytype, name: []const u8) ?hash_table.VariableValue {
         } else {
             vm.reportError("Expected ')' in sys.color");
         }
-        // Use common.draw_char_at(0,0,0, color) as a trick if needed,
-        // or just let it be for now since vga.set_color takes a lock.
-        // Actually, we should add a Syscall for color.
-        _ = fg;
-        _ = bg;
-        return .{ .vtype = .string, .str_val = "Not supported in Ring 3 yet" };
+        const fg_val: u8 = if (fg.vtype == .int) @intCast(fg.int_val) else 15;
+        const bg_val: u8 = if (bg.vtype == .int) @intCast(bg.int_val) else 0;
+        _ = global_common.syscall2(54, fg_val, bg_val);
+        return .{ .vtype = .string, .str_val = "" };
     } else if (common.streq(name, "sys.key")) {
         if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) {
             vm.ip += 1;
@@ -87,23 +74,7 @@ pub fn handleSys(vm: anytype, name: []const u8) ?hash_table.VariableValue {
             vm.reportError("Expected ')' in sys.key");
         }
         return .{ .vtype = .int, .int_val = @intCast(global_common.get_char()) };
-        } else if (common.streq(name, "sys.reboot")) {
-            if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) {
-                vm.ip += 1;
-            } else {
-                vm.reportError("Expected ')' in sys.reboot");
-            }
-            vm.reportError("sys.reboot: Not supported in Ring 3");
-            return .{ .vtype = .string, .str_val = "" };
-        } else if (common.streq(name, "sys.shutdown")) {
-            if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) {
-                vm.ip += 1;
-            } else {
-                vm.reportError("Expected ')' in sys.shutdown");
-            }
-            vm.reportError("sys.shutdown: Not supported in Ring 3");
-            return .{ .vtype = .string, .str_val = "" };
-    } else if (common.streq(name, "sys.whoami")) {
+        } else if (common.streq(name, "sys.whoami")) {
         if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .R_PAREN) vm.ip += 1;
         return .{ .vtype = .string, .str_val = "admin" };
     } else if (common.streq(name, "sys.uname")) {

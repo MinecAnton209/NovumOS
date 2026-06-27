@@ -2,20 +2,20 @@
 // replaces kernel's commands/common.zig
 
 // Helper syscall wrappers
-fn syscall0(n: u32) u32 {
+pub fn syscall0(n: u32) u32 {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> u32),
         : [num] "{eax}" (n),
     );
 }
-fn syscall1(n: u32, a1: u32) u32 {
+pub fn syscall1(n: u32, a1: u32) u32 {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> u32),
         : [num] "{eax}" (n),
           [a1] "{ebx}" (a1),
     );
 }
-fn syscall2(n: u32, a1: u32, a2: u32) u32 {
+pub fn syscall2(n: u32, a1: u32, a2: u32) u32 {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> u32),
         : [num] "{eax}" (n),
