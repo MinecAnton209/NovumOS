@@ -7,9 +7,12 @@ const syscalls = @import("mod.zig");
 const shell = @import("../shell.zig");
 const vga = @import("../drivers/vga.zig");
 
-/// Syscall 53: ShellExec(EBX = cmd_ptr) — execute a shell command string
+/// Syscall 53: ShellExec(EBX = cmd_ptr, ECX = cmd_len) — execute a shell command string
 pub fn shellExec(regs: *user.Registers) void {
-    if (syscalls.safe_str_from_user(regs.ebx, syscalls.MAX_SYSCALL_STR_LEN)) |cmd| {
+    const ptr = regs.ebx;
+    const len: usize = @intCast(regs.ecx);
+    if (len > 0 and len <= syscalls.MAX_SYSCALL_STR_LEN and syscalls.is_safe_user_range(ptr, len)) {
+        const cmd = @as([*]const u8, @ptrFromInt(ptr))[0..len];
         shell.shell_execute_literal(cmd);
     }
 }

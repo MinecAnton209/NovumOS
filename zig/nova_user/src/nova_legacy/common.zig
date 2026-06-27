@@ -227,7 +227,7 @@ pub fn floatToString(val: f32, buf: []u8) []const u8 {
     }
 
     const int_part = @as(i32, @intFromFloat(v));
-    const frac_part = @as(i32, @intFromFloat((v - @as(f32, @floatFromInt(int_part))) * 1000.0 + 0.5));
+    const frac_part = @as(i32, @intFromFloat((v - @as(f32, @floatFromInt(int_part))) * 100000.0 + 0.5));
 
     var total_i: usize = 0;
     if (is_neg) {
@@ -238,7 +238,7 @@ pub fn floatToString(val: f32, buf: []u8) []const u8 {
     const s_int = intToString(int_part, buf[total_i..]);
     total_i += s_int.len;
 
-    if (total_i < buf.len) {
+    if (total_i + 6 < buf.len) {
         buf[total_i] = '.';
         total_i += 1;
     }
@@ -246,11 +246,13 @@ pub fn floatToString(val: f32, buf: []u8) []const u8 {
     var f = frac_part;
     if (f < 0) f = -f;
 
-    // 3 decimal places
-    buf[total_i] = @as(u8, @intCast(@mod(@divTrunc(f, 100), 10))) + '0';
-    buf[total_i + 1] = @as(u8, @intCast(@mod(@divTrunc(f, 10), 10))) + '0';
-    buf[total_i + 2] = @as(u8, @intCast(@mod(f, 10))) + '0';
-    total_i += 3;
+    // 5 decimal places
+    buf[total_i] = @as(u8, @intCast(@mod(@divTrunc(f, 10000), 10))) + '0';
+    buf[total_i + 1] = @as(u8, @intCast(@mod(@divTrunc(f, 1000), 10))) + '0';
+    buf[total_i + 2] = @as(u8, @intCast(@mod(@divTrunc(f, 100), 10))) + '0';
+    buf[total_i + 3] = @as(u8, @intCast(@mod(@divTrunc(f, 10), 10))) + '0';
+    buf[total_i + 4] = @as(u8, @intCast(@mod(f, 10))) + '0';
+    total_i += 5;
 
     return buf[0..total_i];
 }

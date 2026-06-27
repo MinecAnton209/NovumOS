@@ -46,7 +46,7 @@ pub fn handleSys(vm: anytype, name: []const u8) ?hash_table.VariableValue {
                 vm.reportError("Expected ')' in sys.exec");
             }
             if (cmd.vtype == .string) {
-                _ = global_common.syscall1(53, @intFromPtr(cmd.str_val.ptr));
+                _ = global_common.syscall2(53, @intFromPtr(cmd.str_val.ptr), @intCast(cmd.str_val.len));
             }
             return .{ .vtype = .string, .str_val = "" };
     } else if (common.streq(name, "sys.color")) {
