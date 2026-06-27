@@ -2,7 +2,7 @@
 const common = @import("common.zig");
 const lexer = @import("../nova_legacy/lexer.zig");
 const vm_mod = @import("../nova_legacy/vm.zig");
-const nova_common = @import("../nova_legacy/common.zig");
+const nova_legacy_common = @import("../nova_legacy/common.zig");
 
 pub fn execute(expr_ptr: [*]const u8, expr_len: u32) void {
     const expr = expr_ptr[0..expr_len];
@@ -40,7 +40,7 @@ pub fn execute(expr_ptr: [*]const u8, expr_len: u32) void {
             common.printNum(result.int_val);
             common.printZ(" (");
             var hex_buf: [16]u8 = undefined;
-            common.printZ(nova_common.intToHex(@bitCast(result.int_val), &hex_buf));
+            common.printZ(nova_legacy_common.intToHex(@bitCast(result.int_val), &hex_buf));
             common.printZ(", 0b");
             var bin_buf: [34]u8 = undefined;
             common.printZ(fmt_bin_i32(result.int_val, &bin_buf));
@@ -48,7 +48,7 @@ pub fn execute(expr_ptr: [*]const u8, expr_len: u32) void {
         },
         .float => {
             var f_buf: [32]u8 = undefined;
-            common.printZ(nova_common.floatToString(result.float_val, &f_buf));
+            common.printZ(nova_legacy_common.floatToString(result.float_val, &f_buf));
         },
         .string => {
             common.printZ("\"");

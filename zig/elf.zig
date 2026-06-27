@@ -116,6 +116,11 @@ pub fn load_and_run(data: []const u8) !noreturn {
     user.jump_to_user_mode_with_entry(header.entry, false);
 }
 
+/// Load and run the embedded nova_legacy.elf (backward compat, same binary).
+pub fn load_and_run_nova_legacy() !noreturn {
+    return load_and_run_nova();
+}
+
 /// Load and run the embedded nova.elf (Ring 3 Nova VM).
 /// Debug output controlled by NOVA_DEBUG in config.zig.
 pub fn load_and_run_nova() !noreturn {

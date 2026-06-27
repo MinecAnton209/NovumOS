@@ -10,8 +10,8 @@ const serial = @import("drivers/serial.zig");
 const fat = @import("drivers/fat.zig");
 const ata = @import("drivers/ata.zig");
 const config = @import("config.zig");
-const nova_interpreter = @import("nova_legacy/interpreter.zig");
-const nova_commands = @import("nova_legacy/commands.zig");
+const nova_legacy_interpreter = @import("nova_legacy/interpreter.zig");
+const nova_legacy_commands = @import("nova_legacy/commands.zig");
 const top_cmd = @import("commands/top.zig");
 const lfb = @import("drivers/lfb.zig");
 const rtc = @import("drivers/time/time.zig");
@@ -77,7 +77,8 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "clear", .help = "Clear screen and reset console state", .handler = cmd_handler_clear },
     .{ .name = "cls", .help = "Alias for clear", .handler = cmd_handler_clear },
     .{ .name = "about", .help = "Show legal information & credits", .handler = cmd_handler_about },
-    .{ .name = "nova", .help = "Start Nova Scripting Interpreter", .handler = cmd_handler_nova },
+    .{ .name = "nova", .help = "Start Nova Scripting Interpreter", .handler = cmd_handler_nova_legacy },
+    .{ .name = "nova_legacy", .help = "Alias for nova", .handler = cmd_handler_nova_legacy },
     .{ .name = "top", .help = "Real-time CPU and Task Monitor", .handler = cmd_handler_top },
     .{ .name = "ps", .help = "List active system processes", .handler = cmd_handler_ps },
     .{ .name = "kill", .help = "kill <pid> - Terminate a running process", .handler = cmd_handler_kill },
@@ -1068,8 +1069,8 @@ pub fn shell_execute_literal(cmd: []const u8) void {
                 if (fat.read_bpb(drive)) |bpb| {
                     if (fat.resolve_full_path(drive, bpb, common.current_dir_cluster, common.current_path[0..common.current_path_len], cmd_name)) |res| {
                         if (!res.is_dir) {
-                            nova_commands.setScriptArgs(argv[1..argc]);
-                            nova_interpreter.runScript(res.path[0..res.path_len]);
+                            nova_legacy_commands.setScriptArgs(argv[1..argc]);
+                            nova_legacy_interpreter.runScript(res.path[0..res.path_len]);
                             return;
                         }
                     }
@@ -1084,8 +1085,8 @@ pub fn shell_execute_literal(cmd: []const u8) void {
     // 3. Built-in Nova Scripts
     for (BUILTIN_SCRIPTS) |script| {
         if (common.std_mem_eql(script.name, cmd_name)) {
-            nova_commands.setScriptArgs(argv[1..argc]);
-            nova_interpreter.runScriptSource(script.source, null, false);
+            nova_legacy_commands.setScriptArgs(argv[1..argc]);
+            nova_legacy_interpreter.runScriptSource(script.source, null, false);
             return;
         }
     }
@@ -1105,8 +1106,8 @@ pub fn shell_execute_literal(cmd: []const u8) void {
             const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
             if (fat.read_bpb(drive)) |bpb| {
                 if (fat.find_entry(drive, bpb, 0, full_path)) |_| {
-                    nova_commands.setScriptArgs(argv[1..argc]);
-                    nova_interpreter.runScript(full_path);
+                    nova_legacy_commands.setScriptArgs(argv[1..argc]);
+                    nova_legacy_interpreter.runScript(full_path);
                     return;
                 }
             }
@@ -1231,9 +1232,9 @@ fn cmd_handler_about(_: []const u8) void {
     common.printZ("=== By MinecAnton209 ===\n\n");
 }
 
-fn cmd_handler_nova(_: []const u8) void {
-    elf.load_and_run_nova() catch |err| {
-        common.printZ("Error: Failed to load nova.elf: ");
+fn cmd_handler_nova_legacy(_: []const u8) void {
+    elf.load_and_run_nova_legacy() catch |err| {
+        common.printZ("Error: Failed to load nova_legacy.elf: ");
         common.printZ(@errorName(err));
         common.printZ("\n");
     };

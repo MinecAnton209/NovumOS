@@ -1,8 +1,11 @@
-// Nova Language - Virtual Machine
 const common = @import("common.zig");
 const lexer = @import("lexer.zig");
+const ast = @import("ast.zig");
 const hash_table = @import("hash_table.zig");
+const arena_mod = @import("arena.zig");
 const module = @import("module.zig");
+const parser_mod = @import("parser.zig");
+const checker_mod = @import("checker.zig");
 const memory = @import("../memory.zig");
 const shell = @import("../shell.zig");
 const fat = @import("../drivers/fat.zig");
@@ -15,66 +18,68 @@ const sys_mod = @import("modules/sys.zig");
 const speaker_mod = @import("modules/speaker.zig");
 const user = @import("../user.zig");
 
+const Node = ast.Node;
+const VariableValue = hash_table.VariableValue;
+const VariableType = hash_table.VariableType;
+
+const Scope = struct {
+    table: hash_table.HashTable,
+    parent: ?*Scope,
+};
+
 pub const VM = struct {
-    tokens: lexer.TokenList,
-    ip: usize = 0,
+    arena: *arena_mod.Arena,
+    program: *Node,
+    prog_ip: usize,
     globals: hash_table.HashTable,
     functions: hash_table.HashTable,
-    current_scope: *Scope,
-    exit_flag: bool = false,
-    has_error: bool = false,
-    break_flag: bool = false,
-    continue_flag: bool = false,
+    scope: *Scope,
+    exit_flag: bool,
+    has_error: bool,
+    break_flag: bool,
+    continue_flag: bool,
+    return_flag: bool,
+    return_value: VariableValue,
     cache: module.ModuleCache,
-    angle_mode: common.AngleMode = .DEG,
-    current_file: []const u8 = "main.nv",
-    script_args: []const []const u8 = &[_][]const u8{},
-    is_math_loaded: bool = false,
-    is_sys_loaded: bool = false,
-    is_speaker_loaded: bool = false,
-    repl_mode: bool = false,
-    return_flag: bool = false,
-    return_value: hash_table.VariableValue = .{ .vtype = .int, .int_val = 0 },
+    angle_mode: common.AngleMode,
+    current_file: []const u8,
+    script_args: []const []const u8,
+    is_math_loaded: bool,
+    is_sys_loaded: bool,
+    is_speaker_loaded: bool,
+    repl_mode: bool,
 
-    pub const Scope = struct {
-        table: hash_table.HashTable,
-        parent: ?*Scope,
-    };
-
-    pub fn reportError(self: *VM, msg: []const u8) void {
-        const line = if (self.ip < self.tokens.len) self.tokens.tokens[self.ip].line else 0;
-        common.printZ("Runtime Error in ");
-        common.printZ(self.current_file);
-        common.printZ(" at line ");
-        var buf: [16]u8 = undefined;
-        common.printZ(common.intToString(@intCast(line), &buf));
-        common.printZ(": ");
-        common.printZ(msg);
-        common.printZ("\n");
-        self.exit_flag = true;
-        self.has_error = true;
-    }
-
-    pub fn init(tokens: lexer.TokenList, args: []const []const u8) VM {
-        var vm = VM{
-            .tokens = tokens,
-            .ip = 0,
-            .globals = hash_table.HashTable.init(32),
-            .functions = hash_table.HashTable.init(16),
-            .current_scope = undefined, // Set below
-            .cache = module.ModuleCache.init(),
-            .script_args = args,
-        };
-
+    pub fn init(program: *Node, arena: *arena_mod.Arena, args: []const []const u8) VM {
         const scope_ptr = user.user_malloc(@sizeOf(Scope)) orelse unreachable;
         const scope: *Scope = @ptrCast(@alignCast(scope_ptr));
         scope.* = .{
             .table = hash_table.HashTable.init(16),
             .parent = null,
         };
-        vm.current_scope = scope;
 
-        // Add built-in constants for easier usage
+        var vm = VM{
+            .arena = arena,
+            .program = program,
+            .prog_ip = 0,
+            .globals = hash_table.HashTable.init(32),
+            .functions = hash_table.HashTable.init(16),
+            .scope = scope,
+            .exit_flag = false,
+            .has_error = false,
+            .break_flag = false,
+            .continue_flag = false,
+            .return_flag = false,
+            .return_value = .{ .vtype = .int, .int_val = 0 },
+            .cache = module.ModuleCache.init(),
+            .angle_mode = .DEG,
+            .current_file = "main.nv",
+            .script_args = args,
+            .is_math_loaded = false,
+            .is_sys_loaded = false,
+            .is_speaker_loaded = false,
+            .repl_mode = false,
+        };
+
         vm.globals.put("rad", .{ .vtype = .string, .str_val = "rad" });
         vm.globals.put("deg", .{ .vtype = .string, .str_val = "deg" });
 
@@ -82,672 +87,364 @@ pub const VM = struct {
     }
 
     pub fn run(self: *VM) void {
-        while (self.ip < self.tokens.len and !self.exit_flag) {
-            if (keyboard.check_ctrl_c()) {
-                common.printZ("\nInterrupted by Ctrl+C\n");
-                self.exit_flag = true;
-                break;
-            }
-            const token = self.tokens.tokens[self.ip];
-            self.handleInstruction(token);
-        }
+        self.exec(self.program);
     }
 
-    fn handleInstruction(self: *VM, token: lexer.Token) void {
-        switch (token.ttype) {
-            .DEF => self.handleDef(),
-            .IMPORT => self.handleImport(),
-            .IF => self.handleIf(),
-            .WHILE => self.handleWhile(),
-            .FOR => self.handleFor(),
-            .BREAK => {
+    pub fn exec(self: *VM, node: *Node) void {
+        if (self.exit_flag) return;
+
+        switch (node.node_type) {
+            .program => {
+                var i: usize = 0;
+                while (i < node.stmt_count and !self.exit_flag) : (i += 1) {
+                    if (keyboard.check_ctrl_c()) {
+                        common.printZ("\nInterrupted by Ctrl+C\n");
+                        self.exit_flag = true;
+                        return;
+                    }
+                    self.exec(node.stmts.?[i]);
+                }
+            },
+            .block => {
+                self.pushScope();
+                var i: usize = 0;
+                while (i < node.stmt_count and !self.exit_flag and !self.break_flag and !self.continue_flag and !self.return_flag) : (i += 1) {
+                    if (keyboard.check_ctrl_c()) {
+                        common.printZ("\nInterrupted by Ctrl+C\n");
+                        self.exit_flag = true;
+                        return;
+                    }
+                    self.exec(node.stmts.?[i]);
+                }
+                self.popScope();
+            },
+            .var_decl => {
+                const val = if (node.left) |initial| self.eval(initial) else self.defaultValue(node.decl_type);
+                self.scope.table.put(node.str_val, val);
+            },
+            .assign => {
+                const val = if (node.left) |expr| self.eval(expr) else VariableValue{ .vtype = .int, .int_val = 0 };
+                self.updateVar(node.str_val, val);
+            },
+            .func_call => {
+                const result = self.execFuncCall(node);
+                if (self.repl_mode and !common.streq(node.str_val, "print")) {
+                    self.printValue(result);
+                }
+            },
+            .if_stmt => {
+                const cond = if (node.left) |c| self.eval(c) else VariableValue{ .vtype = .int, .int_val = 0 };
+                if (cond.int_val != 0) {
+                    if (node.right) |then_block| self.exec(then_block);
+                } else if (node.stmt_count > 0 and node.stmts != null) {
+                    self.exec(node.stmts.?[0]);
+                }
+            },
+            .while_stmt => {
+                const start_node = node;
+                while (!self.exit_flag) {
+                    if (keyboard.check_ctrl_c()) {
+                        common.printZ("\nInterrupted by Ctrl+C\n");
+                        self.exit_flag = true;
+                        return;
+                    }
+                    const cond = if (start_node.left) |c| self.eval(c) else VariableValue{ .vtype = .int, .int_val = 0 };
+                    if (cond.int_val != 0) {
+                        if (start_node.right) |body| self.exec(body);
+                        if (self.break_flag) {
+                            self.break_flag = false;
+                            break;
+                        }
+                        if (self.exit_flag or self.return_flag) return;
+                        self.continue_flag = false;
+                    } else {
+                        break;
+                    }
+                }
+            },
+            .for_stmt => {
+                self.pushScope();
+                if (node.stmt_count >= 1 and node.stmts != null) {
+                    const initial = node.stmts.?[0];
+                    self.exec(initial);
+                }
+                while (!self.exit_flag) {
+                    if (keyboard.check_ctrl_c()) {
+                        common.printZ("\nInterrupted by Ctrl+C\n");
+                        self.exit_flag = true;
+                        return;
+                    }
+                    const cond = if (node.left) |c| self.eval(c) else VariableValue{ .vtype = .int, .int_val = 1 };
+                    if (cond.int_val == 0) break;
+                    if (node.right) |body| self.exec(body);
+                    if (self.break_flag) {
+                        self.break_flag = false;
+                        break;
+                    }
+                    if (self.exit_flag or self.return_flag) break;
+                    self.continue_flag = false;
+                    if (node.stmt_count >= 2 and node.stmts != null) {
+                        const incr = node.stmts.?[1];
+                        self.exec(incr);
+                    }
+                }
+                self.popScope();
+            },
+            .func_def => {
+                self.functions.put(node.str_val, .{
+                    .vtype = .function,
+                    .func_ptr = @intFromPtr(node),
+                });
+            },
+            .return_stmt => {
+                self.return_value = if (node.left) |expr| self.eval(expr) else VariableValue{ .vtype = .int, .int_val = 0 };
+                self.return_flag = true;
+            },
+            .import_stmt => {
+                self.execImport(node);
+            },
+            .break_stmt => {
                 self.break_flag = true;
-                self.ip += 1;
-                if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .SEMICOLON) self.ip += 1;
             },
-            .CONTINUE => {
+            .continue_stmt => {
                 self.continue_flag = true;
-                self.ip += 1;
-                if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .SEMICOLON) self.ip += 1;
-            },
-            .SET, .INT_TYPE, .FLOAT_TYPE, .STRING_TYPE => self.handleSet(),
-            .IDENTIFIER => self.handleAssignmentOrCall(),
-            .RETURN => self.handleReturn(),
-            .L_BRACE => self.ip += 1, // Skip {
-            .R_BRACE => {
-                // This happens at end of blocks if not handled by handleIf/while
-                self.ip += 1;
-            },
-            .SEMICOLON => self.ip += 1,
-            .EOF => {
-                if (!self.repl_mode) self.exit_flag = true;
-                self.ip += 1;
             },
             else => {
-                // Skip or error
-                self.ip += 1;
+                _ = self.eval(node);
             },
         }
     }
 
-    fn handleDef(self: *VM) void {
-        self.ip += 1; // skip def
-        if (self.ip >= self.tokens.len) return;
+    pub fn eval(self: *VM, node: *Node) VariableValue {
+        switch (node.node_type) {
+            .int_lit => return .{ .vtype = .int, .int_val = node.int_val },
+            .float_lit => return .{ .vtype = .float, .float_val = node.float_val },
+            .str_lit => return .{ .vtype = .string, .str_val = node.str_val },
+            .ident => return self.lookupVar(node.str_val),
+            .bin_op => return self.evalBinOp(node),
+            .unary_op => return self.evalUnaryOp(node),
+            .func_call => return self.execFuncCall(node),
+            .assign => {
+                const val = if (node.left) |expr| self.eval(expr) else VariableValue{ .vtype = .int, .int_val = 0 };
+                self.updateVar(node.str_val, val);
+                return val;
+            },
+            else => return .{ .vtype = .int, .int_val = 0 },
+        }
+    }
 
-        const name_token = self.tokens.tokens[self.ip];
-        if (name_token.ttype != .IDENTIFIER) return;
+    fn evalBinOp(self: *VM, node: *Node) VariableValue {
+        const left = if (node.left) |l| self.eval(l) else return .{ .vtype = .int, .int_val = 0 };
+        const right = if (node.right) |r| self.eval(r) else return .{ .vtype = .int, .int_val = 0 };
 
-        self.ip += 1; // skip name
-        const start_of_params = self.ip;
-        self.functions.put(name_token.value, .{
-            .vtype = .function,
-            .func_ptr = start_of_params,
-        });
-
-        while (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .L_BRACE) : (self.ip += 1) {}
-
-        // Skip until matching }
-        var depth: i32 = 0;
-        while (self.ip < self.tokens.len) : (self.ip += 1) {
-            const t = self.tokens.tokens[self.ip];
-            if (t.ttype == .L_BRACE) depth += 1;
-            if (t.ttype == .R_BRACE) {
-                depth -= 1;
-                if (depth == 0) {
-                    self.ip += 1;
-                    break;
+        switch (node.bin_op) {
+            .add => {
+                if (left.vtype == .int and right.vtype == .int) {
+                    return .{ .vtype = .int, .int_val = left.int_val + right.int_val };
                 }
-            }
-        }
-    }
-
-    fn handleIf(self: *VM) void {
-        self.ip += 1; // skip if
-        const condition = self.evaluateExpression();
-
-        if (condition.int_val != 0) {
-            // Execute block (we just continue into it)
-            if (self.tokens.tokens[self.ip].ttype == .L_BRACE) {
-                self.ip += 1;
-            }
-        } else {
-            // Skip block
-            self.skipBlock(0);
-            // Check for ELSE
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .ELSE) {
-                self.ip += 1;
-                // Execute else block
-                if (self.tokens.tokens[self.ip].ttype == .L_BRACE) {
-                    self.ip += 1;
+                if (left.vtype == .float or right.vtype == .float) {
+                    const lf = if (left.vtype == .float) left.float_val else @as(f32, @floatFromInt(left.int_val));
+                    const rf = if (right.vtype == .float) right.float_val else @as(f32, @floatFromInt(right.int_val));
+                    return .{ .vtype = .float, .float_val = lf + rf };
                 }
-            }
-        }
-    }
-
-    fn handleWhile(self: *VM) void {
-        const start_ip = self.ip;
-        self.ip += 1; // skip while
-
-        while (true) {
-            if (keyboard.check_ctrl_c()) {
-                common.printZ("\nInterrupted by Ctrl+C\n");
-                self.exit_flag = true;
-                return;
-            }
-
-            self.ip = start_ip + 1;
-            const condition = self.evaluateExpression();
-
-            if (condition.int_val != 0) {
-                if (self.tokens.tokens[self.ip].ttype == .L_BRACE) {
-                    self.ip += 1;
+                if (left.vtype == .string and right.vtype == .string) {
+                    const total = left.str_val.len + right.str_val.len;
+                    const buf_ptr = user.user_malloc(total) orelse return left;
+                    const buf = buf_ptr[0..total];
+                    @memcpy(buf[0..left.str_val.len], left.str_val);
+                    @memcpy(buf[left.str_val.len..], right.str_val);
+                    return .{ .vtype = .string, .str_val = buf };
                 }
-
-                self.runBlock();
-
-                if (self.break_flag) {
-                    self.break_flag = false;
-                    self.skipBlock(1);
-                    break;
+                return left;
+            },
+            .sub => {
+                if (left.vtype == .int and right.vtype == .int) return .{ .vtype = .int, .int_val = left.int_val - right.int_val };
+                const lf = if (left.vtype == .float) left.float_val else @as(f32, @floatFromInt(left.int_val));
+                const rf = if (right.vtype == .float) right.float_val else @as(f32, @floatFromInt(right.int_val));
+                return .{ .vtype = .float, .float_val = lf - rf };
+            },
+            .mul => {
+                if (left.vtype == .int and right.vtype == .int) return .{ .vtype = .int, .int_val = left.int_val * right.int_val };
+                const lf = if (left.vtype == .float) left.float_val else @as(f32, @floatFromInt(left.int_val));
+                const rf = if (right.vtype == .float) right.float_val else @as(f32, @floatFromInt(right.int_val));
+                return .{ .vtype = .float, .float_val = lf * rf };
+            },
+            .div => {
+                if (left.vtype == .int and right.vtype == .int) {
+                    if (right.int_val == 0) return left;
+                    return .{ .vtype = .int, .int_val = @divTrunc(left.int_val, right.int_val) };
                 }
-                if (self.exit_flag or self.return_flag) break;
-                self.continue_flag = false;
-                // Loop back
-            } else {
-                // Condition false, skip block and exit while
-                self.skipBlock(0);
-                break;
-            }
-        }
-    }
-
-    fn handleFor(self: *VM) void {
-        self.ip += 1; // skip for
-        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .L_PAREN) self.ip += 1;
-
-        // 1. Init
-        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .SEMICOLON) {
-            const t = self.tokens.tokens[self.ip];
-            if (t.ttype == .SET or t.ttype == .INT_TYPE or t.ttype == .STRING_TYPE) {
-                self.handleSet();
-            } else if (t.ttype == .IDENTIFIER) {
-                self.handleAssignmentOrCall();
-            } else {
-                self.ip += 1;
-            }
-        }
-        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .SEMICOLON) self.ip += 1;
-
-        const cond_ip = self.ip;
-        // Find increment and block
-        var semi_count: i32 = 0;
-        var paren_depth: i32 = 0;
-        var temp_ip = self.ip;
-        while (temp_ip < self.tokens.len) : (temp_ip += 1) {
-            const t = self.tokens.tokens[temp_ip];
-            if (t.ttype == .L_PAREN) paren_depth += 1;
-            if (t.ttype == .R_PAREN) paren_depth -= 1;
-            if (t.ttype == .SEMICOLON and paren_depth == 0) {
-                semi_count += 1;
-                if (semi_count == 1) break;
-            }
-        }
-        const inc_ip = temp_ip + 1;
-
-        // Skip increment to find block
-        temp_ip = inc_ip;
-        paren_depth = 1; // we started inside (
-        while (temp_ip < self.tokens.len and paren_depth > 0) : (temp_ip += 1) {
-            const t = self.tokens.tokens[temp_ip];
-            if (t.ttype == .L_PAREN) paren_depth += 1;
-            if (t.ttype == .R_PAREN) paren_depth -= 1;
-        }
-        const block_ip = temp_ip;
-
-        while (true) {
-            if (keyboard.check_ctrl_c()) {
-                self.exit_flag = true;
-                return;
-            }
-
-            self.ip = cond_ip;
-            const condition = if (self.tokens.tokens[self.ip].ttype == .SEMICOLON) @as(hash_table.VariableValue, .{ .vtype = .int, .int_val = 1 }) else self.evaluateExpression();
-
-            if (condition.int_val != 0) {
-                self.ip = block_ip;
-                self.runBlock();
-
-                if (self.break_flag) {
-                    self.break_flag = false;
-                    break;
+                const lf = if (left.vtype == .float) left.float_val else @as(f32, @floatFromInt(left.int_val));
+                const rf = if (right.vtype == .float) right.float_val else @as(f32, @floatFromInt(right.int_val));
+                if (rf == 0) return .{ .vtype = .float, .float_val = lf };
+                return .{ .vtype = .float, .float_val = lf / rf };
+            },
+            .mod => {
+                if (left.vtype == .int and right.vtype == .int) {
+                    if (right.int_val == 0) return left;
+                    return .{ .vtype = .int, .int_val = @rem(left.int_val, right.int_val) };
                 }
-                if (self.exit_flag or self.return_flag) break;
-
-                self.continue_flag = false;
-                self.ip = inc_ip;
-                // Handle increment
-                const t = self.tokens.tokens[self.ip];
-                if (t.ttype == .IDENTIFIER) {
-                    self.handleAssignmentOrCall();
-                } else if (t.ttype != .R_PAREN) {
-                    _ = self.evaluateExpression();
+                return left;
+            },
+            .eq => {
+                if (left.vtype == .int and right.vtype == .int) return .{ .vtype = .int, .int_val = if (left.int_val == right.int_val) 1 else 0 };
+                if (left.vtype == .float or right.vtype == .float) {
+                    const lf = if (left.vtype == .float) left.float_val else @as(f32, @floatFromInt(left.int_val));
+                    const rf = if (right.vtype == .float) right.float_val else @as(f32, @floatFromInt(right.int_val));
+                    return .{ .vtype = .int, .int_val = if (lf == rf) 1 else 0 };
                 }
-            } else {
-                break;
-            }
-        }
-        self.ip = block_ip;
-        self.skipBlock(0);
-    }
-
-    fn handleReturn(self: *VM) void {
-        self.ip += 1; // skip return
-        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .SEMICOLON) {
-            self.return_value = self.evaluateExpression();
-        } else {
-            self.return_value = .{ .vtype = .int, .int_val = 0 };
-        }
-        self.return_flag = true;
-        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .SEMICOLON) self.ip += 1;
-    }
-
-    fn updateVariable(self: *VM, name: []const u8, val: hash_table.VariableValue) bool {
-        var s: ?*Scope = self.current_scope;
-        while (s) |scope| {
-            if (scope.table.get(name)) |_| {
-                scope.table.put(name, val);
-                return true;
-            }
-            s = scope.parent;
-        }
-        if (self.globals.get(name)) |_| {
-            self.globals.put(name, val);
-            return true;
-        }
-        return false;
-    }
-
-    fn runBlock(self: *VM) void {
-        if (self.tokens.tokens[self.ip].ttype == .L_BRACE) self.ip += 1;
-        var depth: i32 = 1;
-        while (self.ip < self.tokens.len and depth > 0 and !self.exit_flag and !self.break_flag and !self.continue_flag and !self.return_flag) {
-            if (keyboard.check_ctrl_c()) {
-                common.printZ("\nInterrupted by Ctrl+C\n");
-                self.exit_flag = true;
-                break;
-            }
-            const t = self.tokens.tokens[self.ip];
-            if (t.ttype == .L_BRACE) depth += 1;
-            if (t.ttype == .R_BRACE) {
-                depth -= 1;
-                if (depth == 0) {
-                    self.ip += 1;
-                    break;
+                if (left.vtype == .string and right.vtype == .string) {
+                    return .{ .vtype = .int, .int_val = if (common.streq(left.str_val, right.str_val)) 1 else 0 };
                 }
-            }
-            self.handleInstruction(t);
-        }
-    }
-
-    fn skipBlock(self: *VM, start_depth: i32) void {
-        var depth: i32 = start_depth;
-        while (self.ip < self.tokens.len) : (self.ip += 1) {
-            const t = self.tokens.tokens[self.ip];
-            if (t.ttype == .L_BRACE) depth += 1;
-            if (t.ttype == .R_BRACE) {
-                depth -= 1;
-                if (depth == 0) {
-                    self.ip += 1;
-                    break;
+                return .{ .vtype = .int, .int_val = 0 };
+            },
+            .neq => {
+                if (left.vtype == .int and right.vtype == .int) return .{ .vtype = .int, .int_val = if (left.int_val != right.int_val) 1 else 0 };
+                if (left.vtype == .float or right.vtype == .float) {
+                    const lf = if (left.vtype == .float) left.float_val else @as(f32, @floatFromInt(left.int_val));
+                    const rf = if (right.vtype == .float) right.float_val else @as(f32, @floatFromInt(right.int_val));
+                    return .{ .vtype = .int, .int_val = if (lf != rf) 1 else 0 };
                 }
-            }
-        }
-    }
-
-    fn step(self: *VM) void {
-        if (self.ip >= self.tokens.len) return;
-        const t = self.tokens.tokens[self.ip];
-        self.handleInstruction(t);
-    }
-
-    fn handleSet(self: *VM) void {
-        const current = self.tokens.tokens[self.ip];
-        if (current.ttype == .SET) self.ip += 1;
-
-        if (self.ip >= self.tokens.len) return;
-
-        const t = self.tokens.tokens[self.ip];
-        if (t.ttype == .INT_TYPE or t.ttype == .FLOAT_TYPE or t.ttype == .STRING_TYPE) {
-            self.ip += 1; // skip type
-        }
-
-        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .IDENTIFIER) {
-            self.handleAssignmentOrCall();
-        } else {
-            self.reportError("Expected identifier after set");
-        }
-    }
-
-    fn handleAssignmentOrCall(self: *VM) void {
-        var name = self.tokens.tokens[self.ip].value;
-        self.ip += 1;
-
-        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .DOT) {
-            self.ip += 1; // skip .
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .IDENTIFIER) {
-                const member = self.tokens.tokens[self.ip].value;
-                self.ip += 1;
-
-                // Construct "name.member"
-                const combined_len = name.len + 1 + member.len;
-                const buf_ptr = user.user_malloc(combined_len) orelse {
-                    self.reportError("Out of memory for namespaced call");
-                    return;
+                if (left.vtype == .string and right.vtype == .string) {
+                    return .{ .vtype = .int, .int_val = if (!common.streq(left.str_val, right.str_val)) 1 else 0 };
+                }
+                return .{ .vtype = .int, .int_val = 1 };
+            },
+            .lt => {
+                if (left.vtype == .int and right.vtype == .int) return .{ .vtype = .int, .int_val = if (left.int_val < right.int_val) 1 else 0 };
+                const lf = if (left.vtype == .float) left.float_val else @as(f32, @floatFromInt(left.int_val));
+                const rf = if (right.vtype == .float) right.float_val else @as(f32, @floatFromInt(right.int_val));
+                return .{ .vtype = .int, .int_val = if (lf < rf) 1 else 0 };
+            },
+            .gt => {
+                if (left.vtype == .int and right.vtype == .int) return .{ .vtype = .int, .int_val = if (left.int_val > right.int_val) 1 else 0 };
+                const lf = if (left.vtype == .float) left.float_val else @as(f32, @floatFromInt(left.int_val));
+                const rf = if (right.vtype == .float) right.float_val else @as(f32, @floatFromInt(right.int_val));
+                return .{ .vtype = .int, .int_val = if (lf > rf) 1 else 0 };
+            },
+            .le => {
+                const eq = if (left.vtype == .int and right.vtype == .int) left.int_val == right.int_val else false;
+                const lt = blk: {
+                    if (left.vtype == .int and right.vtype == .int) break :blk left.int_val < right.int_val;
+                    const lf = if (left.vtype == .float) left.float_val else @as(f32, @floatFromInt(left.int_val));
+                    const rf = if (right.vtype == .float) right.float_val else @as(f32, @floatFromInt(right.int_val));
+                    break :blk lf < rf;
                 };
-                const buf = buf_ptr[0..combined_len];
-                common.copy(buf[0..name.len], name);
-                buf[name.len] = '.';
-                common.copy(buf[name.len + 1 ..], member);
-                name = buf;
-            } else {
-                self.reportError("Expected member name after '.'");
-                return;
-            }
-        }
-
-        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .EQUALS) {
-            self.ip += 1; // skip =
-            const val = self.evaluateExpression();
-            if (!self.updateVariable(name, val)) {
-                self.current_scope.table.put(name, val);
-            }
-        } else if (self.ip < self.tokens.len and (self.tokens.tokens[self.ip].ttype == .PLUS_PLUS or self.tokens.tokens[self.ip].ttype == .MINUS_MINUS)) {
-            const op = self.tokens.tokens[self.ip].ttype;
-            self.ip += 1;
-            // Lookup variable
-            var target_val: ?hash_table.VariableValue = null;
-            var s: ?*Scope = self.current_scope;
-            while (s) |scope| {
-                if (scope.table.get(name)) |v| {
-                    target_val = v;
-                    break;
-                }
-                s = scope.parent;
-            }
-            if (target_val == null) target_val = self.globals.get(name);
-
-            if (target_val) |v| {
-                if (v.vtype == .int) {
-                    var new_v = v;
-                    if (op == .PLUS_PLUS) new_v.int_val += 1 else new_v.int_val -= 1;
-                    if (!self.updateVariable(name, new_v)) {
-                        self.current_scope.table.put(name, new_v);
-                    }
-                }
-            }
-        } else if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .L_PAREN) {
-            // Function call
-            const result = self.handleCall(name);
-            if (self.repl_mode and !common.streq(name, "print")) {
-                if (result.vtype == .string) {
-                    if (result.str_val.len > 0) {
-                        common.printBuf(result.str_val);
-                        common.printBuf("\n");
-                    }
-                } else if (result.vtype == .float) {
-                    var buf: [32]u8 = undefined;
-                    const s = common.floatToString(result.float_val, &buf);
-                    common.printBuf(s);
-                    common.printBuf("\n");
-                } else {
-                    var buf: [16]u8 = undefined;
-                    const s = common.intToString(result.int_val, &buf);
-                    common.printBuf(s);
-                    common.printBuf("\n");
-                }
-            }
-        } else {
-            self.reportError("Expected '=' or '(' after identifier");
+                return .{ .vtype = .int, .int_val = if (eq or lt) 1 else 0 };
+            },
+            .ge => {
+                const eq = if (left.vtype == .int and right.vtype == .int) left.int_val == right.int_val else false;
+                const gt = blk: {
+                    if (left.vtype == .int and right.vtype == .int) break :blk left.int_val > right.int_val;
+                    const lf = if (left.vtype == .float) left.float_val else @as(f32, @floatFromInt(left.int_val));
+                    const rf = if (right.vtype == .float) right.float_val else @as(f32, @floatFromInt(right.int_val));
+                    break :blk lf > rf;
+                };
+                return .{ .vtype = .int, .int_val = if (eq or gt) 1 else 0 };
+            },
+            .bit_and => {
+                if (left.vtype == .int and right.vtype == .int) return .{ .vtype = .int, .int_val = left.int_val & right.int_val };
+                return left;
+            },
+            .bit_or => {
+                if (left.vtype == .int and right.vtype == .int) return .{ .vtype = .int, .int_val = left.int_val | right.int_val };
+                return left;
+            },
+            .bit_xor => {
+                if (left.vtype == .int and right.vtype == .int) return .{ .vtype = .int, .int_val = left.int_val ^ right.int_val };
+                return left;
+            },
+            .shl => {
+                if (left.vtype == .int and right.vtype == .int) return .{ .vtype = .int, .int_val = left.int_val << @intCast(@as(u5, @truncate(@as(u32, @bitCast(right.int_val))))) };
+                return left;
+            },
+            .shr => {
+                if (left.vtype == .int and right.vtype == .int) return .{ .vtype = .int, .int_val = left.int_val >> @intCast(@as(u5, @truncate(@as(u32, @bitCast(right.int_val))))) };
+                return left;
+            },
         }
     }
 
-    fn handleCall(self: *VM, name: []const u8) hash_table.VariableValue {
-        self.ip += 1; // skip (
+    fn evalUnaryOp(self: *VM, node: *Node) VariableValue {
+        const val = if (node.left) |op| self.eval(op) else return .{ .vtype = .int, .int_val = 0 };
+        switch (node.unary_op) {
+            .neg => {
+                if (val.vtype == .int) return .{ .vtype = .int, .int_val = -val.int_val };
+                if (val.vtype == .float) return .{ .vtype = .float, .float_val = -val.float_val };
+                return val;
+            },
+            .bit_not => {
+                if (val.vtype == .int) return .{ .vtype = .int, .int_val = ~val.int_val };
+                return val;
+            },
+        }
+    }
 
+    fn execFuncCall(self: *VM, node: *Node) VariableValue {
+        const name = node.str_val;
+
+        // Evaluate arguments
+        var args: [8]VariableValue = undefined;
+        var arg_count: usize = 0;
+        for (0..node.stmt_count) |i| {
+            args[arg_count] = self.eval(node.stmts.?[i]);
+            arg_count += 1;
+        }
+        const arg_slice = args[0..arg_count];
+
+        // Dispatch builtins
         if (common.streq(name, "print")) {
-            const val = self.evaluateExpression();
-            if (val.vtype == .string) {
-                common.printBuf(val.str_val);
-            } else if (val.vtype == .float) {
-                var buf: [32]u8 = undefined;
-                const s = common.floatToString(val.float_val, &buf);
-                common.printBuf(s);
-            } else {
-                var buf: [16]u8 = undefined;
-                const s = common.intToString(val.int_val, &buf);
-                common.printBuf(s);
-            }
+            if (arg_count >= 1) self.printValue(arg_slice[0]);
             common.printBuf("\n");
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ')' in print");
-            }
             return .{ .vtype = .string, .str_val = "" };
-        } else if (common.streq(name, "exit")) {
+        }
+        if (common.streq(name, "exit")) {
             self.exit_flag = true;
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            }
             return .{ .vtype = .string, .str_val = "" };
-        } else if (common.startsWith(name, "math.")) {
-            if (!self.is_math_loaded) {
-                self.reportError("Module 'math' not imported");
-                return .{ .vtype = .int, .int_val = 0 };
-            }
-            if (math_mod.handleMath(self, name)) |res| return res;
-            self.reportError("Unknown math function");
+        }
+        if (common.streq(name, "len")) {
+            if (arg_count >= 1 and arg_slice[0].vtype == .string) return .{ .vtype = .int, .int_val = @intCast(arg_slice[0].str_val.len) };
             return .{ .vtype = .int, .int_val = 0 };
-        } else if (common.startsWith(name, "sys.")) {
-            if (!self.is_sys_loaded) {
-                self.reportError("Module 'sys' not imported");
-                return .{ .vtype = .int, .int_val = 0 };
-            }
-            if (sys_mod.handleSys(self, name)) |res| return res;
-            self.reportError("Unknown sys function");
+        }
+        if (common.streq(name, "int")) {
+            if (arg_count >= 1 and arg_slice[0].vtype == .string) return .{ .vtype = .int, .int_val = common.parseInt(arg_slice[0].str_val) };
+            if (arg_count >= 1) return arg_slice[0];
             return .{ .vtype = .int, .int_val = 0 };
-        } else if (common.startsWith(name, "speaker.")) {
-            if (!self.is_speaker_loaded) {
-                self.reportError("Module 'speaker' not imported");
-                return .{ .vtype = .int, .int_val = 0 };
+        }
+        if (common.streq(name, "str")) {
+            if (arg_count >= 1 and arg_slice[0].vtype == .int) {
+                var buf: [16]u8 = undefined;
+                const s = common.intToString(arg_slice[0].int_val, &buf);
+                const copy_ptr = user.user_malloc(s.len) orelse return .{ .vtype = .string, .str_val = "" };
+                const copy = copy_ptr[0..s.len];
+                @memcpy(copy, s);
+                return .{ .vtype = .string, .str_val = copy };
             }
-            if (speaker_mod.handleSpeaker(self, name)) |res| return res;
-            self.reportError("Unknown speaker function");
-            return .{ .vtype = .int, .int_val = 0 };
-        } else if (common.streq(name, "create_file")) {
-            const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ')' in create_file");
-            }
-            if (path.vtype == .string) {
-                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-                if (fat.read_bpb(drive)) |bpb| {
-                    if (fat.write_file(drive, bpb, global_common.current_dir_cluster, path.str_val, "")) {
-                        return .{ .vtype = .string, .str_val = "File created" };
-                    }
-                }
-            }
-            return .{ .vtype = .string, .str_val = "Error: Could not create file" };
-        } else if (common.streq(name, "delete") or common.streq(name, "remove") or common.streq(name, "rm")) {
-            const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ')' in delete");
-            }
-            if (path.vtype == .string) {
-                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-                if (fat.read_bpb(drive)) |bpb| {
-                    if (fat.delete_file(drive, bpb, global_common.current_dir_cluster, path.str_val)) {
-                        return .{ .vtype = .string, .str_val = "Removed" };
-                    }
-                }
-            }
-            return .{ .vtype = .string, .str_val = "Error: Could not remove" };
-        } else if (common.streq(name, "rename") or common.streq(name, "mv")) {
-            const old_path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ',' in rename");
-                return .{ .vtype = .string, .str_val = "Error" };
-            }
-            const new_path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ')' in rename");
-            }
-            if (old_path.vtype == .string and new_path.vtype == .string) {
-                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-                if (fat.read_bpb(drive)) |bpb| {
-                    if (fat.rename_file(drive, bpb, global_common.current_dir_cluster, old_path.str_val, new_path.str_val)) {
-                        return .{ .vtype = .string, .str_val = "Renamed" };
-                    }
-                }
-            }
-            return .{ .vtype = .string, .str_val = "Error: Could not rename" };
-        } else if (common.streq(name, "copy") or common.streq(name, "cp")) {
-            const src = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ',' in copy");
-                return .{ .vtype = .string, .str_val = "Error" };
-            }
-            const dst = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ')' in copy");
-            }
-            if (src.vtype == .string and dst.vtype == .string) {
-                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-                if (fat.read_bpb(drive)) |bpb| {
-                    if (fat.copy_file(drive, bpb, global_common.current_dir_cluster, src.str_val, dst.str_val)) {
-                        return .{ .vtype = .string, .str_val = "Copied" };
-                    }
-                }
-            }
-            return .{ .vtype = .string, .str_val = "Error: Could not copy" };
-        } else if (common.streq(name, "read")) {
-            const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ')' in read");
-            }
-            if (path.vtype == .string) {
-                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-                if (fat.read_bpb(drive)) |bpb| {
-                    var buf_ptr = user.user_malloc(4096) orelse return .{ .vtype = .string, .str_val = "" };
-                    const len = fat.read_file(drive, bpb, global_common.current_dir_cluster, path.str_val, buf_ptr);
-                    if (len > 0) {
-                        return .{ .vtype = .string, .str_val = buf_ptr[0..@intCast(len)] };
-                    }
-                    user.user_free(buf_ptr);
-                }
-            }
+            if (arg_count >= 1) return arg_slice[0];
             return .{ .vtype = .string, .str_val = "" };
-        } else if (common.streq(name, "write")) {
-            const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ',' in write");
-                return .{ .vtype = .string, .str_val = "Error" };
-            }
-            const data = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ')' in write");
-            }
-
-            if (path.vtype == .string and data.vtype == .string) {
-                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-                if (fat.read_bpb(drive)) |bpb| {
-                    if (fat.write_file(drive, bpb, global_common.current_dir_cluster, path.str_val, data.str_val)) {
-                        return .{ .vtype = .string, .str_val = "Data written" };
-                    }
-                }
-            }
-            return .{ .vtype = .string, .str_val = "Error: Write failed" };
-        } else if (common.streq(name, "exists")) {
-            const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ')' in exists");
-            }
-            var res: i32 = 0;
-            if (path.vtype == .string) {
-                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-                if (fat.read_bpb(drive)) |bpb| {
-                    if (fat.resolve_full_path(drive, bpb, global_common.current_dir_cluster, global_common.current_path[0..global_common.current_path_len], path.str_val)) |_| {
-                        res = 1;
-                    }
-                }
-            }
-            return .{ .vtype = .int, .int_val = res };
-        } else if (common.streq(name, "mkdir")) {
-            const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ')' in mkdir");
-            }
-            if (path.vtype == .string) {
-                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-                if (fat.read_bpb(drive)) |bpb| {
-                    if (fat.create_directory(drive, bpb, global_common.current_dir_cluster, path.str_val)) {
-                        return .{ .vtype = .string, .str_val = "Directory created" };
-                    }
-                }
-            }
-            return .{ .vtype = .string, .str_val = "Error: Could not create directory" };
-        } else if (common.streq(name, "size")) {
-            const path = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ')' in size");
-            }
-            var res: i32 = -1;
-            if (path.vtype == .string) {
-                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-                if (fat.read_bpb(drive)) |bpb| {
-                    if (fat.find_entry(drive, bpb, global_common.current_dir_cluster, path.str_val)) |entry| {
-                        res = @intCast(entry.file_size);
-                    }
-                }
-            }
-            return .{ .vtype = .int, .int_val = res };
-        } else if (common.streq(name, "len")) {
-            const val = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ')' in len");
-            }
-            if (val.vtype == .string) return .{ .vtype = .int, .int_val = @intCast(val.str_val.len) };
-            return .{ .vtype = .int, .int_val = 0 };
-        } else if (common.streq(name, "int")) {
-            const val = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ')' in int");
-            }
-            if (val.vtype == .string) return .{ .vtype = .int, .int_val = common.parseInt(val.str_val) };
-            return val;
-        } else if (common.streq(name, "str")) {
-            const val = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            } else {
-                self.reportError("Expected ')' in str");
-            }
-            if (val.vtype == .int) {
-                var buf_ptr = user.user_malloc(16) orelse return .{ .vtype = .string, .str_val = "0" };
-                const s = common.intToString(val.int_val, buf_ptr[0..16]);
-                return .{ .vtype = .string, .str_val = s };
-            }
-            return val;
-        } else if (common.streq(name, "argc")) {
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
+        }
+        if (common.streq(name, "argc")) {
             return .{ .vtype = .int, .int_val = @intCast(self.script_args.len) };
-        } else if (common.streq(name, "args")) {
-            const idx = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            if (idx.vtype == .int and idx.int_val >= 0 and idx.int_val < self.script_args.len) {
-                return .{ .vtype = .string, .str_val = self.script_args[@intCast(idx.int_val)] };
+        }
+        if (common.streq(name, "args")) {
+            if (arg_count >= 1 and arg_slice[0].vtype == .int) {
+                const idx = arg_slice[0].int_val;
+                if (idx >= 0 and idx < self.script_args.len) {
+                    return .{ .vtype = .string, .str_val = self.script_args[@intCast(idx)] };
+                }
             }
             return .{ .vtype = .string, .str_val = "" };
-        } else if (common.streq(name, "input")) {
-            const prompt = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            if (prompt.vtype == .string) common.printZ(prompt.str_val);
-
-            var buf = user.user_malloc(128) orelse return .{ .vtype = .string, .str_val = "" };
-            // Simple blocking read
+        }
+        if (common.streq(name, "input")) {
+            if (arg_count >= 1 and arg_slice[0].vtype == .string) {
+                common.printBuf(arg_slice[0].str_val);
+            }
+            var buf_ptr = user.user_malloc(128) orelse return .{ .vtype = .string, .str_val = "" };
             var len: usize = 0;
             while (len < 127) {
                 const key = keyboard.keyboard_wait_char();
                 if (key == 10 or key == 13) {
-                    common.printZ("\n");
+                    common.printBuf("\n");
                     break;
                 } else if (key == 8 or key == 127) {
                     if (len > 0) {
@@ -755,65 +452,109 @@ pub const VM = struct {
                         common.printZ("\x08 \x08");
                     }
                 } else if (key >= 32 and key <= 126) {
-                    buf[len] = key;
+                    buf_ptr[len] = key;
                     len += 1;
                     common.print_char(key);
                 }
             }
-            return .{ .vtype = .string, .str_val = buf[0..len] };
-        } else if (common.streq(name, "format_size")) {
-            const bytes_v = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            if (bytes_v.vtype == .int) {
-                const b = @as(u64, @intCast(bytes_v.int_val));
-                const b_64 = b;
+            return .{ .vtype = .string, .str_val = buf_ptr[0..len] };
+        }
+        if (common.streq(name, "format_size")) {
+            if (arg_count >= 1 and arg_slice[0].vtype == .int) {
+                const b = @as(u64, @intCast(arg_slice[0].int_val));
                 const buf_ptr = user.user_malloc(32) orelse return .{ .vtype = .string, .str_val = "" };
                 const buf = buf_ptr[0..32];
                 var res: []const u8 = "";
-                if (b_64 < 1024) {
-                    res = common.intToString(@intCast(b_64), buf);
+                if (b < 1024) {
+                    res = common.intToString(@intCast(b), buf);
                     const final = buf[0 .. res.len + 2];
                     common.copy(buf[res.len..], " B");
                     return .{ .vtype = .string, .str_val = final };
-                } else if (b_64 < 1024 * 1024) {
-                    res = common.intToString(@intCast(b_64 / 1024), buf);
+                } else if (b < 1024 * 1024) {
+                    res = common.intToString(@intCast(b / 1024), buf);
                     const final = buf[0 .. res.len + 3];
                     common.copy(buf[res.len..], " KB");
                     return .{ .vtype = .string, .str_val = final };
-                } else if (b_64 < 1024 * 1024 * 1024) {
-                    res = common.intToString(@intCast(b_64 / (1024 * 1024)), buf);
+                } else if (b < 1024 * 1024 * 1024) {
+                    res = common.intToString(@intCast(b / (1024 * 1024)), buf);
                     const final = buf[0 .. res.len + 3];
                     common.copy(buf[res.len..], " MB");
                     return .{ .vtype = .string, .str_val = final };
                 } else {
-                    res = common.intToString(@intCast(b_64 / (1024 * 1024 * 1024)), buf);
+                    res = common.intToString(@intCast(b / (1024 * 1024 * 1024)), buf);
                     const final = buf[0 .. res.len + 3];
                     common.copy(buf[res.len..], " GB");
                     return .{ .vtype = .string, .str_val = final };
                 }
             }
             return .{ .vtype = .string, .str_val = "0 B" };
-        } else if (common.streq(name, "split")) {
-            const str_v = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
-            const sep_v = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
-            const idx_v = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-
-            if (str_v.vtype == .string and sep_v.vtype == .string and idx_v.vtype == .int) {
-                const s = str_v.str_val;
-                const sep = sep_v.str_val;
-                const target_idx = idx_v.int_val;
-
+        }
+        if (common.streq(name, "format")) {
+            if (arg_count >= 2 and arg_slice[1].vtype == .string) {
+                const fmt = arg_slice[1].str_val;
+                if (common.streq(fmt, "int") or common.streq(fmt, "str") or common.streq(fmt, "string")) {
+                    if (arg_slice[0].vtype == .int) {
+                        var buf: [16]u8 = undefined;
+                        const s = common.intToString(arg_slice[0].int_val, &buf);
+                        const copy_ptr = user.user_malloc(s.len) orelse return .{ .vtype = .string, .str_val = "" };
+                        const copy = copy_ptr[0..s.len];
+                        @memcpy(copy, s);
+                        return .{ .vtype = .string, .str_val = copy };
+                    }
+                    return arg_slice[0];
+                }
+                if (common.streq(fmt, "size")) {
+                    if (arg_slice[0].vtype == .int) {
+                        const b = @as(u64, @intCast(arg_slice[0].int_val));
+                        const buf_ptr = user.user_malloc(32) orelse return .{ .vtype = .string, .str_val = "" };
+                        const buf = buf_ptr[0..32];
+                        if (b < 1024) {
+                            const r = common.intToString(@intCast(b), buf);
+                            const f = buf[0 .. r.len + 2];
+                            common.copy(buf[r.len..], " B");
+                            return .{ .vtype = .string, .str_val = f };
+                        } else if (b < 1024 * 1024) {
+                            const r = common.intToString(@intCast(b / 1024), buf);
+                            const f = buf[0 .. r.len + 3];
+                            common.copy(buf[r.len..], " KB");
+                            return .{ .vtype = .string, .str_val = f };
+                        } else if (b < 1024 * 1024 * 1024) {
+                            const r = common.intToString(@intCast(b / (1024 * 1024)), buf);
+                            const f = buf[0 .. r.len + 3];
+                            common.copy(buf[r.len..], " MB");
+                            return .{ .vtype = .string, .str_val = f };
+                        } else {
+                            const r = common.intToString(@intCast(b / (1024 * 1024 * 1024)), buf);
+                            const f = buf[0 .. r.len + 3];
+                            common.copy(buf[r.len..], " GB");
+                            return .{ .vtype = .string, .str_val = f };
+                        }
+                    }
+                }
+                if (common.streq(fmt, "hex")) {
+                    if (arg_slice[0].vtype == .int) {
+                        var buf: [16]u8 = undefined;
+                        const s = common.intToHex(@intCast(arg_slice[0].int_val), &buf);
+                        const copy_ptr = user.user_malloc(s.len) orelse return .{ .vtype = .string, .str_val = "" };
+                        const copy = copy_ptr[0..s.len];
+                        @memcpy(copy, s);
+                        return .{ .vtype = .string, .str_val = copy };
+                    }
+                }
+            }
+            return if (arg_count >= 1) arg_slice[0] else .{ .vtype = .int, .int_val = 0 };
+        }
+        if (common.streq(name, "split")) {
+            if (arg_count >= 3 and arg_slice[0].vtype == .string and arg_slice[1].vtype == .string and arg_slice[2].vtype == .int) {
+                const s = arg_slice[0].str_val;
+                const sep = arg_slice[1].str_val;
+                const target_idx = arg_slice[2].int_val;
                 var current_idx: i32 = 0;
                 var start: usize = 0;
                 var i: usize = 0;
                 while (i < s.len) {
                     if (common.startsWith(s[i..], sep)) {
-                        if (current_idx == target_idx) {
-                            return .{ .vtype = .string, .str_val = s[start..i] };
-                        }
+                        if (current_idx == target_idx) return .{ .vtype = .string, .str_val = s[start..i] };
                         current_idx += 1;
                         i += sep.len;
                         start = i;
@@ -821,523 +562,350 @@ pub const VM = struct {
                         i += 1;
                     }
                 }
-                if (current_idx == target_idx) {
-                    return .{ .vtype = .string, .str_val = s[start..] };
+                if (current_idx == target_idx) return .{ .vtype = .string, .str_val = s[start..] };
+            }
+            return .{ .vtype = .string, .str_val = "" };
+        }
+
+        // File operations
+        if (common.streq(name, "read")) {
+            if (arg_count >= 1 and arg_slice[0].vtype == .string) {
+                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+                if (fat.read_bpb(drive)) |bpb| {
+                    var buf_ptr = user.user_malloc(4096) orelse return .{ .vtype = .string, .str_val = "" };
+                    const len = fat.read_file(drive, bpb, global_common.current_dir_cluster, arg_slice[0].str_val, buf_ptr);
+                    if (len > 0) return .{ .vtype = .string, .str_val = buf_ptr[0..@intCast(len)] };
+                    user.user_free(buf_ptr);
                 }
             }
             return .{ .vtype = .string, .str_val = "" };
-        } else if (common.streq(name, "format")) {
-            const val = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
-            const fmt = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-
-            if (fmt.vtype == .string) {
-                if (common.streq(fmt.str_val, "int")) {
-                    if (val.vtype == .string) return .{ .vtype = .int, .int_val = common.parseInt(val.str_val) };
-                    return val;
-                } else if (common.streq(fmt.str_val, "str") or common.streq(fmt.str_val, "string")) {
-                    if (val.vtype == .int) {
-                        const buf_ptr = user.user_malloc(16) orelse return .{ .vtype = .string, .str_val = "0" };
-                        const s = common.intToString(val.int_val, buf_ptr[0..16]);
-                        return .{ .vtype = .string, .str_val = s };
-                    }
-                    return val;
-                } else if (common.streq(fmt.str_val, "size")) {
-                    // Reuse format_size logic
-                    if (val.vtype == .int) {
-                        const b_64 = @as(u64, @intCast(val.int_val));
-                        const buf_ptr = user.user_malloc(32) orelse return .{ .vtype = .string, .str_val = "" };
-                        const buf = buf_ptr[0..32];
-                        var res_s: []const u8 = "";
-                        if (b_64 < 1024) {
-                            res_s = common.intToString(@intCast(b_64), buf);
-                            const final = buf[0 .. res_s.len + 2];
-                            common.copy(buf[res_s.len..], " B");
-                            return .{ .vtype = .string, .str_val = final };
-                        } else if (b_64 < 1024 * 1024) {
-                            res_s = common.intToString(@intCast(b_64 / 1024), buf);
-                            const final = buf[0 .. res_s.len + 3];
-                            common.copy(buf[res_s.len..], " KB");
-                            return .{ .vtype = .string, .str_val = final };
-                        } else if (b_64 < 1024 * 1024 * 1024) {
-                            res_s = common.intToString(@intCast(b_64 / (1024 * 1024)), buf);
-                            const final = buf[0 .. res_s.len + 3];
-                            common.copy(buf[res_s.len..], " MB");
-                            return .{ .vtype = .string, .str_val = final };
-                        } else {
-                            res_s = common.intToString(@intCast(b_64 / (1024 * 1024 * 1024)), buf);
-                            const final = buf[0 .. res_s.len + 3];
-                            common.copy(buf[res_s.len..], " GB");
-                            return .{ .vtype = .string, .str_val = final };
-                        }
-                    }
-                } else if (common.streq(fmt.str_val, "hex")) {
-                    if (val.vtype == .int) {
-                        const buf_ptr = user.user_malloc(16) orelse return .{ .vtype = .string, .str_val = "0x0" };
-                        const s = common.intToHex(@intCast(val.int_val), buf_ptr[0..16]);
-                        return .{ .vtype = .string, .str_val = s };
+        }
+        if (common.streq(name, "write")) {
+            if (arg_count >= 2 and arg_slice[0].vtype == .string and arg_slice[1].vtype == .string) {
+                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+                if (fat.read_bpb(drive)) |bpb| {
+                    if (fat.write_file(drive, bpb, global_common.current_dir_cluster, arg_slice[0].str_val, arg_slice[1].str_val)) {
+                        return .{ .vtype = .string, .str_val = "Data written" };
                     }
                 }
             }
-            return val;
-        } else if (common.streq(name, "convert")) {
-            const val_v = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
-            const from_v = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
-            const to_v = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-
-            if (val_v.vtype == .int and from_v.vtype == .string and to_v.vtype == .string) {
-                var v = @as(u64, @intCast(val_v.int_val));
-                const from = from_v.str_val;
-                const to = to_v.str_val;
-
-                // Normalize to bytes
-                if (common.streq_ignore_case(from, "kb")) {
-                    v *= 1024;
-                } else if (common.streq_ignore_case(from, "mb")) {
-                    v *= 1024 * 1024;
-                } else if (common.streq_ignore_case(from, "gb")) {
-                    v *= 1024 * 1024 * 1024;
-                }
-
-                // Convert to target
-                if (common.streq_ignore_case(to, "kb")) {
-                    v /= 1024;
-                } else if (common.streq_ignore_case(to, "mb")) {
-                    v /= 1024 * 1024;
-                } else if (common.streq_ignore_case(to, "gb")) {
-                    v /= 1024 * 1024 * 1024;
-                }
-
-                return .{ .vtype = .int, .int_val = @intCast(v) };
-            }
-            return val_v;
-        } else if (common.streq(name, "sys.exit") or common.streq(name, "exit")) {
-            self.exit_flag = true;
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            return .{ .vtype = .string, .str_val = "Goodbye!" };
-        } else if (common.streq(name, "sys.reboot")) {
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            common.printZ("sys.reboot: Not supported in Ring 3\n");
-            return .{ .vtype = .string, .str_val = "" };
-        } else if (common.streq(name, "sys.shutdown")) {
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) self.ip += 1;
-            common.printZ("sys.shutdown: Not supported in Ring 3\n");
-            return .{ .vtype = .string, .str_val = "" };
-        } else if (self.functions.get(name)) |func| {
-            // 1. Evaluate arguments before changing scope
-            var args_buf: [8]hash_table.VariableValue = undefined;
-            var args_count: usize = 0;
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .L_PAREN) {
-                self.ip += 1; // skip (
-                while (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .R_PAREN) {
-                    if (args_count < 8) {
-                        args_buf[args_count] = self.evaluateExpression();
-                        args_count += 1;
-                    } else {
-                        _ = self.evaluateExpression(); // skip
+            return .{ .vtype = .string, .str_val = "Error: Write failed" };
+        }
+        if (common.streq(name, "delete") or common.streq(name, "remove") or common.streq(name, "rm")) {
+            if (arg_count >= 1 and arg_slice[0].vtype == .string) {
+                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+                if (fat.read_bpb(drive)) |bpb| {
+                    if (fat.delete_file(drive, bpb, global_common.current_dir_cluster, arg_slice[0].str_val)) {
+                        return .{ .vtype = .string, .str_val = "Removed" };
                     }
-                    if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
                 }
-                if (self.ip < self.tokens.len) self.ip += 1; // skip )
             }
-            const old_ip = self.ip;
-            const prev_scope = self.current_scope;
-
-            // 2. Create new scope
-            const scope_ptr = user.user_malloc(@sizeOf(Scope)) orelse return .{ .vtype = .int, .int_val = 0 };
-            const scope: *Scope = @ptrCast(@alignCast(scope_ptr));
-            scope.* = .{
-                .table = hash_table.HashTable.init(8),
-                .parent = prev_scope,
-            };
-            self.current_scope = scope;
-
-            // 3. Bind parameters
-            self.ip = func.func_ptr;
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .L_PAREN) {
-                self.ip += 1;
-                var param_idx: usize = 0;
-                while (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .R_PAREN) {
-                    if (self.tokens.tokens[self.ip].ttype == .IDENTIFIER) {
-                        const param_name = self.tokens.tokens[self.ip].value;
-                        if (param_idx < args_count) {
-                            scope.table.put(param_name, args_buf[param_idx]);
-                        }
-                        param_idx += 1;
+            return .{ .vtype = .string, .str_val = "Error: Could not remove" };
+        }
+        if (common.streq(name, "rename") or common.streq(name, "mv")) {
+            if (arg_count >= 2 and arg_slice[0].vtype == .string and arg_slice[1].vtype == .string) {
+                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+                if (fat.read_bpb(drive)) |bpb| {
+                    if (fat.rename_file(drive, bpb, global_common.current_dir_cluster, arg_slice[0].str_val, arg_slice[1].str_val)) {
+                        return .{ .vtype = .string, .str_val = "Renamed" };
                     }
-                    self.ip += 1;
-                    if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .COMMA) self.ip += 1;
                 }
-                if (self.ip < self.tokens.len) self.ip += 1;
             }
-
-            // 4. Run function body
-            while (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .L_BRACE) : (self.ip += 1) {}
-            self.runBlock();
-
-            // 5. Capture return value and restore
-            const result = self.return_value;
-            self.return_flag = false;
-            self.return_value = .{ .vtype = .int, .int_val = 0 };
-
-            self.current_scope = prev_scope;
-            scope.table.deinit();
-            user.user_free(@ptrCast(scope));
-            self.ip = old_ip;
-
-            return result;
-        } else {
-            var err_buf: [64]u8 = undefined;
-            const start_s = "Undefined function: ";
-            common.copy(err_buf[0..start_s.len], start_s);
-            const name_len = if (name.len > 40) 40 else name.len;
-            common.copy(err_buf[start_s.len..], name[0..name_len]);
-            const final_err = err_buf[0 .. start_s.len + name_len];
-            self.reportError(final_err);
-
-            // Skip call
-            while (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype != .R_PAREN) : (self.ip += 1) {}
-            if (self.ip < self.tokens.len) self.ip += 1;
+            return .{ .vtype = .string, .str_val = "Error: Could not rename" };
+        }
+        if (common.streq(name, "copy") or common.streq(name, "cp")) {
+            if (arg_count >= 2 and arg_slice[0].vtype == .string and arg_slice[1].vtype == .string) {
+                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+                if (fat.read_bpb(drive)) |bpb| {
+                    if (fat.copy_file(drive, bpb, global_common.current_dir_cluster, arg_slice[0].str_val, arg_slice[1].str_val)) {
+                        return .{ .vtype = .string, .str_val = "Copied" };
+                    }
+                }
+            }
+            return .{ .vtype = .string, .str_val = "Error: Could not copy" };
+        }
+        if (common.streq(name, "exists")) {
+            if (arg_count >= 1 and arg_slice[0].vtype == .string) {
+                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+                if (fat.read_bpb(drive)) |bpb| {
+                    if (fat.resolve_full_path(drive, bpb, global_common.current_dir_cluster, global_common.current_path[0..global_common.current_path_len], arg_slice[0].str_val)) |_| {
+                        return .{ .vtype = .int, .int_val = 1 };
+                    }
+                }
+            }
             return .{ .vtype = .int, .int_val = 0 };
         }
+        if (common.streq(name, "mkdir")) {
+            if (arg_count >= 1 and arg_slice[0].vtype == .string) {
+                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+                if (fat.read_bpb(drive)) |bpb| {
+                    if (fat.create_directory(drive, bpb, global_common.current_dir_cluster, arg_slice[0].str_val)) {
+                        return .{ .vtype = .string, .str_val = "Directory created" };
+                    }
+                }
+            }
+            return .{ .vtype = .string, .str_val = "Error: Could not create directory" };
+        }
+        if (common.streq(name, "size")) {
+            if (arg_count >= 1 and arg_slice[0].vtype == .string) {
+                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+                if (fat.read_bpb(drive)) |bpb| {
+                    if (fat.find_entry(drive, bpb, global_common.current_dir_cluster, arg_slice[0].str_val)) |entry| {
+                        return .{ .vtype = .int, .int_val = @intCast(entry.file_size) };
+                    }
+                }
+            }
+            return .{ .vtype = .int, .int_val = -1 };
+        }
+        if (common.streq(name, "create_file")) {
+            if (arg_count >= 1 and arg_slice[0].vtype == .string) {
+                const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+                if (fat.read_bpb(drive)) |bpb| {
+                    if (fat.write_file(drive, bpb, global_common.current_dir_cluster, arg_slice[0].str_val, "")) {
+                        return .{ .vtype = .string, .str_val = "File created" };
+                    }
+                }
+            }
+            return .{ .vtype = .string, .str_val = "Error: Could not create file" };
+        }
+
+        // Module functions
+        if (common.startsWith(name, "math.")) {
+            if (!self.is_math_loaded) {
+                self.reportError("Module 'math' not imported");
+                return .{ .vtype = .int, .int_val = 0 };
+            }
+            if (math_mod.handleMath(self, name, arg_slice)) |res| return res;
+            self.reportError("Unknown math function");
+            return .{ .vtype = .int, .int_val = 0 };
+        }
+        if (common.startsWith(name, "sys.")) {
+            if (!self.is_sys_loaded) {
+                self.reportError("Module 'sys' not imported");
+                return .{ .vtype = .int, .int_val = 0 };
+            }
+            if (sys_mod.handleSys(self, name, arg_slice)) |res| return res;
+            self.reportError("Unknown sys function");
+            return .{ .vtype = .int, .int_val = 0 };
+        }
+        if (common.startsWith(name, "speaker.")) {
+            if (!self.is_speaker_loaded) {
+                self.reportError("Module 'speaker' not imported");
+                return .{ .vtype = .int, .int_val = 0 };
+            }
+            if (speaker_mod.handleSpeaker(self, name, arg_slice)) |res| return res;
+            self.reportError("Unknown speaker function");
+            return .{ .vtype = .int, .int_val = 0 };
+        }
+
+        // User-defined function
+        if (self.functions.get(name)) |func| {
+            if (func.vtype == .function) {
+                const func_node: *Node = @ptrFromInt(func.func_ptr);
+                return self.execUserFunc(func_node, arg_slice);
+            }
+        }
+
+        self.reportError("Undefined function: ");
+        common.printZ(name);
+        common.printZ("\n");
+        return .{ .vtype = .int, .int_val = 0 };
     }
 
-    fn handleImport(self: *VM) void {
-        self.ip += 1; // skip import
-        if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .STRING) {
-            var raw_path = self.tokens.tokens[self.ip].value;
-            if (raw_path.len >= 2) raw_path = raw_path[1 .. raw_path.len - 1];
+    fn execUserFunc(self: *VM, func_node: *Node, args: []const VariableValue) VariableValue {
+        const prev_scope = self.scope;
+        const prev_return = self.return_value;
+        const prev_return_flag = self.return_flag;
 
-            // Built-in modules
-            if (common.streq(raw_path, "math")) {
-                self.is_math_loaded = true;
-                self.ip += 1;
-                return;
+        self.pushScope();
+
+        // Bind parameters
+        const param_count = func_node.stmt_count;
+        var i: usize = 0;
+        while (i < param_count and i < args.len) : (i += 1) {
+            if (func_node.stmts) |params| {
+                self.scope.table.put(params[i].str_val, args[i]);
             }
-            if (common.streq(raw_path, "sys")) {
-                self.is_sys_loaded = true;
-                self.ip += 1;
-                return;
+        }
+
+        // Execute body
+        if (func_node.right) |body| {
+            self.return_flag = false;
+            self.return_value = .{ .vtype = .int, .int_val = 0 };
+            self.exec(body);
+        }
+
+        const result = self.return_value;
+        self.popScope();
+        self.scope = prev_scope;
+        self.return_value = prev_return;
+        self.return_flag = prev_return_flag;
+
+        return result;
+    }
+
+    fn execImport(self: *VM, node: *Node) void {
+        const path = node.str_val;
+
+        // Built-in modules
+        if (common.streq(path, "math")) {
+            self.is_math_loaded = true;
+            return;
+        }
+        if (common.streq(path, "sys")) {
+            self.is_sys_loaded = true;
+            return;
+        }
+        if (common.streq(path, "speaker")) {
+            self.is_speaker_loaded = true;
+            return;
+        }
+
+        // File imports
+        var path_buf: [128]u8 = undefined;
+        const resolved = module.ModuleCache.resolvePath(self.current_file, path, &path_buf);
+
+        if (self.cache.isLoaded(resolved)) return;
+
+        const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+        if (fat.read_bpb(drive)) |bpb| {
+            var found = false;
+            var current_dir_cluster_val = global_common.current_dir_cluster;
+
+            if (fat.find_entry(drive, bpb, current_dir_cluster_val, resolved)) |_| {
+                found = true;
+            } else {
+                if (fat.resolve_full_path(drive, bpb, 0, "/", ".SYSTEM/NOVA/MOD")) |sys_mod_res| {
+                    if (sys_mod_res.is_dir) {
+                        if (fat.find_entry(drive, bpb, sys_mod_res.cluster, resolved)) |_| {
+                            found = true;
+                            current_dir_cluster_val = sys_mod_res.cluster;
+                        }
+                    }
+                }
             }
-            if (common.streq(raw_path, "speaker")) {
-                self.is_speaker_loaded = true;
-                self.ip += 1;
-                return;
-            }
 
-            var path_buf: [128]u8 = undefined;
-            const resolved_local = module.ModuleCache.resolvePath(self.current_file, raw_path, &path_buf);
+            if (found) {
+                var script_buffer: [4096]u8 = [_]u8{0} ** 4096;
+                const bytes_read = fat.read_file(drive, bpb, current_dir_cluster_val, resolved, &script_buffer);
+                if (bytes_read > 0) {
+                    const source = script_buffer[0..@intCast(bytes_read)];
+                    const old_file = self.current_file;
 
-            if (self.cache.isLoaded(resolved_local)) {
-                self.ip += 1;
-                return;
-            }
+                    // Tokenize and parse imported source
+                    const tokens = lexer.tokenize(source);
+                    var temp_arena = arena_mod.Arena.init();
+                    var parser = parser_mod.Parser.init(tokens, &temp_arena);
+                    const import_prog = parser.parseProgram();
+                    const import_ok = !parser.had_error;
 
-            const resolved_ptr = user.user_malloc(resolved_local.len) orelse {
-                self.reportError("Out of memory for path");
-                return;
-            };
-            const resolved = resolved_ptr[0..resolved_local.len];
-            common.copy(resolved, resolved_local);
+                    if (import_ok) {
+                        if (import_prog) |prog| {
+                            var checker = checker_mod.Checker.init();
+                            checker.check(prog);
+                            const check_ok = !checker.had_error;
 
-            // Load and tokenize
-            const drive = if (global_common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-            if (fat.read_bpb(drive)) |bpb| {
-                // Try local dir, then system modules dir
-                var found = false;
-                var current_dir_cluster_val = global_common.current_dir_cluster;
-
-                if (fat.find_entry(drive, bpb, current_dir_cluster_val, resolved)) |_| {
-                    found = true;
-                } else {
-                    // Try /.SYSTEM/NOVA/MOD/
-                    if (fat.resolve_full_path(drive, bpb, 0, "/", ".SYSTEM/NOVA/MOD")) |sys_mod_res| {
-                        if (sys_mod_res.is_dir) {
-                            if (fat.find_entry(drive, bpb, sys_mod_res.cluster, resolved)) |_| {
-                                found = true;
-                                current_dir_cluster_val = sys_mod_res.cluster;
+                            if (check_ok) {
+                                self.current_file = resolved;
+                                self.cache.markLoaded(resolved);
+                                self.exec(prog);
+                                self.current_file = old_file;
                             }
                         }
                     }
-                }
 
-                if (found) {
-                    var script_buffer: [4096]u8 = [_]u8{0} ** 4096;
-                    const bytes_read = fat.read_file(drive, bpb, current_dir_cluster_val, resolved, &script_buffer);
-                    if (bytes_read > 0) {
-                        const source = script_buffer[0..@intCast(bytes_read)];
-
-                        // Save current state
-                        const old_tokens = self.tokens;
-                        const old_ip = self.ip;
-                        const old_file = self.current_file;
-
-                        // Lex and Run sub-tokens
-                        const new_tokens = lexer.tokenize(source);
-                        self.tokens = new_tokens;
-                        self.ip = 0;
-                        self.current_file = resolved;
-                        self.cache.markLoaded(resolved);
-
-                        self.run();
-
-                        // Restore state
-                        self.tokens = old_tokens;
-                        self.ip = old_ip;
-                        self.current_file = old_file;
-                    } else {
-                        self.reportError("Could not read import file");
-                    }
-                } else {
-                    self.reportError("Import file not found");
+                    temp_arena.reset();
                 }
             }
-            self.ip += 1;
-        } else {
-            self.reportError("Expected string path for import");
         }
     }
 
-    pub fn evaluateExpression(self: *VM) hash_table.VariableValue {
-        return self.parseComparison();
-    }
-
-    pub fn parseComparison(self: *VM) hash_table.VariableValue {
-        var left = self.parseBitwise();
-
-        while (self.ip < self.tokens.len) {
-            const op = self.tokens.tokens[self.ip];
-            if (op.ttype == .PLUS or op.ttype == .MINUS) {
-                self.ip += 1;
-                const right = self.parseTerm();
-                if (left.vtype == .int and right.vtype == .int) {
-                    if (op.ttype == .PLUS) left.int_val += right.int_val else left.int_val -= right.int_val;
-                } else if ((left.vtype == .float or left.vtype == .int) and (right.vtype == .float or right.vtype == .int)) {
-                    var lf: f32 = if (left.vtype == .float) left.float_val else @floatFromInt(left.int_val);
-                    const rf: f32 = if (right.vtype == .float) right.float_val else @floatFromInt(right.int_val);
-                    if (op.ttype == .PLUS) lf += rf else lf -= rf;
-                    left = .{ .vtype = .float, .float_val = lf };
-                } else if (left.vtype == .string and right.vtype == .string and op.ttype == .PLUS) {
-                    const total_len = left.str_val.len + right.str_val.len;
-                    const buf_ptr = user.user_malloc(total_len) orelse {
-                        self.reportError("Out of memory for string concat");
-                        return left;
-                    };
-                    const buf = buf_ptr[0..total_len];
-                    common.copy(buf[0..left.str_val.len], left.str_val);
-                    common.copy(buf[left.str_val.len..], right.str_val);
-                    left = .{ .vtype = .string, .str_val = buf };
-                } else if (left.vtype == .string and right.vtype == .int and op.ttype == .PLUS) {
-                    var num_buf: [16]u8 = undefined;
-                    const s_num = common.intToString(right.int_val, &num_buf);
-                    const total_len = left.str_val.len + s_num.len;
-                    const buf_ptr = user.user_malloc(total_len) orelse {
-                        self.reportError("Out of memory for string concat");
-                        return left;
-                    };
-                    const buf = buf_ptr[0..total_len];
-                    common.copy(buf[0..left.str_val.len], left.str_val);
-                    common.copy(buf[left.str_val.len..], s_num);
-                    left = .{ .vtype = .string, .str_val = buf };
-                } else if (left.vtype == .int and right.vtype == .string and op.ttype == .PLUS) {
-                    var num_buf: [16]u8 = undefined;
-                    const s_num = common.intToString(left.int_val, &num_buf);
-                    const total_len = s_num.len + right.str_val.len;
-                    const buf_ptr = user.user_malloc(total_len) orelse {
-                        self.reportError("Out of memory for string concat");
-                        return left;
-                    };
-                    const buf = buf_ptr[0..total_len];
-                    common.copy(buf[0..s_num.len], s_num);
-                    common.copy(buf[s_num.len..], right.str_val);
-                    left = .{ .vtype = .string, .str_val = buf };
-                } else if (left.vtype == .string and right.vtype == .float and op.ttype == .PLUS) {
-                    var num_buf: [32]u8 = undefined;
-                    const s_num = common.floatToString(right.float_val, &num_buf);
-                    const total_len = left.str_val.len + s_num.len;
-                    const buf_ptr = user.user_malloc(total_len) orelse {
-                        self.reportError("Out of memory for string concat");
-                        return left;
-                    };
-                    const buf = buf_ptr[0..total_len];
-                    common.copy(buf[0..left.str_val.len], left.str_val);
-                    common.copy(buf[left.str_val.len..], s_num);
-                    left = .{ .vtype = .string, .str_val = buf };
-                } else if (left.vtype == .float and right.vtype == .string and op.ttype == .PLUS) {
-                    var num_buf: [32]u8 = undefined;
-                    const s_num = common.floatToString(left.float_val, &num_buf);
-                    const total_len = s_num.len + right.str_val.len;
-                    const buf_ptr = user.user_malloc(total_len) orelse {
-                        self.reportError("Out of memory for string concat");
-                        return left;
-                    };
-                    const buf = buf_ptr[0..total_len];
-                    common.copy(buf[0..s_num.len], s_num);
-                    common.copy(buf[s_num.len..], right.str_val);
-                    left = .{ .vtype = .string, .str_val = buf };
-                }
-            } else if (op.ttype == .EQUALS_EQUALS or op.ttype == .BANG_EQUALS or op.ttype == .LESS or op.ttype == .GREATER) {
-                self.ip += 1;
-                const right = self.parseBitwise();
-                var res = false;
-                if (left.vtype == .int and right.vtype == .int) {
-                    res = switch (op.ttype) {
-                        .EQUALS_EQUALS => left.int_val == right.int_val,
-                        .BANG_EQUALS => left.int_val != right.int_val,
-                        .LESS => left.int_val < right.int_val,
-                        .GREATER => left.int_val > right.int_val,
-                        else => false,
-                    };
-                } else if ((left.vtype == .float or left.vtype == .int) and (right.vtype == .float or right.vtype == .int)) {
-                    const lf: f32 = if (left.vtype == .float) left.float_val else @floatFromInt(left.int_val);
-                    const rf: f32 = if (right.vtype == .float) right.float_val else @floatFromInt(right.int_val);
-                    res = switch (op.ttype) {
-                        .EQUALS_EQUALS => lf == rf,
-                        .BANG_EQUALS => lf != rf,
-                        .LESS => lf < rf,
-                        .GREATER => lf > rf,
-                        else => false,
-                    };
-                } else if (left.vtype == .string and right.vtype == .string) {
-                    res = switch (op.ttype) {
-                        .EQUALS_EQUALS => common.streq(left.str_val, right.str_val),
-                        .BANG_EQUALS => !common.streq(left.str_val, right.str_val),
-                        else => false,
-                    };
-                }
-                left = .{ .vtype = .int, .int_val = if (res) 1 else 0 };
-            } else {
-                break;
-            }
-        }
-        return left;
-    }
-
-    pub fn parseBitwise(self: *VM) hash_table.VariableValue {
-        var left = self.parseTerm();
-
-        while (self.ip < self.tokens.len) {
-            const op = self.tokens.tokens[self.ip];
-            if (op.ttype == .AMPERSAND or op.ttype == .PIPE or op.ttype == .CARET or
-                op.ttype == .LESS_LESS or op.ttype == .GREATER_GREATER)
-            {
-                self.ip += 1;
-                const right = self.parseTerm();
-                if (left.vtype == .int and right.vtype == .int) {
-                    left.int_val = switch (op.ttype) {
-                        .AMPERSAND => left.int_val & right.int_val,
-                        .PIPE => left.int_val | right.int_val,
-                        .CARET => left.int_val ^ right.int_val,
-                        .LESS_LESS => left.int_val << @intCast(@as(u5, @truncate(@as(u32, @bitCast(right.int_val))))),
-                        .GREATER_GREATER => left.int_val >> @intCast(@as(u5, @truncate(@as(u32, @bitCast(right.int_val))))),
-                        else => left.int_val,
-                    };
-                }
-            } else {
-                break;
-            }
-        }
-        return left;
-    }
-
-    pub fn parseTerm(self: *VM) hash_table.VariableValue {
-        var left = self.parseFactor();
-
-        while (self.ip < self.tokens.len) {
-            const op = self.tokens.tokens[self.ip];
-            if (op.ttype == .STAR or op.ttype == .SLASH or op.ttype == .PERCENT) {
-                self.ip += 1;
-                const right = self.parseFactor();
-                if (left.vtype == .int and right.vtype == .int) {
-                    if (op.ttype == .STAR) {
-                        left.int_val *= right.int_val;
-                    } else if (op.ttype == .PERCENT) {
-                        if (right.int_val != 0) left.int_val = @rem(left.int_val, right.int_val) else left.int_val = 0;
-                    } else {
-                        if (right.int_val != 0) left.int_val = @divTrunc(left.int_val, right.int_val) else left.int_val = 0;
-                    }
-                } else if ((left.vtype == .float or left.vtype == .int) and (right.vtype == .float or right.vtype == .int)) {
-                    var lf: f32 = if (left.vtype == .float) left.float_val else @floatFromInt(left.int_val);
-                    const rf: f32 = if (right.vtype == .float) right.float_val else @floatFromInt(right.int_val);
-                    if (op.ttype == .STAR) {
-                        lf *= rf;
-                    } else {
-                        if (rf != 0) lf /= rf else lf = 0;
-                    }
-                    left = .{ .vtype = .float, .float_val = lf };
-                }
-            } else {
-                break;
-            }
-        }
-        return left;
-    }
-
-    pub fn parseFactor(self: *VM) hash_table.VariableValue {
-        if (self.ip >= self.tokens.len) return .{ .vtype = .int, .int_val = 0 };
-        const t = self.tokens.tokens[self.ip];
-        self.ip += 1;
-
-        if (t.ttype == .NUMBER) {
-            if (common.indexOf(t.value, '.') != null) {
-                return .{ .vtype = .float, .float_val = common.parseFloat(t.value) };
-            }
-            return .{ .vtype = .int, .int_val = common.parseInt(t.value) };
-        } else if (t.ttype == .STRING) {
-            var val = t.value;
-            if (val.len >= 2) val = val[1 .. val.len - 1];
-            return .{ .vtype = .string, .str_val = val };
-        } else if (t.ttype == .IDENTIFIER) {
-            var name = t.value;
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .DOT) {
-                self.ip += 1; // skip .
-                if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .IDENTIFIER) {
-                    const member = self.tokens.tokens[self.ip].value;
-                    self.ip += 1;
-
-                    const combined_len = name.len + 1 + member.len;
-                    const buf_ptr = user.user_malloc(combined_len) orelse return .{ .vtype = .int, .int_val = 0 };
-                    const buf = buf_ptr[0..combined_len];
-                    common.copy(buf[0..name.len], name);
-                    buf[name.len] = '.';
-                    common.copy(buf[name.len + 1 ..], member);
-                    name = buf;
-                }
-            }
-
-            // Check for call
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .L_PAREN) {
-                return self.handleCall(name);
-            }
-
-            // Lookup variable
-            var s: ?*Scope = self.current_scope;
-            while (s) |scope| {
-                if (scope.table.get(name)) |v| return v;
-                s = scope.parent;
-            }
-            if (self.globals.get(name)) |v| return v;
-            return .{ .vtype = .int, .int_val = 0 };
-        } else if (t.ttype == .L_PAREN) {
-            const res = self.evaluateExpression();
-            if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
-                self.ip += 1;
-            }
-            return res;
-        } else if (t.ttype == .MINUS) {
-            const val = self.parseFactor();
-            if (val.vtype == .int) return .{ .vtype = .int, .int_val = -val.int_val };
-            return val;
-        } else if (t.ttype == .TILDE) {
-            const val = self.parseFactor();
-            if (val.vtype == .int) return .{ .vtype = .int, .int_val = ~val.int_val };
-            return val;
-        }
-        self.reportError("Unexpected token in expression");
+    pub fn evaluateExpression(_: *VM) VariableValue {
+        // Module compatibility stub — should not be called in new code
         return .{ .vtype = .int, .int_val = 0 };
+    }
+
+    fn pushScope(self: *VM) void {
+        const ptr = user.user_malloc(@sizeOf(Scope)) orelse return;
+        const scope: *Scope = @ptrCast(@alignCast(ptr));
+        scope.* = .{
+            .table = hash_table.HashTable.init(8),
+            .parent = self.scope,
+        };
+        self.scope = scope;
+    }
+
+    fn popScope(self: *VM) void {
+        if (self.scope.parent) |parent| {
+            self.scope.table.deinit();
+            user.user_free(@ptrCast(self.scope));
+            self.scope = parent;
+        }
+    }
+
+    fn lookupVar(self: *VM, name: []const u8) VariableValue {
+        var s: ?*Scope = self.scope;
+        while (s) |scope| {
+            if (scope.table.get(name)) |v| return v;
+            s = scope.parent;
+        }
+        if (self.globals.get(name)) |v| return v;
+        return .{ .vtype = .int, .int_val = 0 };
+    }
+
+    fn updateVar(self: *VM, name: []const u8, val: VariableValue) void {
+        var s: ?*Scope = self.scope;
+        while (s) |scope| {
+            if (scope.table.get(name)) |_| {
+                scope.table.put(name, val);
+                return;
+            }
+            s = scope.parent;
+        }
+        if (self.globals.get(name)) |_| {
+            self.globals.put(name, val);
+            return;
+        }
+        self.scope.table.put(name, val);
+    }
+
+    fn defaultValue(self: *VM, t: ?VariableType) VariableValue {
+        _ = self;
+        return switch (t orelse .int) {
+            .int => .{ .vtype = .int, .int_val = 0 },
+            .float => .{ .vtype = .float, .float_val = 0.0 },
+            .string => .{ .vtype = .string, .str_val = "" },
+            .function => .{ .vtype = .int, .int_val = 0 },
+        };
+    }
+
+    fn printValue(self: *VM, val: VariableValue) void {
+        _ = self;
+        switch (val.vtype) {
+            .string => {
+                if (val.str_val.len > 0) common.printBuf(val.str_val);
+            },
+            .float => {
+                var buf: [32]u8 = undefined;
+                const s = common.floatToString(val.float_val, &buf);
+                common.printBuf(s);
+            },
+            .int => {
+                var buf: [16]u8 = undefined;
+                const s = common.intToString(val.int_val, &buf);
+                common.printBuf(s);
+            },
+            .function => {
+                common.printZ("<function>");
+            },
+        }
+    }
+
+    fn reportError(self: *VM, msg: []const u8) void {
+        common.printZ("Runtime Error: ");
+        common.printZ(msg);
+        common.printZ("\n");
+        self.exit_flag = true;
+        self.has_error = true;
     }
 };

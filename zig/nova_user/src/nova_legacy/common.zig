@@ -219,6 +219,8 @@ pub fn parseFloat(str: []const u8) f32 {
 }
 
 pub fn floatToString(val: f32, buf: []u8) []const u8 {
+    if (val == 0.0) return "0";
+
     var v = val;
     var is_neg = false;
     if (v < 0) {
@@ -226,35 +228,145 @@ pub fn floatToString(val: f32, buf: []u8) []const u8 {
         v = -v;
     }
 
-    const int_part = @as(i32, @intFromFloat(v));
-    const frac_part = @as(i32, @intFromFloat((v - @as(f32, @floatFromInt(int_part))) * 100000.0 + 0.5));
+    var exp: i32 = 0;
+    var tmp = v;
+    if (tmp >= 1.0) {
+        while (tmp >= 10.0) {
+            tmp /= 10.0;
+            exp += 1;
+        }
+    } else {
+        while (tmp < 1.0) {
+            tmp *= 10.0;
+            exp -= 1;
+        }
+    }
 
-    var total_i: usize = 0;
+    var digits = @as(u64, @intFromFloat(tmp * 100000.0 + 0.5));
+    if (digits >= 1000000) {
+        digits /= 10;
+        exp += 1;
+    }
+
+    var pos: usize = 0;
     if (is_neg) {
-        buf[0] = '-';
-        total_i = 1;
+        buf[pos] = '-';
+        pos += 1;
     }
 
-    const s_int = intToString(int_part, buf[total_i..]);
-    total_i += s_int.len;
+    if (exp >= -4 and exp <= 5) {
+        if (exp >= 0) {
+            var divisor: u64 = 1;
+            {
+                var i: i32 = 0;
+                while (i < 5 - exp) : (i += 1) {
+                    divisor *= 10;
+                }
+            }
 
-    if (total_i + 6 < buf.len) {
-        buf[total_i] = '.';
-        total_i += 1;
+            const int_part = @as(i32, @intCast(digits / divisor));
+            const frac_part = digits % divisor;
+
+            const int_str = intToString(int_part, buf[pos..]);
+            pos += int_str.len;
+
+            if (frac_part != 0) {
+                buf[pos] = '.';
+                pos += 1;
+
+                const frac_digits: usize = @as(usize, @intCast(5 - exp));
+                var frac_str: [10]u8 = undefined;
+                var fpos = frac_digits;
+                var fp = frac_part;
+                while (fpos > 0) : (fpos -= 1) {
+                    frac_str[fpos - 1] = @as(u8, @intCast(fp % 10)) + '0';
+                    fp /= 10;
+                }
+
+                var end = frac_digits;
+                while (end > 0 and frac_str[end - 1] == '0') : (end -= 1) {}
+
+                var i: usize = 0;
+                while (i < end) : (i += 1) {
+                    buf[pos + i] = frac_str[i];
+                }
+                pos += end;
+            }
+        } else {
+            buf[pos] = '0';
+            pos += 1;
+            buf[pos] = '.';
+            pos += 1;
+
+            const leading_zeros: usize = @as(usize, @intCast(-exp - 1));
+            {
+                var i: usize = 0;
+                while (i < leading_zeros) : (i += 1) {
+                    buf[pos] = '0';
+                    pos += 1;
+                }
+            }
+
+            var digit_str: [10]u8 = undefined;
+            var dpos: usize = 6;
+            var d = digits;
+            while (dpos > 0) : (dpos -= 1) {
+                digit_str[dpos - 1] = @as(u8, @intCast(d % 10)) + '0';
+                d /= 10;
+            }
+
+            var end: usize = 6;
+            while (end > 0 and digit_str[end - 1] == '0') : (end -= 1) {}
+
+            var i: usize = 0;
+            while (i < end) : (i += 1) {
+                buf[pos + i] = digit_str[i];
+            }
+            pos += end;
+        }
+    } else {
+        buf[pos] = @as(u8, @intCast(digits / 100000)) + '0';
+        pos += 1;
+
+        const frac = digits % 100000;
+        if (frac != 0) {
+            buf[pos] = '.';
+            pos += 1;
+
+            var frac_str: [10]u8 = undefined;
+            var fpos: usize = 5;
+            var fp = frac;
+            while (fpos > 0) : (fpos -= 1) {
+                frac_str[fpos - 1] = @as(u8, @intCast(fp % 10)) + '0';
+                fp /= 10;
+            }
+
+            var end: usize = 5;
+            while (end > 0 and frac_str[end - 1] == '0') : (end -= 1) {}
+
+            var i: usize = 0;
+            while (i < end) : (i += 1) {
+                buf[pos + i] = frac_str[i];
+            }
+            pos += end;
+        }
+
+        buf[pos] = 'e';
+        pos += 1;
+
+        if (exp >= 0) {
+            buf[pos] = '+';
+        } else {
+            buf[pos] = '-';
+            exp = -exp;
+        }
+        pos += 1;
+
+        const exp_str = intToString(exp, buf[pos..]);
+        pos += exp_str.len;
     }
 
-    var f = frac_part;
-    if (f < 0) f = -f;
-
-    // 5 decimal places
-    buf[total_i] = @as(u8, @intCast(@mod(@divTrunc(f, 10000), 10))) + '0';
-    buf[total_i + 1] = @as(u8, @intCast(@mod(@divTrunc(f, 1000), 10))) + '0';
-    buf[total_i + 2] = @as(u8, @intCast(@mod(@divTrunc(f, 100), 10))) + '0';
-    buf[total_i + 3] = @as(u8, @intCast(@mod(@divTrunc(f, 10), 10))) + '0';
-    buf[total_i + 4] = @as(u8, @intCast(@mod(f, 10))) + '0';
-    total_i += 5;
-
-    return buf[0..total_i];
+    return buf[0..pos];
 }
 pub const get_char = common.get_char;
 pub const set_cursor = common.set_cursor;

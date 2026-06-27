@@ -2,8 +2,6 @@
 // This module handles input buffering and execution of Nova commands.
 
 const common = @import("common.zig");
-const parser = @import("parser.zig");
-const commands = @import("commands.zig");
 const keyboard = @import("../keyboard_isr.zig");
 const versioning = @import("../versioning.zig");
 const vga = @import("../drivers/vga.zig");
@@ -11,11 +9,12 @@ const serial = @import("../drivers/serial.zig");
 const global_common = @import("../commands/common.zig");
 const fat = @import("../drivers/fat.zig");
 const ata = @import("../drivers/ata.zig");
-const shell = @import("../shell.zig");
 const speaker = @import("../drivers/speaker.zig");
 const lexer = @import("lexer.zig");
 const vm_mod = @import("vm.zig");
-const hash_table = @import("hash_table.zig");
+const parser_mod = @import("parser.zig");
+const checker_mod = @import("checker.zig");
+const arena_mod = @import("arena.zig");
 
 const BUFFER_SIZE: usize = 512;
 const REPL_BUFFER_SIZE: usize = 4096;
@@ -152,35 +151,45 @@ pub fn runScript(path: []const u8) void {
 }
 
 pub fn runScriptSource(script: []const u8, path: ?[]const u8, repl: bool) void {
-    // Reset state before run
     exit_flag = false;
 
-    // Prepare arguments
-    var arg_slices: [8][]const u8 = undefined;
-    for (0..commands.script_argc) |i| {
-        arg_slices[i] = commands.script_args[i][0..commands.script_args_len[i]];
-    }
-    const final_args = arg_slices[0..commands.script_argc];
-
     const tokens = lexer.tokenize(script);
-    if (global_vm == null) {
-        global_vm = vm_mod.VM.init(tokens, final_args);
+    var arena = arena_mod.Arena.init();
+    var parser = parser_mod.Parser.init(tokens, &arena);
+    const program = parser.parseProgram();
+
+    if (!parser.had_error and program != null) {
+        var checker = checker_mod.Checker.init();
+        checker.check(program.?);
+
+        if (!checker.had_error) {
+            var arg_slices: [8][]const u8 = undefined;
+            const arg_count: usize = 0;
+            const final_args = arg_slices[0..arg_count];
+
+            if (global_vm == null) {
+                global_vm = vm_mod.VM.init(program.?, &arena, final_args);
+            }
+
+            var vm = &global_vm.?;
+            vm.program = program.?;
+            vm.prog_ip = 0;
+            vm.exit_flag = false;
+            vm.has_error = false;
+            vm.arena = &arena;
+            vm.script_args = final_args;
+
+            if (path) |p| {
+                vm.current_file = p;
+            }
+
+            vm.repl_mode = repl;
+            vm.run();
+            if (vm.exit_flag and !vm.has_error) exit_flag = true;
+        }
     }
 
-    var vm = &global_vm.?;
-    vm.tokens = tokens;
-    vm.ip = 0;
-    vm.exit_flag = false;
-    vm.has_error = false;
-    vm.script_args = final_args;
-
-    if (path) |p| {
-        vm.current_file = p;
-    }
-
-    vm.repl_mode = repl;
-    vm.run();
-    if (vm.exit_flag and !vm.has_error) exit_flag = true;
+    arena.reset();
 }
 
 fn validateScript(script: []const u8) bool {
@@ -260,103 +269,7 @@ fn validateScript(script: []const u8) bool {
     return !has_errors;
 }
 
-fn executeScript(script: []const u8) void {
-    var pos: usize = 0;
-    while (!exit_flag) {
-        if (keyboard.check_ctrl_c()) {
-            common.printZ("\nScript interrupted by user\n");
-            exit_flag = true;
-            return;
-        }
-        // Skip whitespace and empty lines
-        while (pos < script.len and (script[pos] == ' ' or script[pos] == '\n' or script[pos] == '\r')) : (pos += 1) {}
-        if (pos >= script.len) break;
 
-        const stmt = parser.parseStatement(script, pos);
-
-        if (stmt.cmd_type == .empty) {
-            pos = parser.nextStatement(script, pos);
-            continue;
-        }
-
-        if (stmt.cmd_type == .if_stmt) {
-            const cond = commands.evaluateCondition(script, stmt);
-
-            // Find opening brace {
-            var brace_pos = stmt.arg_start + stmt.arg_len;
-            while (brace_pos < script.len and script[brace_pos] != '{') : (brace_pos += 1) {}
-
-            if (brace_pos >= script.len) {
-                global_common.printError("Error: Missing { for if\n");
-                break;
-            }
-
-            const end_brace = findMatchingBrace(script, brace_pos + 1);
-
-            if (cond) {
-                executeScript(script[brace_pos + 1 .. end_brace]);
-                pos = end_brace + 1;
-                // SKIP any following else block
-                while (pos < script.len and (script[pos] == ' ' or script[pos] == '\n' or script[pos] == '\r' or script[pos] == ';')) : (pos += 1) {}
-                if (pos + 4 <= script.len and common.startsWith(script[pos..], "else")) {
-                    pos += 4;
-                    while (pos < script.len and (script[pos] == ' ' or script[pos] == '\n' or script[pos] == '\r')) : (pos += 1) {}
-                    if (pos < script.len and script[pos] == '{') {
-                        pos = findMatchingBrace(script, pos + 1) + 1;
-                    }
-                }
-            } else {
-                // Check if an else block follows
-                var next_pos = end_brace + 1;
-                while (next_pos < script.len and (script[next_pos] == ' ' or script[next_pos] == '\n' or script[next_pos] == '\r' or script[next_pos] == ';')) : (next_pos += 1) {}
-                if (next_pos + 4 <= script.len and common.startsWith(script[next_pos..], "else")) {
-                    var else_brace_pos = next_pos + 4;
-                    while (else_brace_pos < script.len and script[else_brace_pos] != '{') : (else_brace_pos += 1) {}
-                    if (else_brace_pos < script.len) {
-                        const else_end_brace = findMatchingBrace(script, else_brace_pos + 1);
-                        executeScript(script[else_brace_pos + 1 .. else_end_brace]);
-                        pos = else_end_brace + 1;
-                    } else {
-                        pos = next_pos + 4;
-                    }
-                } else {
-                    pos = end_brace + 1;
-                }
-            }
-        } else if (stmt.cmd_type == .while_stmt) {
-            var brace_pos = stmt.arg_start + stmt.arg_len;
-            while (brace_pos < script.len and script[brace_pos] != '{') : (brace_pos += 1) {}
-            if (brace_pos >= script.len) {
-                break;
-            }
-
-            const end_brace = findMatchingBrace(script, brace_pos + 1);
-            const block_content = script[brace_pos + 1 .. end_brace];
-
-            while (commands.evaluateCondition(script, stmt) and !exit_flag) {
-                executeScript(block_content);
-            }
-            pos = end_brace + 1;
-        } else {
-            // Normal command
-            commands.execute(script, stmt, &exit_flag);
-            pos = parser.nextStatement(script, pos);
-        }
-    }
-}
-
-fn findMatchingBrace(script: []const u8, start_idx: usize) usize {
-    var depth: i32 = 1;
-    var i = start_idx;
-    while (i < script.len) : (i += 1) {
-        if (script[i] == '{') depth += 1;
-        if (script[i] == '}') {
-            depth -= 1;
-            if (depth == 0) return i;
-        }
-    }
-    return i;
-}
 
 /// Read a single line of input from the keyboard
 fn readLine() void {

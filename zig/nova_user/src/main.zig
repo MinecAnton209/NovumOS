@@ -3,7 +3,6 @@
 // No kernel imports — everything via syscall inline asm.
 
 const interpreter = @import("nova_legacy/interpreter.zig");
-const commands = @import("nova_legacy/commands.zig");
 
 fn syscall0(n: u32) u32 {
     return asm volatile ("int $0x80"
