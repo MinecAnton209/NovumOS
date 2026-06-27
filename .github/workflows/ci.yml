@@ -32,7 +32,7 @@ jobs:
         & (Join-Path $env:GITHUB_WORKSPACE 'xorriso.exe') --version
 
     - name: Cache Zig
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           .zig-cache
@@ -81,7 +81,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y xorriso
 
     - name: Cache Zig
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: |
           .zig-cache
