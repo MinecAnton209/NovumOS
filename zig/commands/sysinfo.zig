@@ -32,6 +32,7 @@ pub fn execute() void {
     common.printZ(" [ System ]\n");
 
     print_entry("OS Version", versioning.NOVUMOS_VERSION, COLOR_LABEL, COLOR_VALUE, COLOR_BG);
+    print_entry("Codename", versioning.NOVUMOS_CODENAME, COLOR_LABEL, COLOR_VALUE, COLOR_BG);
     print_entry("Kernel", "Zig + x86 ASM", COLOR_LABEL, COLOR_VALUE, COLOR_BG);
 
     // --- Hardware ---
@@ -139,6 +140,12 @@ pub fn cmd_fetch() void {
                 vga.set_color(COLOR_VALUE, COLOR_BG);
                 common.printZ("NovumOS ");
                 common.printZ(versioning.NOVUMOS_VERSION);
+                vga.set_color(COLOR_LABEL, COLOR_BG);
+                common.printZ(" \"");
+                vga.set_color(COLOR_LOGO, COLOR_BG);
+                common.printZ(versioning.NOVUMOS_CODENAME);
+                vga.set_color(COLOR_LABEL, COLOR_BG);
+                common.printZ("\"");
             },
             1 => {
                 common.printZ("Kernel: ");

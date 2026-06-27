@@ -119,6 +119,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "cpuinfo", .help = "Show detailed CPU vendor, brand and features", .handler = cmd_handler_cpuinfo },
     .{ .name = "docs", .help = "Show internal documentation topics", .handler = cmd_handler_docs },
     .{ .name = "cp", .help = "cp <src> <dest> - Copy file/folder recursively", .handler = cmd_handler_cp },
+    .{ .name = "codename", .help = "Show current release codename", .handler = cmd_handler_codename },
     .{ .name = "fetch", .help = "Show stylish system info summary", .handler = cmd_handler_fetch },
     .{ .name = "matrix", .help = "Enter the NovumOS Matrix (fun!)", .handler = cmd_handler_matrix },
     .{ .name = "mv", .help = "mv <src> <dest> - Move or rename file/folder", .handler = cmd_handler_mv },
@@ -1507,6 +1508,12 @@ fn cmd_handler_more(args: []const u8) void {
     } else {
         common.printZ("Usage: more <file>\n");
     }
+}
+
+fn cmd_handler_codename(_: []const u8) void {
+    common.printZ("NovumOS \"");
+    common.printZ(versioning.NOVUMOS_CODENAME);
+    common.printZ("\"\n");
 }
 
 fn cmd_handler_fetch(_: []const u8) void {
