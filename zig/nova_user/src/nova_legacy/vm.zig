@@ -110,7 +110,7 @@ pub const VM = struct {
                 self.ip += 1;
                 if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .SEMICOLON) self.ip += 1;
             },
-            .SET, .INT_TYPE, .STRING_TYPE => self.handleSet(),
+            .SET, .INT_TYPE, .FLOAT_TYPE, .STRING_TYPE => self.handleSet(),
             .IDENTIFIER => self.handleAssignmentOrCall(),
             .RETURN => self.handleReturn(),
             .L_BRACE => self.ip += 1, // Skip {
@@ -377,7 +377,7 @@ pub const VM = struct {
         if (self.ip >= self.tokens.len) return;
 
         const t = self.tokens.tokens[self.ip];
-        if (t.ttype == .INT_TYPE or t.ttype == .STRING_TYPE) {
+        if (t.ttype == .INT_TYPE or t.ttype == .FLOAT_TYPE or t.ttype == .STRING_TYPE) {
             self.ip += 1; // skip type
         }
 
@@ -451,17 +451,19 @@ pub const VM = struct {
             if (self.repl_mode and !common.streq(name, "print")) {
                 if (result.vtype == .string) {
                     if (result.str_val.len > 0) {
-                        common.printZ(result.str_val);
-                        common.printZ("\n");
+                        common.printBuf(result.str_val);
+                        common.printBuf("\n");
                     }
                 } else if (result.vtype == .float) {
                     var buf: [32]u8 = undefined;
-                    common.printZ(common.floatToString(result.float_val, &buf));
-                    common.printZ("\n");
+                    const s = common.floatToString(result.float_val, &buf);
+                    common.printBuf(s);
+                    common.printBuf("\n");
                 } else {
                     var buf: [16]u8 = undefined;
-                    common.printZ(common.intToString(result.int_val, &buf));
-                    common.printZ("\n");
+                    const s = common.intToString(result.int_val, &buf);
+                    common.printBuf(s);
+                    common.printBuf("\n");
                 }
             }
         } else {
@@ -475,15 +477,17 @@ pub const VM = struct {
         if (common.streq(name, "print")) {
             const val = self.evaluateExpression();
             if (val.vtype == .string) {
-                common.printZ(val.str_val);
+                common.printBuf(val.str_val);
             } else if (val.vtype == .float) {
                 var buf: [32]u8 = undefined;
-                common.printZ(common.floatToString(val.float_val, &buf));
+                const s = common.floatToString(val.float_val, &buf);
+                common.printBuf(s);
             } else {
                 var buf: [16]u8 = undefined;
-                common.printZ(common.intToString(val.int_val, &buf));
+                const s = common.intToString(val.int_val, &buf);
+                common.printBuf(s);
             }
-            common.printZ("\n");
+            common.printBuf("\n");
             if (self.ip < self.tokens.len and self.tokens.tokens[self.ip].ttype == .R_PAREN) {
                 self.ip += 1;
             } else {

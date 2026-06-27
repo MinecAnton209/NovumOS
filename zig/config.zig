@@ -26,4 +26,4 @@ pub const ENABLE_NOTIFICATION_BEEP = true;
 
 // Nova (CVE-2026-40573 mitigation)
 pub const NOVA_PATH_POLICY_ENABLED = true; // Kill-switch for path policy
-pub const NOVA_DEBUG = false; // Nova debug logging
+pub const NOVA_DEBUG = true; // Nova debug logging

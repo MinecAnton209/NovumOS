@@ -15,6 +15,7 @@ pub const TokenType = enum {
     ELSE,
     SET,
     INT_TYPE,
+    FLOAT_TYPE,
     STRING_TYPE,
     L_BRACE,
     R_BRACE,
@@ -334,6 +335,8 @@ pub fn tokenize(source: []const u8) TokenList {
                 ttype = .SET;
             } else if (common.streq(value, "int")) {
                 ttype = .INT_TYPE;
+            } else if (common.streq(value, "float")) {
+                ttype = .FLOAT_TYPE;
             } else if (common.streq(value, "string")) {
                 ttype = .STRING_TYPE;
             } else if (common.streq(value, "break")) {

@@ -551,13 +551,6 @@ pub fn is_user_ptr(addr: usize) bool {
 }
 
 pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
-    const eflags = interrupts_save();
-    smp.spin_lock(&paging_lock);
-    defer {
-        smp.spin_unlock(&paging_lock);
-        interrupts_restore(eflags);
-    }
-
     if (size == 0) return;
 
     var cs: u16 = 0;
@@ -565,7 +558,9 @@ pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        // Redirect to syscall if called from user-mode code directly
+        // Redirect to syscall if called from user-mode code directly.
+        // Must NOT hold paging_lock here — the syscall handler runs in Ring 0
+        // and the return would skip the defer block, leaking the lock.
         asm volatile ("int $0x80"
             :
             : [sys] "{eax}" (@as(u32, 15)),
@@ -573,6 +568,13 @@ pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
               [s] "{ecx}" (size),
         );
         return;
+    }
+
+    const eflags = interrupts_save();
+    smp.spin_lock(&paging_lock);
+    defer {
+        smp.spin_unlock(&paging_lock);
+        interrupts_restore(eflags);
     }
 
     const end_aligned = (vaddr + (size - 1)) & 0xFFFFF000;

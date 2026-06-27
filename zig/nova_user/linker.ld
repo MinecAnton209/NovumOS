@@ -4,7 +4,7 @@ ENTRY(_start)
 
 SECTIONS {
     /* Fixed load address — NOT PIE (elf.zig has no relocation support) */
-    . = 0x08048000;
+    . = 0x02000000;
 
     .text : {
         *(.text*)

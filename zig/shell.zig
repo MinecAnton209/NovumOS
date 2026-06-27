@@ -1232,8 +1232,10 @@ fn cmd_handler_about(_: []const u8) void {
 }
 
 fn cmd_handler_nova(_: []const u8) void {
-    elf.load_and_run_nova() catch {
-        common.printZ("Error: Failed to load nova.elf\n");
+    elf.load_and_run_nova() catch |err| {
+        common.printZ("Error: Failed to load nova.elf: ");
+        common.printZ(@errorName(err));
+        common.printZ("\n");
     };
 }
 

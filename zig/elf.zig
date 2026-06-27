@@ -3,6 +3,7 @@ const common = @import("commands/common.zig");
 const memory = @import("memory.zig");
 const user = @import("user.zig");
 const logger = @import("logger.zig");
+const config = @import("config.zig");
 
 pub const Elf32_Addr = u32;
 pub const Elf32_Off = u32;
@@ -87,35 +88,26 @@ pub fn load_and_run(data: []const u8) !noreturn {
                 logger.err("ELF Error: Virtual address overflow");
                 return error.VirtualAddressOverflow;
             }
-            if (end_vaddr > 64 * 1024 * 1024) { // 64MB arbitrary limit based on generic user mapping
-                logger.err("ELF Error: Virtual address too high");
+            // User space is 0x00000000–0xBFFFFFFF (3GB)
+            if (end_vaddr >= 0xC0000000) {
+                logger.err("ELF Error: Virtual address too high (kernel space)");
                 return error.VirtualAddressTooHigh;
             }
 
-            // Phdr: Mapping Segment...
             logger.debug("Mapping ELF Segment");
 
+            // map_range handles Ring 3 → Ring 0 transition via syscall 15
+            // when called from the shell (running in Ring 3).
+            // This avoids #GP on privileged instructions like invlpg.
+            memory.map_range(ph.vaddr, ph.memsz, true);
+
+            // Copy file data to segment
             const dest = @as([*]u8, @ptrFromInt(ph.vaddr));
             @memcpy(dest[0..ph.filesz], data[ph.offset .. ph.offset + ph.filesz]);
 
-            // Zero out remaining memsz (BSS) - Step by step per page
+            // Zero BSS (pages already mapped by the loop above)
             if (ph.memsz > ph.filesz) {
-                const bss_start = ph.vaddr + ph.filesz;
-                const bss_size = ph.memsz - ph.filesz;
-                var offset: usize = 0;
-
-                while (offset < bss_size) {
-                    const addr = bss_start + offset;
-                    const page_addr = addr & 0xFFFFF000;
-
-                    // Map if not already present
-                    const frame = memory.pmm.alloc_page() orelse return error.OutOfMemory;
-                    _ = memory.map_page_at(page_addr, frame, true);
-
-                    const to_zero = @min(bss_size - offset, memory.PAGE_SIZE - (addr % 4096));
-                    @memset(@as([*]u8, @ptrFromInt(addr))[0..to_zero], 0);
-                    offset += to_zero;
-                }
+                @memset(dest[ph.filesz..ph.memsz], 0);
             }
         }
     }
@@ -125,8 +117,24 @@ pub fn load_and_run(data: []const u8) !noreturn {
 }
 
 /// Load and run the embedded nova.elf (Ring 3 Nova VM).
+/// Debug output controlled by NOVA_DEBUG in config.zig.
 pub fn load_and_run_nova() !noreturn {
     const data = @embedFile("build/nova");
-    logger.info("Loading embedded nova.elf...");
+    if (config.NOVA_DEBUG) {
+        common.printZ("[nova] Loading embedded nova.elf (");
+        common.printNum(@as(i32, @intCast(data.len)));
+        common.printZ(" bytes)...\n");
+
+        const hdr = @as(*const Header, @ptrCast(@alignCast(data.ptr)));
+        common.printZ("[nova] ELF: entry=");
+        common.printHex(hdr.entry);
+        common.printZ(" phoff=");
+        common.printHex(hdr.phoff);
+        common.printZ(" phnum=");
+        common.printNum(hdr.phnum);
+        common.printZ(" phentsize=");
+        common.printNum(hdr.phentsize);
+        common.printZ("\n");
+    }
     return load_and_run(data);
 }
