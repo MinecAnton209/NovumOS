@@ -24,6 +24,7 @@ zig-out/
 zig/.zig-cache/
 zig/build/
 zig/zig-out/
+zig/nova
 
 # Editor
 .vscode/
