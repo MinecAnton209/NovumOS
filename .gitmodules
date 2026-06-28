@@ -5,3 +5,6 @@
 [submodule "libs/mlibc"]
 	path = libs/mlibc
 	url = https://github.com/MinecAnton209/mlibc.git
+[submodule "doom/doomgeneric"]
+	path = doom/doomgeneric
+	url = https://github.com/MinecAnton209/doomgeneric.git
