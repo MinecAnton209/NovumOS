@@ -85,6 +85,7 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     const debug_mod = @import("debug.zig");
     const file_mod = @import("file.zig");
     const nova_mod = @import("nova.zig");
+    const fd_mod = @import("fd.zig");
 
     var table: [256]?HandlerPtr = [_]?HandlerPtr{null} ** 256;
     // Console
@@ -141,6 +142,24 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     // Nova
     table[53] = &nova_mod.shellExec;
     table[54] = &nova_mod.setColor;
+    // FD-based file I/O (POSIX-compatible syscalls)
+    table[100] = &fd_mod.open;
+    table[101] = &fd_mod.close;
+    table[102] = &fd_mod.read;
+    table[103] = &fd_mod.write;
+    table[104] = &fd_mod.lseek;
+    table[105] = &fd_mod.stat;
+    table[106] = &fd_mod.fstat;
+    // Memory mapping
+    table[107] = &memory_mod.mmap;
+    table[108] = &memory_mod.munmap;
+    // Time
+    table[110] = &time_mod.clock_gettime;
+    table[111] = &time_mod.nanosleep;
+    // Process
+    table[112] = &process_mod.getpid;
+    table[113] = &process_mod.getppid;
+    table[114] = &process_mod.uname;
     break :blk table;
 };
 

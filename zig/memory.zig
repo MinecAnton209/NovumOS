@@ -74,7 +74,7 @@ pub const pmm = struct {
         }
 
         const idx = @as(u32, @intCast(addr / PAGE_SIZE));
-        clear_page_busy(idx);
+        _ = clear_page_busy(idx);
         if (idx < last_free_page) last_free_page = idx;
     }
 };

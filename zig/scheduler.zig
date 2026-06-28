@@ -19,10 +19,18 @@ pub const Process = struct {
     cr3: u32,
     state: ProcessState,
     priority: u32,
+    uid: u32,
+    gid: u32,
+    cwd: []const u8,
 
     // Stack for the process
     stack: []u8,
+
+    // File descriptor table: fd_table[i] = open file index or -1 if unused
+    fd_table: [FD_TABLE_SIZE]i16 = [_]i16{-1} ** FD_TABLE_SIZE,
 };
+
+pub const FD_TABLE_SIZE = 32;
 
 var processes: [64]?*Process = [_]?*Process{null} ** 64;
 var current_process_idx: u32 = 0;
@@ -41,9 +49,13 @@ pub fn bootstrap(esp: u32) void {
     p.name = "Kernel/Shell";
     p.state = .Running;
     p.priority = 1;
+    p.uid = 0;
+    p.gid = 0;
+    p.cwd = "/";
     p.esp = esp;
     p.cr3 = memory.get_current_pd();
     p.stack = &[_]u8{}; // Initial process uses the boot stack
+    p.fd_table = [_]i16{-1} ** FD_TABLE_SIZE;
 
     processes[0] = p;
     current_process = p;
@@ -65,7 +77,11 @@ pub fn create_process(name: []const u8, entry_point: usize, is_user: bool) !*Pro
     p.name = name;
     p.state = .Ready;
     p.priority = 1;
+    p.uid = 0;
+    p.gid = 0;
+    p.cwd = "/";
     p.stack = stack;
+    p.fd_table = [_]i16{-1} ** FD_TABLE_SIZE;
 
     // Initialize stack for context switch
     // [eflags, cs, eip, error_code, vector, gs, fs, es, ds, eax, ecx, edx, ebx, dummy_esp, ebp, esi, edi]
