@@ -86,6 +86,7 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     const file_mod = @import("file.zig");
     const nova_mod = @import("nova.zig");
     const fd_mod = @import("fd.zig");
+    const video_mod = @import("video.zig");
 
     var table: [256]?HandlerPtr = [_]?HandlerPtr{null} ** 256;
     // Console
@@ -153,6 +154,12 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     // Memory mapping
     table[107] = &memory_mod.mmap;
     table[108] = &memory_mod.munmap;
+    // Video/Graphics
+    table[60] = &video_mod.getVideoMode;
+    table[61] = &video_mod.requestFramebuffer;
+    table[62] = &video_mod.releaseFramebuffer;
+    // Input
+    table[63] = &video_mod.pollEvent;
     // Time
     table[110] = &time_mod.clock_gettime;
     table[111] = &time_mod.nanosleep;

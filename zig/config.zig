@@ -27,3 +27,6 @@ pub const ENABLE_NOTIFICATION_BEEP = true;
 // Nova (CVE-2026-40573 mitigation)
 pub const NOVA_PATH_POLICY_ENABLED = true; // Kill-switch for path policy
 pub const NOVA_DEBUG = true; // Nova debug logging
+
+// PS/2 Mouse
+pub const MOUSE_DEBUG = true; // Enable mouse debug output during init

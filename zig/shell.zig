@@ -16,6 +16,7 @@ const top_cmd = @import("commands/top.zig");
 const lfb = @import("drivers/lfb.zig");
 const rtc = @import("drivers/time/time.zig");
 const idt_watchdog = @import("idt_watchdog.zig");
+const mouse = @import("mouse.zig");
 const speaker = @import("drivers/speaker.zig");
 const speaker_timer = @import("drivers/timer.zig");
 
@@ -71,6 +72,23 @@ fn cmd_handler_idt_move(args: []const u8) void {
     common.idt_move();
 }
 
+fn cmd_handler_mouse(_: []const u8) void {
+    if (mouse.initialized) {
+        common.printZ("Mouse: Initialized\n");
+        common.printZ("  Buttons: ");
+        common.printNum(@as(i32, mouse.last_buttons));
+        common.printZ("\n");
+        common.printZ("  Packets: ");
+        common.printNum(@as(i32, @intCast(mouse.packet_count)));
+        common.printZ("\n");
+    } else {
+        common.printZ("Mouse: Not initialized\n");
+        common.printZ("  Debug: ");
+        common.printNum(@as(i32, @intCast(mouse.init_debug)));
+        common.printZ("\n");
+    }
+}
+
 const SHELL_COMMANDS = [_]Command{
     .{ .name = "help", .help = "Show this help message (Tip: help 2)", .handler = cmd_handler_help },
     .{ .name = "?", .help = "Alias for help", .handler = cmd_handler_help },
@@ -81,6 +99,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "nova_legacy", .help = "Alias for nova", .handler = cmd_handler_nova_legacy },
     .{ .name = "top", .help = "Real-time CPU and Task Monitor", .handler = cmd_handler_top },
     .{ .name = "ps", .help = "List active system processes", .handler = cmd_handler_ps },
+    .{ .name = "mouse", .help = "Show PS/2 mouse status and statistics", .handler = cmd_handler_mouse },
     .{ .name = "kill", .help = "kill <pid> - Terminate a running process", .handler = cmd_handler_kill },
     .{ .name = "uptime", .help = "Show system runtime and RTC time", .handler = cmd_handler_uptime },
     .{ .name = "reboot", .help = "Safely restart the system", .handler = cmd_handler_reboot },

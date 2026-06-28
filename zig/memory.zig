@@ -519,6 +519,19 @@ pub fn map_page_at(vaddr: usize, paddr_in: usize, is_user: bool) bool {
     return false;
 }
 
+pub const RESERVED_FB_VADDR: u32 = 0x50000000;
+
+pub fn map_range_physical(vaddr: usize, paddr: usize, size: usize, is_user: bool) void {
+    const start_page = vaddr & ~@as(usize, 0xFFF);
+    const end = vaddr + size;
+    var current = start_page;
+    while (current < end) {
+        const offset = current - start_page;
+        _ = map_page_at(current, paddr + offset, is_user);
+        current += 0x1000;
+    }
+}
+
 /// Helper to check if an address is mapped and present in the page directory/tables.
 pub fn is_ptr_present(addr: usize) bool {
     const pd_idx = addr >> 22;
