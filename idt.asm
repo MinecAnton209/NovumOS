@@ -11,6 +11,7 @@ global double_fault_handler_task
 
 ; External Zig ISR handlers
 extern isr_keyboard
+extern isr_mouse
 extern isr_timer
 extern handle_exception
 extern handle_double_fault
@@ -72,6 +73,11 @@ idt_init:
     mov ebx, 0x21
     call idt_set_gate
 
+    ; 6b. Set Mouse ISR (IRQ12 -> 0x2C)
+    mov eax, isr_mouse_wrapper
+    mov ebx, 0x2C
+    call idt_set_gate
+
     ; 7. Set Syscall Gate (0x80) with DPL 3
     mov eax, syscall_handler
     mov ebx, 0x80
@@ -83,10 +89,15 @@ idt_init:
     ; Flush keyboard buffer
     in al, 0x60
     
-    ; 8. Unmask IRQ0 (Timer) and IRQ1 (Keyboard)
+    ; 8. Unmask IRQ0 (Timer), IRQ1 (Keyboard), IRQ2 (Slave PIC cascade)
     in al, 0x21
-    and al, 0xfc        ; 11111100b - Unmask IRQ0 and IRQ1
+    and al, 0xf8        ; 11111000b - Unmask IRQ0, IRQ1, IRQ2
     out 0x21, al
+
+    ; 8b. Unmask IRQ12 (Mouse) on slave PIC
+    in al, 0xA1
+    and al, 0xEF        ; 11101111b - Clear bit 4 (IRQ12)
+    out 0xA1, al
 
     popa
     ret
@@ -282,6 +293,44 @@ isr_keyboard_wrapper:
 .keyboard_skip_hygiene:
 
     pop ds                  ; Restore segments
+    pop es
+    pop fs
+    pop gs
+    iretd
+
+; ISR Wrapper: Mouse (IRQ12)
+isr_mouse_wrapper:
+    push gs
+    push fs
+    push es
+    push ds
+    pushad
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    cld
+    call isr_mouse
+    mov al, 0x20
+    out 0xA0, al           ; EOI to slave PIC
+    out 0x20, al           ; EOI to master PIC (cascade)
+    popad
+
+    ; Register Hygiene
+    test dword [esp + 20], 3
+    jz .mouse_skip_hygiene
+    pxor xmm0, xmm0
+    pxor xmm1, xmm1
+    pxor xmm2, xmm2
+    pxor xmm3, xmm3
+    pxor xmm4, xmm4
+    pxor xmm5, xmm5
+    pxor xmm6, xmm6
+    pxor xmm7, xmm7
+.mouse_skip_hygiene:
+
+    pop ds
     pop es
     pop fs
     pop gs

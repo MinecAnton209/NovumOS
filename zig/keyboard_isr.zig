@@ -1,5 +1,6 @@
 // Keyboard interrupt handler for NovumOS
 const std = @import("std");
+const events = @import("events.zig");
 
 // Keyboard buffer
 const BUFFER_SIZE = 256;
@@ -108,7 +109,21 @@ pub export fn isr_keyboard() void {
         return;
     }
 
-    // Handle shift keys
+    // Push event for every scancode (except E0 which already returned)
+    {
+        const raw: u32 = if (extended_key)
+            @as(u32, @intCast(0x80 | (scancode_byte & 0x7F)))
+        else
+            @as(u32, @intCast(scancode_byte & 0x7F));
+        const is_break = (scancode_byte & 0x80) != 0;
+        if (is_break) {
+            events.push(2, raw, 0, 0, 0); // key_up
+        } else {
+            events.push(1, raw, 0, 0, 0); // key_down
+        }
+    }
+
+    // Handle modifier keys (both make and break)
     if (scancode_byte == 0x2A or scancode_byte == 0x36) {
         shift_pressed = true;
         return;
@@ -117,8 +132,6 @@ pub export fn isr_keyboard() void {
         shift_pressed = false;
         return;
     }
-
-    // Handle ctrl keys
     if (scancode_byte == 0x1D) {
         ctrl_pressed = true;
         return;
@@ -128,9 +141,9 @@ pub export fn isr_keyboard() void {
         return;
     }
 
-    // Ignore key releases (high bit set)
+    // Key releases: return after event push
     if ((scancode_byte & 0x80) != 0) {
-        extended_key = false; // Reset extended key on release too
+        extended_key = false;
         return;
     }
 
