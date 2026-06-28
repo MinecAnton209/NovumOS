@@ -103,3 +103,64 @@ pub fn free(regs: *user.Registers) void {
 pub fn getFreeMemory(regs: *user.Registers) void {
     regs.eax = @intCast(memory.get_free_memory());
 }
+
+const MAX_MMAP_REGIONS = 64;
+const MmapRegion = struct {
+    addr: u32,
+    size: u32,
+};
+var mmap_regions: [MAX_MMAP_REGIONS]?MmapRegion = [_]?MmapRegion{null} ** MAX_MMAP_REGIONS;
+var mmap_next: u32 = 0x40000000;
+
+/// Syscall 107: mmap(EBX=addr_hint, ECX=length, EDX=prot, ESI=flags, EDI=fd) -> EAX=addr or -1
+pub fn mmap(regs: *user.Registers) void {
+    _ = regs.ebx; // addr_hint — ignored for now
+    const length = (regs.ecx + 0xFFF) & ~@as(u32, 0xFFF);
+    if (length == 0) { regs.eax = 0xFFFFFFFF; return; }
+    const addr = mmap_next;
+    mmap_next += length;
+    var page = addr;
+    while (page < addr + length) : (page += 0x1000) {
+        const paddr = memory.pmm.alloc_page() orelse {
+            regs.eax = 0xFFFFFFFF; return;
+        };
+        _ = memory.map_page_at(page, paddr, true);
+    }
+    for (&mmap_regions) |*slot| {
+        if (slot.* == null) {
+            slot.* = .{ .addr = addr, .size = length };
+            regs.eax = addr;
+            return;
+        }
+    }
+    regs.eax = addr;
+}
+
+/// Syscall 108: munmap(EBX=addr, ECX=length) -> EAX=0 or -1
+pub fn munmap(regs: *user.Registers) void {
+    const addr = regs.ebx;
+    const length = (regs.ecx + 0xFFF) & ~@as(u32, 0xFFF);
+    var found = false;
+    for (&mmap_regions) |*slot| {
+        if (slot.*) |r| {
+            if (r.addr == addr and r.size == length) {
+                var page = addr;
+                while (page < addr + length) : (page += 0x1000) {
+                    const pd_idx = page >> 22;
+                    const pt_idx = (page >> 12) & 0x3FF;
+                    if (memory.page_tables[pd_idx]) |pt| {
+                        const paddr = pt[pt_idx] & 0xFFFFF000;
+                        if (paddr != 0) {
+                            memory.pmm.free_page(paddr);
+                            pt[pt_idx] = 0;
+                        }
+                    }
+                }
+                slot.* = null;
+                found = true;
+                break;
+            }
+        }
+    }
+    regs.eax = if (found) 0 else 0xFFFFFFFF;
+}

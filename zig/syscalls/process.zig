@@ -6,6 +6,7 @@ const user = @import("../user.zig");
 const memory = @import("../memory.zig");
 const logger = @import("../logger.zig");
 const syscalls = @import("mod.zig");
+const scheduler = @import("../scheduler.zig");
 
 extern fn kernel_loop() noreturn;
 extern fn jump_to_ring3_entry(entry: usize, stack: usize, eflags: u32) noreturn;
@@ -124,5 +125,46 @@ pub fn execve(regs: *user.Registers) void {
 /// Syscall 41: Yield() — yield CPU via int $0x20
 pub fn yield(regs: *user.Registers) void {
     asm volatile ("int $0x20");
+    regs.eax = 0;
+}
+
+const Utsname = extern struct {
+    sysname: [65]u8,
+    nodename: [65]u8,
+    release: [65]u8,
+    version: [65]u8,
+    machine: [65]u8,
+    domainname: [65]u8,
+};
+
+/// Syscall 112: getpid() -> EAX=pid
+pub fn getpid(regs: *user.Registers) void {
+    const p = scheduler.current_process orelse { regs.eax = 0; return; };
+    regs.eax = p.id;
+}
+
+/// Syscall 113: getppid() -> EAX=ppid
+pub fn getppid(regs: *user.Registers) void {
+    regs.eax = 0; // All processes are children of init (pid 0) for now
+}
+
+/// Syscall 114: uname(EBX=utsname_ptr) -> EAX=0 or -1
+pub fn uname(regs: *user.Registers) void {
+    if (!syscalls.is_safe_user_range(regs.ebx, @sizeOf(Utsname))) {
+        regs.eax = 0xFFFFFFFF; return;
+    }
+    const uts = @as(*Utsname, @ptrFromInt(regs.ebx));
+    @memset(@as([*]u8, @ptrCast(&uts.sysname))[0..65], 0);
+    @memset(@as([*]u8, @ptrCast(&uts.nodename))[0..65], 0);
+    @memset(@as([*]u8, @ptrCast(&uts.release))[0..65], 0);
+    @memset(@as([*]u8, @ptrCast(&uts.version))[0..65], 0);
+    @memset(@as([*]u8, @ptrCast(&uts.machine))[0..65], 0);
+    @memset(@as([*]u8, @ptrCast(&uts.domainname))[0..65], 0);
+    @memcpy(uts.sysname[0..7], "NovumOS");
+    @memcpy(uts.nodename[0..5], "novum");
+    @memcpy(uts.release[0..11], "0.25-beta.1");
+    @memcpy(uts.version[0..2], "#1");
+    @memcpy(uts.machine[0..4], "i386");
+    @memcpy(uts.domainname[0..6], "(none)");
     regs.eax = 0;
 }
