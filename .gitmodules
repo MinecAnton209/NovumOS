@@ -4,4 +4,4 @@
 	branch = v11.x-binary
 [submodule "libs/mlibc"]
 	path = libs/mlibc
-	url = https://github.com/managarm/mlibc.git
+	url = https://github.com/MinecAnton209/mlibc.git
