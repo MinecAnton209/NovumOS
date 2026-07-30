@@ -16,6 +16,7 @@ const vga = @import("../drivers/vga.zig");
 const math_mod = @import("modules/math.zig");
 const sys_mod = @import("modules/sys.zig");
 const speaker_mod = @import("modules/speaker.zig");
+const quantum_mod = @import("modules/quantum.zig");
 const user = @import("../user.zig");
 
 const Node = ast.Node;
@@ -47,6 +48,7 @@ pub const VM = struct {
     is_math_loaded: bool,
     is_sys_loaded: bool,
     is_speaker_loaded: bool,
+    is_quantum_loaded: bool,
     repl_mode: bool,
 
     pub fn init(program: *Node, arena: *arena_mod.Arena, args: []const []const u8) VM {
@@ -77,6 +79,7 @@ pub const VM = struct {
             .is_math_loaded = false,
             .is_sys_loaded = false,
             .is_speaker_loaded = false,
+            .is_quantum_loaded = false,
             .repl_mode = false,
         };
 
@@ -697,6 +700,15 @@ pub const VM = struct {
             self.reportError("Unknown speaker function");
             return .{ .vtype = .int, .int_val = 0 };
         }
+        if (common.startsWith(name, "quantum.")) {
+            if (!self.is_quantum_loaded) {
+                self.reportError("Module 'quantum' not imported");
+                return .{ .vtype = .int, .int_val = 0 };
+            }
+            if (quantum_mod.handleQuantum(self, name, arg_slice)) |res| return res;
+            self.reportError("Unknown quantum function");
+            return .{ .vtype = .int, .int_val = 0 };
+        }
 
         // User-defined function
         if (self.functions.get(name)) |func| {
@@ -758,6 +770,10 @@ pub const VM = struct {
         }
         if (common.streq(path, "speaker")) {
             self.is_speaker_loaded = true;
+            return;
+        }
+        if (common.streq(path, "quantum")) {
+            self.is_quantum_loaded = true;
             return;
         }
 

@@ -13,6 +13,7 @@ const vga = @import("../drivers/vga.zig");
 const math_mod = @import("modules/math.zig");
 const sys_mod = @import("modules/sys.zig");
 const speaker_mod = @import("modules/speaker.zig");
+const quantum_mod = @import("modules/quantum.zig");
 const user = @import("../user.zig");
 
 pub const VM = struct {
@@ -32,6 +33,7 @@ pub const VM = struct {
     is_math_loaded: bool = false,
     is_sys_loaded: bool = false,
     is_speaker_loaded: bool = false,
+    is_quantum_loaded: bool = false,
     repl_mode: bool = false,
     return_flag: bool = false,
     return_value: hash_table.VariableValue = .{ .vtype = .int, .int_val = 0 },
@@ -519,6 +521,14 @@ pub const VM = struct {
             }
             if (speaker_mod.handleSpeaker(self, name)) |res| return res;
             self.reportError("Unknown speaker function");
+            return .{ .vtype = .int, .int_val = 0 };
+        } else if (common.startsWith(name, "quantum.")) {
+            if (!self.is_quantum_loaded) {
+                self.reportError("Module 'quantum' not imported");
+                return .{ .vtype = .int, .int_val = 0 };
+            }
+            if (quantum_mod.handleQuantum(self, name)) |res| return res;
+            self.reportError("Unknown quantum function");
             return .{ .vtype = .int, .int_val = 0 };
         } else if (common.streq(name, "create_file")) {
             const path = self.evaluateExpression();
@@ -1021,6 +1031,11 @@ pub const VM = struct {
             }
             if (common.streq(raw_path, "speaker")) {
                 self.is_speaker_loaded = true;
+                self.ip += 1;
+                return;
+            }
+            if (common.streq(raw_path, "quantum")) {
+                self.is_quantum_loaded = true;
                 self.ip += 1;
                 return;
             }
