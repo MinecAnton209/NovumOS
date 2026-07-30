@@ -1841,6 +1841,33 @@ fn cmd_handler_qrand(args: []const u8) void {
     var argv: [4][]const u8 = undefined;
     const argc = common.parseArgs(args, &argv);
 
+    const hex = struct {
+        fn byte(b: u8) void {
+            const hi = b >> 4;
+            const lo = b & 0xF;
+            common.print_char(if (hi < 10) @as(u8, '0' + hi) else @as(u8, 'A' + hi - 10));
+            common.print_char(if (lo < 10) @as(u8, '0' + lo) else @as(u8, 'A' + lo - 10));
+        }
+    };
+
+    if (argc >= 1 and (common.std_mem_eql(argv[0], "--help") or common.std_mem_eql(argv[0], "-h") or common.std_mem_eql(argv[0], "/?"))) {
+        common.printZ("Usage: qrand [options] [N]\n");
+        common.printZ("Generate quantum random numbers using qubit measurement.\n");
+        common.printZ("\n");
+        common.printZ("  N               Number of random bytes to show (1-512, default 1)\n");
+        common.printZ("  --hex [N]       Output as hex string\n");
+        common.printZ("  --entangle [N]  Show N entangled qubit pairs\n");
+        common.printZ("  --info          Show QRNG status and RDRAND availability\n");
+        common.printZ("  --help, -h      Show this help message\n");
+        common.printZ("\n");
+        common.printZ("Examples:\n");
+        common.printZ("  qrand            Random byte in hex/dec/ASCII\n");
+        common.printZ("  qrand 16         16 random bytes\n");
+        common.printZ("  qrand --hex 32   32 bytes as hex string\n");
+        common.printZ("  qrand --entangle  Entangled Bell state pair\n");
+        return;
+    }
+
     if (argc >= 1 and common.std_mem_eql(argv[0], "--info")) {
         common.printZ("QRNG Status:\n");
         common.printZ("  RDRAND: ");
@@ -1859,26 +1886,23 @@ fn cmd_handler_qrand(args: []const u8) void {
             const parsed = common.parse_int(argv[1]);
             if (parsed) |val| n = @min(@as(u32, @intCast(val)), 256);
         }
-        common.printZ("Entangled pairs (|Φ⁺⟩ = (|00⟩ + |11⟩)/√2):\n");
+        common.printZ("Entangled pairs (|00> + |11>)/sqrt2:\n");
         var i: u32 = 0;
         while (i < n) : (i += 1) {
             const pair = quantum.entangledPair();
-            common.printZ("  ");
-            common.printHex(pair[0]);
-            common.printZ(" ↔ ");
-            common.printHex(pair[1]);
-            // Show correlation
+            common.printZ("  0x");
+            hex.byte(pair[0]);
+            common.printZ(" <-> 0x");
+            hex.byte(pair[1]);
             if (pair[0] == pair[1]) {
-                common.printZ(" [CORRELATED]");
+                common.printZ(" [CORRELATED]\n");
             } else {
-                common.printZ(" [decoherence]");
+                common.printZ(" [decoherence]\n");
             }
-            common.printZ("\n");
         }
         return;
     }
 
-    // Determine count
     var hex_mode = false;
     var arg_start: usize = 0;
     if (argc >= 1 and common.std_mem_eql(argv[0], "--hex")) {
@@ -1895,17 +1919,13 @@ fn cmd_handler_qrand(args: []const u8) void {
         common.printZ("Quantum random bytes (hex): ");
         var i: u32 = 0;
         while (i < n) : (i += 1) {
-            const b = quantum.randByte();
-            const hi = b >> 4;
-            const lo = b & 0xF;
-            common.print_char(if (hi < 10) @as(u8, '0' + hi) else @as(u8, 'A' + hi - 10));
-            common.print_char(if (lo < 10) @as(u8, '0' + lo) else @as(u8, 'A' + lo - 10));
+            hex.byte(quantum.randByte());
         }
         common.printZ("\n");
     } else if (n == 1) {
         const b = quantum.randByte();
-        common.printZ("Quantum random byte: ");
-        common.printHex(b);
+        common.printZ("Quantum random byte: 0x");
+        hex.byte(b);
         common.printZ(" (");
         common.printNum(@as(i32, @intCast(b)));
         common.printZ(") '");
@@ -1921,10 +1941,10 @@ fn cmd_handler_qrand(args: []const u8) void {
         common.printZ("):\n  ");
         var i: u32 = 0;
         while (i < n) : (i += 1) {
-            const b = quantum.randByte();
-            common.printHex(b);
+            common.printZ("0x");
+            hex.byte(quantum.randByte());
             common.print_char(' ');
-            if ((i + 1) % 16 == 0 and i + 1 < n) {
+            if ((i + 1) % 8 == 0 and i + 1 < n) {
                 common.printZ("\n  ");
             }
         }
