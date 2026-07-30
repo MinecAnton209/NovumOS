@@ -85,6 +85,7 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     const debug_mod = @import("debug.zig");
     const file_mod = @import("file.zig");
     const nova_mod = @import("nova.zig");
+    const quantum_mod = @import("quantum.zig");
     const fd_mod = @import("fd.zig");
     const video_mod = @import("video.zig");
 
@@ -143,6 +144,10 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     // Nova
     table[53] = &nova_mod.shellExec;
     table[54] = &nova_mod.setColor;
+    // Quantum RNG
+    table[55] = &quantum_mod.qrand;
+    table[56] = &quantum_mod.qrandBuf;
+    table[57] = &quantum_mod.qrandEntangle;
     // FD-based file I/O (POSIX-compatible syscalls)
     table[100] = &fd_mod.open;
     table[101] = &fd_mod.close;

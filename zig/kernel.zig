@@ -22,6 +22,7 @@ const ata = @import("drivers/ata.zig");
 const fat = @import("drivers/fat.zig");
 const speaker = @import("drivers/speaker.zig");
 const mouse = @import("mouse.zig");
+const quantum = @import("quantum.zig");
 const config = @import("config.zig");
 
 // Ensure all modules are included in the compilation
@@ -40,6 +41,7 @@ comptime {
     _ = @import("drivers/vga.zig");
     _ = speaker;
     _ = mouse;
+    _ = quantum;
     _ = libc_stubs;
 }
 
@@ -172,6 +174,9 @@ export fn kmain() void {
 
     // Initialize PS/2 mouse
     mouse.init();
+
+    // Initialize QRNG (detect RDRAND, seed entropy pool)
+    quantum.init();
 
     // Jump to Shell in Ring 3 (User Mode)
     user.jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true);

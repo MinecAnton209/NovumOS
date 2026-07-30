@@ -19,6 +19,7 @@ const idt_watchdog = @import("idt_watchdog.zig");
 const mouse = @import("mouse.zig");
 const speaker = @import("drivers/speaker.zig");
 const speaker_timer = @import("drivers/timer.zig");
+const quantum = @import("quantum.zig");
 
 extern const mb2_info: u32;
 extern const fb_addr: u32;
@@ -153,6 +154,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "calc", .help = "Evaluate math & bitwise expressions (e.g. 1 << 8)", .handler = cmd_handler_calc },
     .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = cmd_handler_res },
     .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep },
+    .{ .name = "qrand", .help = "qrand [N | --hex N | --entangle N | --info] - Quantum random numbers", .handler = cmd_handler_qrand },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
     .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = cmd_handler_panic },
     .{ .name = "abort", .help = "Trigger a manual kernel panic", .handler = cmd_handler_abort },
@@ -1833,6 +1835,101 @@ fn cmd_handler_pwd(_: []const u8) void {
 
 fn cmd_handler_tree(_: []const u8) void {
     shell_cmds.cmd_tree();
+}
+
+fn cmd_handler_qrand(args: []const u8) void {
+    var argv: [4][]const u8 = undefined;
+    const argc = common.parseArgs(args, &argv);
+
+    if (argc >= 1 and common.std_mem_eql(argv[0], "--info")) {
+        common.printZ("QRNG Status:\n");
+        common.printZ("  RDRAND: ");
+        if (quantum.hasRdrand()) {
+            common.printZ("available (hardware quantum noise)\n");
+        } else {
+            common.printZ("unavailable (using RDTSC jitter fallback)\n");
+        }
+        common.printZ("  State: ready\n");
+        return;
+    }
+
+    if (argc >= 1 and common.std_mem_eql(argv[0], "--entangle")) {
+        var n: u32 = 1;
+        if (argc >= 2) {
+            const parsed = common.parse_int(argv[1]);
+            if (parsed) |val| n = @min(@as(u32, @intCast(val)), 256);
+        }
+        common.printZ("Entangled pairs (|Φ⁺⟩ = (|00⟩ + |11⟩)/√2):\n");
+        var i: u32 = 0;
+        while (i < n) : (i += 1) {
+            const pair = quantum.entangledPair();
+            common.printZ("  ");
+            common.printHex(pair[0]);
+            common.printZ(" ↔ ");
+            common.printHex(pair[1]);
+            // Show correlation
+            if (pair[0] == pair[1]) {
+                common.printZ(" [CORRELATED]");
+            } else {
+                common.printZ(" [decoherence]");
+            }
+            common.printZ("\n");
+        }
+        return;
+    }
+
+    // Determine count
+    var hex_mode = false;
+    var arg_start: usize = 0;
+    if (argc >= 1 and common.std_mem_eql(argv[0], "--hex")) {
+        hex_mode = true;
+        arg_start = 1;
+    }
+    var n: u32 = 1;
+    if (argc > arg_start) {
+        const parsed = common.parse_int(argv[arg_start]);
+        if (parsed) |val| n = @min(@as(u32, @intCast(val)), 512);
+    }
+
+    if (hex_mode) {
+        common.printZ("Quantum random bytes (hex): ");
+        var i: u32 = 0;
+        while (i < n) : (i += 1) {
+            const b = quantum.randByte();
+            const hi = b >> 4;
+            const lo = b & 0xF;
+            common.print_char(if (hi < 10) @as(u8, '0' + hi) else @as(u8, 'A' + hi - 10));
+            common.print_char(if (lo < 10) @as(u8, '0' + lo) else @as(u8, 'A' + lo - 10));
+        }
+        common.printZ("\n");
+    } else if (n == 1) {
+        const b = quantum.randByte();
+        common.printZ("Quantum random byte: ");
+        common.printHex(b);
+        common.printZ(" (");
+        common.printNum(@as(i32, @intCast(b)));
+        common.printZ(") '");
+        if (b >= 32 and b < 127) {
+            common.print_char(b);
+        } else {
+            common.print_char('.');
+        }
+        common.printZ("'\n");
+    } else {
+        common.printZ("Quantum random bytes (");
+        common.printNum(@as(i32, @intCast(n)));
+        common.printZ("):\n  ");
+        var i: u32 = 0;
+        while (i < n) : (i += 1) {
+            const b = quantum.randByte();
+            common.printHex(b);
+            common.print_char(' ');
+            if ((i + 1) % 16 == 0 and i + 1 < n) {
+                common.printZ("\n  ");
+            }
+        }
+        common.printZ("\n");
+    }
 }
 
 fn cmd_handler_beep(args: []const u8) void {

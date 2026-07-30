@@ -52,6 +52,7 @@ pub fn execute() void {
     if ((edx & (1 << 26)) != 0) common.printZ("SSE2 ");
     if ((ecx & (1 << 0)) != 0) common.printZ("SSE3 ");
     if ((ecx & (1 << 28)) != 0) common.printZ("AVX ");
+    if ((ecx & (1 << 30)) != 0) common.printZ("RDRAND ");
 
     common.printZ("\n-----------------------\n");
 }
