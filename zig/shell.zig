@@ -13,6 +13,7 @@ const config = @import("config.zig");
 const nova_legacy_interpreter = @import("nova_legacy/interpreter.zig");
 const nova_legacy_commands = @import("nova_legacy/commands.zig");
 const top_cmd = @import("commands/top.zig");
+const doomfire_cmd = @import("commands/doomfire.zig");
 const lfb = @import("drivers/lfb.zig");
 const rtc = @import("drivers/time/time.zig");
 const idt_watchdog = @import("idt_watchdog.zig");
@@ -142,6 +143,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "codename", .help = "Show current release codename", .handler = cmd_handler_codename },
     .{ .name = "fetch", .help = "Show stylish system info summary", .handler = cmd_handler_fetch },
     .{ .name = "matrix", .help = "Enter the NovumOS Matrix (fun!)", .handler = cmd_handler_matrix },
+    .{ .name = "doomfire", .help = "Quantum-ignited DOOM fire on the framebuffer", .handler = cmd_handler_doomfire },
     .{ .name = "mv", .help = "mv <src> <dest> - Move or rename file/folder", .handler = cmd_handler_mv },
     .{ .name = "ren", .help = "Alias for mv (rename file/folder)", .handler = cmd_handler_rename },
     .{ .name = "format", .help = "Low-level drive formatting tool", .handler = cmd_handler_format },
@@ -1543,6 +1545,10 @@ fn cmd_handler_fetch(_: []const u8) void {
 
 fn cmd_handler_matrix(_: []const u8) void {
     shell_cmds.cmd_matrix();
+}
+
+fn cmd_handler_doomfire(_: []const u8) void {
+    doomfire_cmd.cmd_doomfire();
 }
 
 fn cmd_handler_cpuinfo(_: []const u8) void {
