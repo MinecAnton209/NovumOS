@@ -28,7 +28,7 @@ jobs:
       uses: actions/checkout@v7
 
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v4.37.3
+      uses: github/codeql-action/init@v4.37.6
       with:
         languages: ${{ matrix.language }}
         
@@ -64,6 +64,6 @@ jobs:
         ./build-app.sh examples/system_test/main.c examples/system_test/test.elf
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4.37.3
+      uses: github/codeql-action/analyze@v4.37.6
       with:
         category: "/language:${{matrix.language}}"
