@@ -17,7 +17,7 @@ mkdir -p build limine-build iso_root/boot
 # Build Limine
 echo "Building Limine..."
 cd limine
-make
+make "$@"
 cd ..
 
 # Copy Limine build artifacts
