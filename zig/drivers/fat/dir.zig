@@ -293,44 +293,12 @@ fn list_sector(drive: ata.Drive, sector: u32, show_hidden: bool, lfn: *LfnState)
             continue;
         }
 
-        if (buffer[i + 11] == 0x0F) {
-            const seq = buffer[i];
-            const chk = buffer[i + 13];
-
-            if ((seq & 0x40) != 0) {
-                lfn.active = true;
-                lfn.checksum = chk;
-                @memset(&lfn.buf, 0);
-            } else if (!lfn.active or lfn.checksum != chk) {
-                lfn.active = false;
-                continue;
-            }
-
-            var index = (seq & 0x1F);
-            if (index < 1) index = 1;
-            const offset = (index - 1) * 13;
-
-            if (offset < 240) {
-                extract_lfn_part(&buffer, i + 1, 5, &lfn.buf, offset);
-                extract_lfn_part(&buffer, i + 14, 6, &lfn.buf, offset + 5);
-                extract_lfn_part(&buffer, i + 28, 2, &lfn.buf, offset + 11);
-            }
-            continue;
-        }
+        if (consume_lfn_entry(&buffer, @intCast(i), lfn)) continue;
 
         const attr = buffer[i + 11];
 
-        var sum: u8 = 0;
-        for (0..11) |k| {
-            const is_odd = (sum & 1) != 0;
-            sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-            sum = sum +% buffer[i + k];
-        }
-
-        var use_lfn = false;
-        if (lfn.active and lfn.checksum == sum) {
-            use_lfn = true;
-        }
+        // consume_lfn_entry already validated checksum → lfn.active means match
+        const use_lfn = lfn.active;
         lfn.active = false;
 
         if (!show_hidden) {
@@ -593,39 +561,9 @@ fn find_entry_in_sectors(drive: ata.Drive, name: []const u8, start_sector: u32, 
                 continue;
             }
 
-            if (buffer[i + 11] == 0x0F) {
-                const seq = buffer[i];
-                const chk = buffer[i + 13];
+            if (consume_lfn_entry(&buffer, @intCast(i), &lfn)) continue;
 
-                if ((seq & 0x40) != 0) {
-                    lfn.active = true;
-                    lfn.checksum = chk;
-                    @memset(&lfn.buf, 0);
-                } else if (!lfn.active or lfn.checksum != chk) {
-                    lfn.active = false;
-                    continue;
-                }
-
-                var index = (seq & 0x1F);
-                if (index < 1) index = 1;
-                const offset = (index - 1) * 13;
-
-                if (offset < 240) {
-                    extract_lfn_part(&buffer, i + 1, 5, &lfn.buf, offset);
-                    extract_lfn_part(&buffer, i + 14, 6, &lfn.buf, offset + 5);
-                    extract_lfn_part(&buffer, i + 28, 2, &lfn.buf, offset + 11);
-                }
-                continue;
-            }
-
-            var sum: u8 = 0;
-            for (0..11) |k| {
-                const is_odd = (sum & 1) != 0;
-                sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-                sum = sum +% buffer[i + k];
-            }
-
-            if (lfn.active and lfn.checksum == sum) {
+            if (lfn.active) {
                 var len: usize = 0;
                 while (len < 256 and lfn.buf[len] != 0) : (len += 1) {}
                 const lfn_str = lfn.buf[0..len];
@@ -850,37 +788,10 @@ fn delete_all_in_sector(drive: ata.Drive, bpb: BPB, sector: u32, buffer: *[512]u
             continue;
         }
 
-        if (buffer[i + 11] == 0x0F) {
-            const seq = buffer[i];
-            const chk = buffer[i + 13];
-            if ((seq & 0x40) != 0) {
-                lfn.active = true;
-                lfn.checksum = chk;
-                @memset(&lfn.buf, 0);
-            } else if (!lfn.active or lfn.checksum != chk) {
-                lfn.active = false;
-                continue;
-            }
-            var index = (seq & 0x1F);
-            if (index < 1) index = 1;
-            const offset = (index - 1) * 13;
-            if (offset < 240) {
-                extract_lfn_part(buffer, i + 1, 5, &lfn.buf, offset);
-                extract_lfn_part(buffer, i + 14, 6, &lfn.buf, offset + 5);
-                extract_lfn_part(buffer, i + 28, 2, &lfn.buf, offset + 11);
-            }
-            continue;
-        }
-
-        var sum: u8 = 0;
-        for (0..11) |k| {
-            const is_odd = (sum & 1) != 0;
-            sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-            sum = sum +% buffer[i + k];
-        }
+        if (consume_lfn_entry(buffer, @intCast(i), &lfn)) continue;
 
         var name_str: []const u8 = undefined;
-        if (lfn.active and lfn.checksum == sum) {
+        if (lfn.active) {
             var len: usize = 0;
             while (len < 256 and lfn.buf[len] != 0) : (len += 1) {}
             name_str = lfn.buf[0..len];
@@ -1107,6 +1018,54 @@ pub fn find_free_cluster(drive: ata.Drive, bpb: BPB) ?u32 {
 }
 
 const ATTR_LONG_NAME = 0x0F;
+
+/// Compute the FAT short-name checksum used to bind LFN entries to their
+/// 8.3 alias (spec: rotate-right + add each byte of the 11-byte name).
+fn short_name_checksum(name: []const u8) u8 {
+    var sum: u8 = 0;
+    for (name[0..11]) |c| {
+        const is_odd = (sum & 1) != 0;
+        sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
+        sum = sum +% c;
+    }
+    return sum;
+}
+
+/// Consume one directory entry from `buffer` at index `idx`.
+/// If the entry is a long-filename (LFN) entry, updates `lfn` and returns
+/// true (caller should `continue` to the next entry).
+/// Otherwise returns false and resets `lfn.active`.
+fn consume_lfn_entry(buffer: []const u8, idx: usize, lfn: *LfnState) bool {
+    if (buffer[idx + 11] != 0x0F) {
+        // Short entry — compute checksum to match pending LFN
+        const sum = short_name_checksum(buffer[idx .. idx + 32]);
+        lfn.active = lfn.active and lfn.checksum == sum;
+        return false;
+    }
+
+    // LFN entry
+    const seq = buffer[idx];
+    const chk = buffer[idx + 13];
+
+    if ((seq & 0x40) != 0) {
+        lfn.active = true;
+        lfn.checksum = chk;
+        @memset(&lfn.buf, 0);
+    } else if (!lfn.active or lfn.checksum != chk) {
+        lfn.active = false;
+        return true; // still an LFN entry, skip
+    }
+
+    const index = if ((seq & 0x1F) < 1) 1 else (seq & 0x1F);
+    const offset = (index - 1) * 13;
+
+    if (offset < 240) {
+        extract_lfn_part(buffer, idx + 1, 5, &lfn.buf, offset);
+        extract_lfn_part(buffer, idx + 14, 6, &lfn.buf, offset + 5);
+        extract_lfn_part(buffer, idx + 28, 2, &lfn.buf, offset + 11);
+    }
+    return true;
+}
 
 /// Characters not permitted in 8.3 short names (FAT spec).
 const FAT_INVALID_CHARS: []const u8 = &[_]u8{
