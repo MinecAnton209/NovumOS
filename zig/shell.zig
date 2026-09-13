@@ -1022,160 +1022,185 @@ pub export fn execute_command() void {
     shell_execute_literal(cmd_buffer[0..cmd_len]);
 }
 
-pub fn shell_execute_literal(cmd: []const u8) void {
+/// Parsed redirection: optional file + append flag.
+const Redirection = struct {
+    file: ?[]const u8,
+    append: bool,
+};
+
+/// Extract `>file`, `>>file` from the command, returning the cleaned command
+/// and (optionally) the redirect target.
+fn parse_redirection(cmd: []const u8) struct { []const u8, Redirection } {
     var cmd_raw = common.trim(cmd);
-    if (cmd_raw.len == 0) return;
+    var redir: Redirection = .{ .file = null, .append = false };
 
-    // Pipe support: cmd1 | cmd2
-    if (common.std_mem_indexOf(u8, cmd_raw, "|")) |idx| {
-        const left = common.trim(cmd_raw[0..idx]);
-        const right = common.trim(cmd_raw[idx + 1 ..]);
-
-        if (left.len > 0 and right.len > 0) {
-            common.pipe_active = true;
-            common.pipe_pos = 0;
-            shell_execute_literal(left);
-            common.pipe_active = false;
-
-            if (common.pipe_pos > 0) {
-                common.pipe_read_active = true;
-                shell_execute_literal(right);
-                common.pipe_read_active = false;
-                common.pipe_pos = 0;
-            }
-            return;
-        }
-    }
-
-    // Output redirection support: cmd > file or cmd >> file
-    var redirect_file: ?[]const u8 = null;
-    var append_mode: bool = false;
     if (common.std_mem_indexOf(u8, cmd_raw, ">>")) |idx| {
-        append_mode = true;
         const file_part = common.trim(cmd_raw[idx + 2 ..]);
         if (file_part.len > 0) {
-            redirect_file = file_part;
+            redir.file = file_part;
+            redir.append = true;
             cmd_raw = common.trim(cmd_raw[0..idx]);
         }
     } else if (common.std_mem_indexOf(u8, cmd_raw, ">")) |idx| {
-        append_mode = false;
         const file_part = common.trim(cmd_raw[idx + 1 ..]);
         if (file_part.len > 0) {
-            redirect_file = file_part;
+            redir.file = file_part;
             cmd_raw = common.trim(cmd_raw[0..idx]);
         }
     }
+    return .{ cmd_raw, redir };
+}
 
-    var argv: [8][]const u8 = undefined;
-    const argc = common.parseArgs(cmd_raw, &argv);
-    if (argc == 0) return;
-
-    if (redirect_file != null) {
-        if (common.selected_disk < 0) {
-            common.printError("Error: Redirection requires a mounted disk\n");
-            return;
-        }
-        common.redirect_active = true;
-        common.redirect_pos = 0;
-    }
-
-    defer {
-        if (redirect_file) |file| {
-            common.redirect_active = false;
-            const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-            if (fat.read_bpb(drive)) |bpb| {
-                if (append_mode) {
-                    _ = fat.append_to_file(drive, bpb, common.current_dir_cluster, file, common.redirect_buffer[0..common.redirect_pos]);
-                } else {
-                    _ = fat.write_file(drive, bpb, common.current_dir_cluster, file, common.redirect_buffer[0..common.redirect_pos]);
-                }
-            }
-            common.redirect_pos = 0;
-        }
-    }
-
-    const cmd_name = argv[0];
-
-    // 1. Built-in Shell Commands
+/// Run a builtin shell command (exact match in SHELL_COMMANDS).
+/// Returns true if a builtin was dispatched.
+fn try_builtin(cmd_raw: []const u8, name: []const u8) bool {
     for (SHELL_COMMANDS) |sc| {
-        if (common.std_mem_eql(sc.name, cmd_name)) {
+        if (common.std_mem_eql(sc.name, name)) {
             // Reconstruct args string for legacy handlers
             var i: usize = 0;
             while (i < cmd_raw.len and cmd_raw[i] != ' ') : (i += 1) {}
             while (i < cmd_raw.len and cmd_raw[i] == ' ') : (i += 1) {}
-            const args_only = cmd_raw[i..];
-
-            sc.handler(args_only);
-            return;
+            sc.handler(cmd_raw[i..]);
+            return true;
         }
     }
+    return false;
+}
 
-    // 2. Relative/Absolute Path Scripts (containing /)
+/// Resolve and run a Nova script: relative path, builtin, or system path.
+/// Returns true if a script was dispatched (or error reported), false if
+/// the command was not recognized as a script.
+fn try_nova_script(name: []const u8, argv: [8][]const u8, argc: usize) bool {
+    // Relative/absolute path scripts (containing /)
     var contains_slash = false;
-    for (cmd_name) |c| {
-        if (c == '/' or c == '\\') {
-            contains_slash = true;
-            break;
-        }
+    for (name) |c| {
+        if (c == '/' or c == '\\') { contains_slash = true; break; }
     }
 
     if (contains_slash) {
-        if (common.endsWithIgnoreCase(cmd_name, ".nv")) {
-            if (common.selected_disk >= 0) {
-                const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-                if (fat.read_bpb(drive)) |bpb| {
-                    if (fat.resolve_full_path(drive, bpb, common.current_dir_cluster, common.current_path[0..common.current_path_len], cmd_name)) |res| {
-                        if (!res.is_dir) {
-                            nova_legacy_commands.setScriptArgs(argv[1..argc]);
-                            nova_legacy_interpreter.runScript(res.path[0..res.path_len]);
-                            return;
-                        }
+        if (!common.endsWithIgnoreCase(name, ".nv")) {
+            common.printError("shell: Direct path execution requires .nv extension\n");
+            return true; // error reported, consumed
+        }
+        if (common.selected_disk >= 0) {
+            const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+            if (fat.read_bpb(drive)) |bpb| {
+                if (fat.resolve_full_path(drive, bpb, common.current_dir_cluster, common.current_path[0..common.current_path_len], name)) |res| {
+                    if (!res.is_dir) {
+                        nova_legacy_commands.setScriptArgs(argv[1..argc]);
+                        nova_legacy_interpreter.runScript(res.path[0..res.path_len]);
+                        return true;
                     }
                 }
             }
-        } else {
-            common.printError("shell: Direct path execution requires .nv extension\n");
-            return;
         }
+        return true; // path specified but unresolved — consumed
     }
 
-    // 3. Built-in Nova Scripts
+    // Built-in Nova scripts
     for (BUILTIN_SCRIPTS) |script| {
-        if (common.std_mem_eql(script.name, cmd_name)) {
+        if (common.std_mem_eql(script.name, name)) {
             nova_legacy_commands.setScriptArgs(argv[1..argc]);
             nova_legacy_interpreter.runScriptSource(script.source, null, false);
-            return;
+            return true;
         }
     }
 
-    // 4. System Path Scripts (/.SYSTEM/CMDS/<cmd_name>.nv)
+    // System path scripts (/.SYSTEM/CMDS/<name>.nv)
     if (common.selected_disk >= 0) {
         var path_buf: [128]u8 = [_]u8{0} ** 128;
         const prefix = "/.SYSTEM/CMDS/";
         const extension = ".nv";
 
-        if (prefix.len + cmd_name.len + extension.len < 128) {
+        if (prefix.len + name.len + extension.len < 128) {
             common.copy(path_buf[0..], prefix);
-            common.copy(path_buf[prefix.len..], cmd_name);
-            common.copy(path_buf[prefix.len + cmd_name.len ..], extension);
-            const full_path = path_buf[0 .. prefix.len + cmd_name.len + extension.len];
+            common.copy(path_buf[prefix.len..], name);
+            common.copy(path_buf[prefix.len + name.len ..], extension);
+            const full_path = path_buf[0 .. prefix.len + name.len + extension.len];
 
             const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
             if (fat.read_bpb(drive)) |bpb| {
                 if (fat.find_entry(drive, bpb, 0, full_path)) |_| {
                     nova_legacy_commands.setScriptArgs(argv[1..argc]);
                     nova_legacy_interpreter.runScript(full_path);
-                    return;
+                    return true;
                 }
             }
         }
     }
+    return false; // nothing matched → caller prints "command not found"
+}
 
-    common.printError("shell: command not found: ");
-    common.printError(cmd_name);
-    common.printError("\n");
-    if (config.ENABLE_ERROR_BEEP) {
-        speaker.beep_pattern_async(200, 80, 50);
+/// Flush redirect output to disk after command execution.
+fn flush_redirect(append: bool, file: []const u8) void {
+    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    if (fat.read_bpb(drive)) |bpb| {
+        if (append) {
+            _ = fat.append_to_file(drive, bpb, common.current_dir_cluster, file, common.redirect_buffer[0..common.redirect_pos]);
+        } else {
+            _ = fat.write_file(drive, bpb, common.current_dir_cluster, file, common.redirect_buffer[0..common.redirect_pos]);
+        }
+    }
+    common.redirect_pos = 0;
+}
+
+pub fn shell_execute_literal(cmd: []const u8) void {
+    // Pipe support: cmd1 | cmd2
+    if (common.std_mem_indexOf(u8, cmd, "|")) |idx| {
+        const left = common.trim(cmd[0..idx]);
+        const right = common.trim(cmd[idx + 1 ..]);
+        if (left.len > 0 and right.len > 0) {
+            common.pipe_active = true;
+            common.pipe_pos = 0;
+            shell_execute_literal(left);
+            common.pipe_active = false;
+            if (common.pipe_pos > 0) {
+                common.pipe_read_active = true;
+                shell_execute_literal(right);
+                common.pipe_read_active = false;
+                common.pipe_pos = 0;
+            }
+        }
+        return;
+    }
+
+    const cmd_raw, const redir = parse_redirection(cmd);
+    if (cmd_raw.len == 0) return;
+
+    var argv: [8][]const u8 = undefined;
+    const argc = common.parseArgs(cmd_raw, &argv);
+    if (argc == 0) return;
+
+    const cmd_name = argv[0];
+
+    // Setup redirect guard
+    const is_redirect = redir.file != null;
+    const append_mode = redir.append;
+    const redirect_file = redir.file.?;
+    if (is_redirect) {
+        if (common.selected_disk < 0) {
+            common.printError("Error: Redirection requires a mounted disk\n");
+            return;
+        }
+        common.redirect_active = true;
+        common.redirect_pos = 0;
+        defer {
+            common.redirect_active = false;
+            flush_redirect(append_mode, redirect_file);
+        }
+    }
+
+    // 1. Built-in Shell Commands
+    if (try_builtin(cmd_raw, cmd_name)) return;
+
+    // 2-4. Nova scripts (relative path, builtin, system path)
+    if (try_nova_script(cmd_name, argv, argc)) {
+        common.printError("shell: command not found: ");
+        common.printError(cmd_name);
+        common.printError("\n");
+        if (config.ENABLE_ERROR_BEEP) {
+            speaker.beep_pattern_async(200, 80, 50);
+        }
     }
 }
 
