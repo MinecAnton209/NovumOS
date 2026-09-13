@@ -469,35 +469,7 @@ fn load_history_from_disk() void {
 }
 
 fn refresh_line() void {
-    const saved_pos = cmd_pos;
-
-    // 1. VGA Update (Clear to avoid trailing characters when line length decreases)
-    vga.clear_prompt_area(prompt_row, prompt_col);
-
-    // Set cursor silently to avoid flashing the cursor at the prompt start
-    vga.cursor_row = prompt_row;
-    vga.cursor_col = prompt_col;
-    for (cmd_buffer[0..cmd_len]) |c| {
-        const row_before_char = vga.zig_get_cursor_row();
-        vga.zig_print_char(c);
-        const row_after_char = vga.zig_get_cursor_row();
-
-        // Detection of scroll:
-        // 1. row decreased (typical scroll)
-        // 2. row stayed the same but we were on the last row and printed a newline/wrapped
-        // Since zig_print_char handles scroll by staying on the same (last) row,
-        // we need to be careful.
-        if (row_after_char < row_before_char) {
-            if (prompt_row > 0) prompt_row -= 1;
-        } else if (row_before_char == vga.MAX_ROWS - 1 and row_after_char == vga.MAX_ROWS - 1) {
-            // If we are at the last row and we just did a newline or wrapped, it scrolled
-            // Note: internal_newline sets cursor_row to MAX_ROWS - 1 after scroll.
-            // We can check if we wrapped or got a newline.
-            if (c == '\n' or (vga.zig_get_cursor_col() == 0 and c != '\r' and c != 8)) {
-                if (prompt_row > 0) prompt_row -= 1;
-            }
-        }
-    }
+    render_vga_line();
 
     // 2. Serial Update
     serial.serial_hide_cursor();
@@ -505,11 +477,36 @@ fn refresh_line() void {
     serial.serial_print_str(cmd_buffer[0..cmd_len]);
     serial.serial_clear_line();
 
-    cmd_pos = saved_pos;
     move_screen_cursor();
     serial.serial_show_cursor();
 
-    // Update status indicator in top-right corner
+    draw_status_indicators();
+}
+
+/// Render cmd_buffer to VGA, tracking prompt_row for scroll correction.
+fn render_vga_line() void {
+    vga.clear_prompt_area(prompt_row, prompt_col);
+    vga.cursor_row = prompt_row;
+    vga.cursor_col = prompt_col;
+
+    for (cmd_buffer[0..cmd_len]) |c| {
+        const row_before = vga.zig_get_cursor_row();
+        vga.zig_print_char(c);
+        const row_after = vga.zig_get_cursor_row();
+
+        // Scroll detection: row dropped, or last row stayed (wrap/newline)
+        if (row_after < row_before) {
+            if (prompt_row > 0) prompt_row -= 1;
+        } else if (row_before == vga.MAX_ROWS - 1 and row_after == vga.MAX_ROWS - 1) {
+            if (c == '\n' or (vga.zig_get_cursor_col() == 0 and c != '\r' and c != 8)) {
+                if (prompt_row > 0) prompt_row -= 1;
+            }
+        }
+    }
+}
+
+/// Draw CAPS/NUM/INS status indicators in the top-right corner.
+fn draw_status_indicators() void {
     const cols = vga.MAX_COLS;
     const caps_attr = if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800);
     vga.draw_indicator(@intCast(cols - 14), caps_attr, 'C');
