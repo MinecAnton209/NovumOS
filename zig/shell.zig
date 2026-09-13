@@ -229,7 +229,7 @@ pub export fn read_command() void {
         if (config.ENABLE_SPEAKER) speaker.beep_async_check();
         const char = keyboard.keyboard_wait_char();
 
-        if (char == 3) {
+        if (char == 3) { // Ctrl+C
             common.printZ("^C\n");
             cmd_len = 0;
             cmd_pos = 0;
@@ -242,135 +242,10 @@ pub export fn read_command() void {
 
         if (char != 9) auto_cycling = false;
 
-        if (char == 10) { // Enter
-            shell_cursor_visible = false;
-            refresh_line();
-            break;
-        } else if (char == 8 or char == 127) { // Backspace
-            if (cmd_pos > 0) {
-                // Shift buffer left
-                var i: usize = cmd_pos - 1;
-                while (i < cmd_len - 1) : (i += 1) {
-                    cmd_buffer[i] = cmd_buffer[i + 1];
-                }
-                cmd_buffer[cmd_len - 1] = 0;
-                cmd_pos -= 1;
-                cmd_len -= 1;
-                refresh_line();
-            }
-        } else if (char == keyboard.KEY_LEFT) {
-            if (cmd_pos > 0) {
-                cmd_pos -= 1;
-                move_screen_cursor();
-            }
-        } else if (char == keyboard.KEY_RIGHT) {
-            if (cmd_pos < cmd_len) {
-                cmd_pos += 1;
-                move_screen_cursor();
-            }
-        } else if (char == keyboard.KEY_HOME) {
-            cmd_pos = 0;
-            move_screen_cursor();
-        } else if (char == keyboard.KEY_END) {
-            cmd_pos = cmd_len;
-            move_screen_cursor();
-        } else if (char == keyboard.KEY_DELETE) {
-            if (cmd_pos < cmd_len) {
-                // Shift buffer left starting from pos
-                var i: usize = cmd_pos;
-                while (i < cmd_len - 1) : (i += 1) {
-                    cmd_buffer[i] = cmd_buffer[i + 1];
-                }
-                cmd_buffer[cmd_len - 1] = 0;
-                cmd_len -= 1;
-                refresh_line();
-            }
-        } else if (char == keyboard.KEY_INSERT) {
-            insert_mode = !insert_mode;
-            refresh_line();
-        } else if (char == keyboard.KEY_CAPS or char == keyboard.KEY_NUM) {
-            refresh_line();
-        } else if (char == keyboard.KEY_UP) {
-            if (history_count > 0 and history_index > 0) {
-                history_index -= 1;
-                load_history();
-            }
-        } else if (char == keyboard.KEY_DOWN) {
-            if (history_index < history_count) {
-                history_index += 1;
-                if (history_index == history_count) {
-                    clear_input_line();
-                } else {
-                    load_history();
-                }
-            }
-        } else if (char == 9) { // Tab
-            if (auto_cycling) {
-                auto_match_index += 1;
-            }
-            autocomplete();
-            refresh_line();
-        } else if (char == 12) { // Ctrl+L - clear screen
-            vga.clear_screen();
-            messages.print_welcome();
-            common.printZ("\n");
-            display_prompt();
-            prompt_row = vga.zig_get_cursor_row();
-            prompt_col = vga.zig_get_cursor_col();
-            shell_cursor_visible = true;
-            refresh_line();
-        } else if (char == 1) { // Ctrl+A - jump to beginning
-            cmd_pos = 0;
-            move_screen_cursor();
-        } else if (char == 5) { // Ctrl+E - jump to end
-            cmd_pos = cmd_len;
-            move_screen_cursor();
-        } else if (char == 23) { // Ctrl+W - delete word backwards
-            if (cmd_pos > 0) {
-                // Skip trailing spaces
-                var pos = cmd_pos;
-                while (pos > 0 and cmd_buffer[pos - 1] == ' ') pos -= 1;
-                // Skip the word
-                while (pos > 0 and cmd_buffer[pos - 1] != ' ') pos -= 1;
-                const deleted = cmd_pos - pos;
-                var i: usize = pos;
-                while (i < cmd_len - deleted) : (i += 1) {
-                    cmd_buffer[i] = cmd_buffer[i + deleted];
-                }
-                while (i < cmd_len) : (i += 1) cmd_buffer[i] = 0;
-                cmd_len -= deleted;
-                cmd_pos = pos;
-                refresh_line();
-            }
-        } else if (char == 21) { // Ctrl+U - clear entire line
-            for (&cmd_buffer) |*b| b.* = 0;
-            cmd_len = 0;
-            cmd_pos = 0;
-            refresh_line();
-        } else if (char >= 32 and char <= 126) { // Printable characters
-            if (cmd_len < 1023) {
-                if (insert_mode) {
-                    // Shift buffer right
-                    var i: usize = cmd_len;
-                    while (i > cmd_pos) : (i -= 1) {
-                        cmd_buffer[i] = cmd_buffer[i - 1];
-                    }
-                    cmd_buffer[cmd_pos] = char;
-                    cmd_len += 1;
-                    cmd_pos += 1;
-                } else {
-                    // Overwrite mode
-                    cmd_buffer[cmd_pos] = char;
-                    if (cmd_pos == cmd_len) cmd_len += 1;
-                    cmd_pos += 1;
-                }
-                refresh_line();
-            }
-        }
+        handle_input_char(char);
+        if (char == 10) break; // Enter
         vga.vga_flush();
     }
-
-    // Do not explicitly erase, refresh_line clears prompt directly
 
     if (cmd_len > 0) {
         save_to_history();
@@ -378,6 +253,167 @@ pub export fn read_command() void {
     }
     common.print_char('\r');
     common.print_char('\n');
+}
+
+/// Dispatch a single keystroke within the read_command loop.
+fn handle_input_char(char: u8) void {
+    if (char == 10) { // Enter
+        shell_cursor_visible = false;
+        refresh_line();
+        return;
+    }
+
+    if (char == 12) { // Ctrl+L — clear screen
+        vga.clear_screen();
+        messages.print_welcome();
+        common.printZ("\n");
+        display_prompt();
+        prompt_row = vga.zig_get_cursor_row();
+        prompt_col = vga.zig_get_cursor_col();
+        shell_cursor_visible = true;
+        refresh_line();
+        return;
+    }
+
+    if (char == 9) { // Tab — autocomplete, may auto-cycle
+        if (auto_cycling) auto_match_index += 1;
+        autocomplete();
+        refresh_line();
+        return;
+    }
+
+    if (char == keyboard.KEY_INSERT) {
+        insert_mode = !insert_mode;
+        refresh_line();
+        return;
+    }
+    if (char == keyboard.KEY_CAPS or char == keyboard.KEY_NUM) {
+        refresh_line();
+        return;
+    }
+
+    if (char == 1) {    // Ctrl+A — jump to beginning
+        cmd_pos = 0;
+        move_screen_cursor();
+        return;
+    }
+    if (char == 5) {    // Ctrl+E — jump to end
+        cmd_pos = cmd_len;
+        move_screen_cursor();
+        return;
+    }
+
+    if (char == 23) {   // Ctrl+W — delete word backwards
+        handle_delete_word();
+        return;
+    }
+    if (char == 21) {   // Ctrl+U — clear line
+        for (&cmd_buffer) |*b| b.* = 0;
+        cmd_len = 0;
+        cmd_pos = 0;
+        refresh_line();
+        return;
+    }
+
+    if (char == 8 or char == 127) { handle_backspace(); return; } // Backspace
+    if (char == keyboard.KEY_DELETE) { handle_delete(); return; }
+
+    if (handle_navigation_key(char)) return;
+    if (handle_history_key(char)) return;
+
+    if (char >= 32 and char <= 126) { handle_printable(char); }
+}
+
+fn handle_printable(char: u8) void {
+    if (cmd_len >= 1023) return;
+
+    if (insert_mode) {
+        var i: usize = cmd_len;
+        while (i > cmd_pos) : (i -= 1) cmd_buffer[i] = cmd_buffer[i - 1];
+        cmd_buffer[cmd_pos] = char;
+        cmd_len += 1;
+        cmd_pos += 1;
+    } else {
+        cmd_buffer[cmd_pos] = char;
+        if (cmd_pos == cmd_len) cmd_len += 1;
+        cmd_pos += 1;
+    }
+    refresh_line();
+}
+
+fn handle_backspace() void {
+    if (cmd_pos == 0) return;
+    var i: usize = cmd_pos - 1;
+    while (i < cmd_len - 1) : (i += 1) cmd_buffer[i] = cmd_buffer[i + 1];
+    cmd_buffer[cmd_len - 1] = 0;
+    cmd_pos -= 1;
+    cmd_len -= 1;
+    refresh_line();
+}
+
+fn handle_delete() void {
+    if (cmd_pos >= cmd_len) return;
+    var i: usize = cmd_pos;
+    while (i < cmd_len - 1) : (i += 1) cmd_buffer[i] = cmd_buffer[i + 1];
+    cmd_buffer[cmd_len - 1] = 0;
+    cmd_len -= 1;
+    refresh_line();
+}
+
+fn handle_delete_word() void {
+    if (cmd_pos == 0) return;
+    var pos: u16 = cmd_pos;
+    while (pos > 0 and cmd_buffer[pos - 1] == ' ') pos -= 1;
+    while (pos > 0 and cmd_buffer[pos - 1] != ' ') pos -= 1;
+
+    const deleted: u16 = cmd_pos - pos;
+    var i: usize = pos;
+    const limit: usize = cmd_len - deleted;
+    while (i < limit) : (i += 1) cmd_buffer[i] = cmd_buffer[i + deleted];
+    while (i < cmd_len) : (i += 1) cmd_buffer[i] = 0;
+    cmd_len -= deleted;
+    cmd_pos = pos;
+    refresh_line();
+}
+
+/// Returns true if char was a recognized arrow-key (navigation handled).
+fn handle_navigation_key(char: u8) bool {
+    if (char == keyboard.KEY_LEFT) {
+        if (cmd_pos > 0) { cmd_pos -= 1; move_screen_cursor(); }
+        return true;
+    }
+    if (char == keyboard.KEY_RIGHT) {
+        if (cmd_pos < cmd_len) { cmd_pos += 1; move_screen_cursor(); }
+        return true;
+    }
+    if (char == keyboard.KEY_HOME) {
+        if (cmd_pos != 0) { cmd_pos = 0; move_screen_cursor(); }
+        return true;
+    }
+    if (char == keyboard.KEY_END) {
+        if (cmd_pos != cmd_len) { cmd_pos = cmd_len; move_screen_cursor(); }
+        return true;
+    }
+    return false;
+}
+
+/// Returns true if char was an Up/Down arrow.
+fn handle_history_key(char: u8) bool {
+    if (char == keyboard.KEY_UP) {
+        if (history_count > 0 and history_index > 0) {
+            history_index -= 1;
+            load_history();
+        }
+        return true;
+    }
+    if (char == keyboard.KEY_DOWN) {
+        if (history_index < history_count) {
+            history_index += 1;
+            if (history_index == history_count) clear_input_line() else load_history();
+        }
+        return true;
+    }
+    return false;
 }
 
 fn save_history_to_disk() void {
