@@ -10,6 +10,13 @@ const VideoMode = extern struct {
     pitch: u32,
 };
 
+/// Syscall 58: SetResolution(EBX=width, ECX=height) -> EAX=0|1
+/// Runs the BGA resolution switch in Ring 0 because it maps new
+/// framebuffer and backbuffer pages (invlpg is privileged).
+pub fn setResolution(regs: *user.Registers) void {
+    regs.eax = if (lfb.init_bga(@intCast(regs.ebx), @intCast(regs.ecx))) 1 else 0;
+}
+
 pub fn getVideoMode(regs: *user.Registers) void {
     const dst = @as(*VideoMode, @ptrFromInt(regs.ebx));
     dst.width = lfb.width;

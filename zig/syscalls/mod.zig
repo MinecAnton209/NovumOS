@@ -160,6 +160,7 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     table[107] = &memory_mod.mmap;
     table[108] = &memory_mod.munmap;
     // Video/Graphics
+    table[58] = &video_mod.setResolution;
     table[60] = &video_mod.getVideoMode;
     table[61] = &video_mod.requestFramebuffer;
     table[62] = &video_mod.releaseFramebuffer;

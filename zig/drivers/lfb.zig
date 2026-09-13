@@ -146,6 +146,21 @@ pub fn init() void {
 }
 
 pub fn init_bga(w: u16, h: u16) bool {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 3) {
+        // Mapping new framebuffer/backbuffer pages runs invlpg (privileged),
+        // so the whole resolution switch must execute in Ring 0.
+        const ok = asm volatile ("int $0x80"
+            : [ret] "={eax}" (-> u32),
+            : [sys] "{eax}" (@as(u32, 58)),
+              [w] "{ebx}" (@as(u32, w)),
+              [h] "{ecx}" (@as(u32, h)),
+        );
+        return ok != 0;
+    }
     if (!bga.is_available()) return false;
 
     // Set 32bpp resolution via BGA ports
