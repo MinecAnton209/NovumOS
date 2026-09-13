@@ -22,6 +22,7 @@ pub extern const idt_start: anyopaque;
 // We'll allocate a fixed-size bitmap for up to 4GB (128KB bitmap)
 var bitmap: [131072]u8 align(4096) linksection(".system") = [_]u8{0} ** 131072;
 var last_free_page: u32 = 0;
+var free_page_count: u32 = 0;
 var pmm_lock: u32 = 0;
 var paging_lock: u32 = 0;
 const smp = @import("smp.zig");
@@ -44,6 +45,8 @@ pub const pmm = struct {
         const reserved_pages = (reserved_up_to / PAGE_SIZE) + 1;
         var i: u32 = 0;
         while (i < reserved_pages) : (i += 1) _ = set_page_busy(i);
+
+        free_page_count = @intCast(TOTAL_PAGES - reserved_pages);
     }
 
     pub fn alloc_page() ?usize {
@@ -59,6 +62,7 @@ pub const pmm = struct {
             if (!is_page_busy(i)) {
                 _ = set_page_busy(i);
                 last_free_page = i;
+                free_page_count -= 1;
                 return i * PAGE_SIZE;
             }
         }
@@ -76,6 +80,7 @@ pub const pmm = struct {
         const idx = @as(u32, @intCast(addr / PAGE_SIZE));
         _ = clear_page_busy(idx);
         if (idx < last_free_page) last_free_page = idx;
+        free_page_count += 1;
     }
 };
 
@@ -895,16 +900,11 @@ fn tryCoalesce(block: *BlockHeader) *BlockHeader {
 }
 
 pub fn get_free_memory() usize {
-    var free: usize = 0;
-    var i: u32 = 0;
-    while (i < TOTAL_PAGES) : (i += 1) {
-        if (!is_page_busy(i)) free += PAGE_SIZE;
-    }
-    return free;
+    return @as(usize, free_page_count) * PAGE_SIZE;
 }
 
 pub fn get_used_memory() usize {
-    return MAX_MEMORY - get_free_memory();
+    return @as(usize, TOTAL_PAGES - free_page_count) * PAGE_SIZE;
 }
 
 pub fn get_current_pd() u32 {
