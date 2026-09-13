@@ -3,32 +3,7 @@
 // BPB/drive/cluster params are accepted for signature compat but ignored.
 
 const ata = @import("ata.zig");
-
-// Helper syscalls
-fn syscall1(n: u32, a1: u32) u32 {
-    return asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> u32),
-        : [num] "{eax}" (n),
-          [a1] "{ebx}" (a1),
-    );
-}
-fn syscall2(n: u32, a1: u32, a2: u32) u32 {
-    return asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> u32),
-        : [num] "{eax}" (n),
-          [a1] "{ebx}" (a1),
-          [a2] "{ecx}" (a2),
-    );
-}
-fn syscall3(n: u32, a1: u32, a2: u32, a3: u32) u32 {
-    return asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> u32),
-        : [num] "{eax}" (n),
-          [a1] "{ebx}" (a1),
-          [a2] "{ecx}" (a2),
-          [a3] "{edx}" (a3),
-    );
-}
+const syscall = @import("../syscall.zig");
 
 // Re-export ATA Drive for callers
 pub const Drive = ata.Drive;
@@ -73,7 +48,7 @@ pub fn read_file(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u8,
     _ = bpb;
     _ = dir_cluster;
     // Use a WriteBuf to print the path first (debug), then do ReadFile
-    const result = syscall3(45, @intFromPtr(path.ptr), @intFromPtr(output), 0x10000);
+    const result = syscall.syscall3(45, @intFromPtr(path.ptr), @intFromPtr(output), 0x10000);
     if (result == 0xFFFFFFFF) return -1;
     return @as(i32, @intCast(result));
 }
@@ -83,7 +58,7 @@ pub fn write_file(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u8
     _ = drive;
     _ = bpb;
     _ = dir_cluster;
-    const result = syscall3(46, @intFromPtr(path.ptr), @intFromPtr(data.ptr), @intCast(data.len));
+    const result = syscall.syscall3(46, @intFromPtr(path.ptr), @intFromPtr(data.ptr), @intCast(data.len));
     return result != 0xFFFFFFFF;
 }
 
@@ -92,7 +67,7 @@ pub fn delete_file(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u
     _ = drive;
     _ = bpb;
     _ = dir_cluster;
-    return syscall1(47, @intFromPtr(path.ptr)) != 0xFFFFFFFF;
+    return syscall.syscall1(47, @intFromPtr(path.ptr)) != 0xFFFFFFFF;
 }
 
 /// Rename file. Uses syscall 48 Rename.
@@ -100,7 +75,7 @@ pub fn rename_file(drive: ata.Drive, bpb: BPB, dir_cluster: u32, old_path: []con
     _ = drive;
     _ = bpb;
     _ = dir_cluster;
-    return syscall2(48, @intFromPtr(old_path.ptr), @intFromPtr(new_path.ptr)) != 0xFFFFFFFF;
+    return syscall.syscall2(48, @intFromPtr(old_path.ptr), @intFromPtr(new_path.ptr)) != 0xFFFFFFFF;
 }
 
 /// Copy file. Uses syscall 52 Copy.
@@ -108,7 +83,7 @@ pub fn copy_file(drive: ata.Drive, bpb: BPB, dir_cluster: u32, src_path: []const
     _ = drive;
     _ = bpb;
     _ = dir_cluster;
-    return syscall2(52, @intFromPtr(src_path.ptr), @intFromPtr(dest_path.ptr)) != 0xFFFFFFFF;
+    return syscall.syscall2(52, @intFromPtr(src_path.ptr), @intFromPtr(dest_path.ptr)) != 0xFFFFFFFF;
 }
 
 /// Find entry (check existence + get size). Uses syscall 49 Stat + 51 Exists.
@@ -117,11 +92,11 @@ pub fn find_entry(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u8
     _ = bpb;
     _ = dir_cluster;
     // First check if it exists (syscall 51)
-    const exists = syscall1(51, @intFromPtr(path.ptr));
+    const exists = syscall.syscall1(51, @intFromPtr(path.ptr));
     if (exists == 0) return null;
     // Get stat info (syscall 49)
     var stat: StatResult = undefined;
-    const stat_result = syscall2(49, @intFromPtr(path.ptr), @intFromPtr(&stat));
+    const stat_result = syscall.syscall2(49, @intFromPtr(path.ptr), @intFromPtr(&stat));
     if (stat_result == 0xFFFFFFFF) return null;
     return DirEntry{
         .file_size = stat.size,
@@ -145,7 +120,7 @@ pub fn fat_size(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u8) 
     _ = drive;
     _ = bpb;
     _ = dir_cluster;
-    const result = syscall1(50, @intFromPtr(path.ptr));
+    const result = syscall.syscall1(50, @intFromPtr(path.ptr));
     if (result == 0xFFFFFFFF) return 0;
     return result;
 }

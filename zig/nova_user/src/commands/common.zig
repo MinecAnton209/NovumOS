@@ -1,28 +1,11 @@
 // compat: commands/common.zig — syscall-based Ring 3 implementations
 // replaces kernel's commands/common.zig
+const syscall = @import("../syscall.zig");
 
-// Helper syscall wrappers
-pub fn syscall0(n: u32) u32 {
-    return asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> u32),
-        : [num] "{eax}" (n),
-    );
-}
-pub fn syscall1(n: u32, a1: u32) u32 {
-    return asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> u32),
-        : [num] "{eax}" (n),
-          [a1] "{ebx}" (a1),
-    );
-}
-pub fn syscall2(n: u32, a1: u32, a2: u32) u32 {
-    return asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> u32),
-        : [num] "{eax}" (n),
-          [a1] "{ebx}" (a1),
-          [a2] "{ecx}" (a2),
-    );
-}
+// Thin wrappers for callers that reference common.syscall0/1/2
+pub fn syscall0(n: u32) u32 { return syscall.syscall0(n); }
+pub fn syscall1(n: u32, a1: u32) u32 { return syscall.syscall1(n, a1); }
+pub fn syscall2(n: u32, a1: u32, a2: u32) u32 { return syscall.syscall2(n, a1, a2); }
 
 // --- VGA/console ---
 pub var current_color: u16 = 0x07;
