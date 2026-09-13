@@ -14,6 +14,7 @@ pub const read_bpb = bpb_mod.read_bpb;
 pub const DirEntry = bpb_mod.DirEntry;
 pub const LfnState = bpb_mod.LfnState;
 pub const extract_lfn_part = bpb_mod.extract_lfn_part;
+pub const consume_lfn_entry = dir.consume_lfn_entry;
 
 pub const EntryLocation = dir.EntryLocation;
 pub const FatName = dir.FatName;

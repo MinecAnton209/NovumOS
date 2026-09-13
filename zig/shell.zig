@@ -572,25 +572,6 @@ fn save_to_history() void {
     history_count += 1;
 }
 
-const ShellLfnState = struct {
-    buf: [256]u8,
-    active: bool,
-    checksum: u8,
-};
-
-fn shell_extract_lfn_part(buf: []const u8, start: usize, count: usize, out: []u8, out_offset: usize) void {
-    for (0..count) |j| {
-        if (out_offset + j >= out.len) return;
-        const char_low = buf[start + j * 2];
-        const char_high = buf[start + j * 2 + 1];
-        if (char_low == 0 and char_high == 0) {
-            out[out_offset + j] = 0;
-            return;
-        }
-        out[out_offset + j] = if (char_high == 0) char_low else '?';
-    }
-}
-
 fn autocomplete() void {
     if (cmd_len == 0 and !auto_cycling) return;
 
@@ -634,7 +615,7 @@ fn autocomplete() void {
         const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
         if (fat.read_bpb(drive)) |bpb| {
             var d_buf: [512]u8 = undefined;
-            var lfn: ShellLfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
+            var lfn: fat.LfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
 
             if (common.current_dir_cluster == 0 and bpb.fat_type != .FAT32) {
                 var sector = bpb.first_root_dir_sector;
@@ -650,47 +631,17 @@ fn autocomplete() void {
                             lfn.active = false;
                             continue;
                         }
-                        if (d_buf[j + 11] == 0x0F) {
-                            // LFN Parse
-                            const seq = d_buf[j];
-                            const chk = d_buf[j + 11 + 2]; // offset 13
-                            if ((seq & 0x40) != 0) {
-                                lfn.active = true;
-                                lfn.checksum = chk;
-                                @memset(&lfn.buf, 0);
-                            } else if (!lfn.active or lfn.checksum != chk) {
-                                lfn.active = false;
-                                continue;
-                            }
-                            var index = (seq & 0x1F);
-                            if (index < 1) index = 1;
-                            const offset = (index - 1) * 13;
-                            if (offset < 240) {
-                                shell_extract_lfn_part(&d_buf, j + 1, 5, &lfn.buf, offset);
-                                shell_extract_lfn_part(&d_buf, j + 14, 6, &lfn.buf, offset + 5);
-                                shell_extract_lfn_part(&d_buf, j + 28, 2, &lfn.buf, offset + 11);
-                            }
-                            continue;
-                        }
+                        if (fat.consume_lfn_entry(&d_buf, j, &lfn)) continue;
 
                         if (is_cd_cmd and (d_buf[j + 11] & 0x10) == 0) {
                             lfn.active = false;
                             continue;
                         }
 
-                        // Checksum for LFN match
-                        var sum: u8 = 0;
-                        for (0..11) |k| {
-                            const is_odd = (sum & 1) != 0;
-                            sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-                            sum = sum +% d_buf[j + k];
-                        }
-
                         var name_str: []const u8 = undefined;
-                        // Temp buffer for 8.3 name if needed
                         const sn = fat.get_name_from_raw(d_buf[j .. j + 32]);
 
-                        if (lfn.active and lfn.checksum == sum) {
+                        if (lfn.active) {
                             var len: usize = 0;
                             while (len < 256 and lfn.buf[len] != 0) : (len += 1) {}
                             name_str = lfn.buf[0..len];
@@ -725,45 +676,17 @@ fn autocomplete() void {
                                 lfn.active = false;
                                 continue;
                             }
-                            if (d_buf[j + 11] == 0x0F) {
-                                const seq = d_buf[j];
-                                const chk = d_buf[j + 13];
-                                if ((seq & 0x40) != 0) {
-                                    lfn.active = true;
-                                    lfn.checksum = chk;
-                                    @memset(&lfn.buf, 0);
-                                } else if (!lfn.active or lfn.checksum != chk) {
-                                    lfn.active = false;
-                                    continue;
-                                }
-                                var index = (seq & 0x1F);
-                                if (index < 1) index = 1;
-                                const offset = (index - 1) * 13;
-                                if (offset < 240) {
-                                    shell_extract_lfn_part(&d_buf, j + 1, 5, &lfn.buf, offset);
-                                    shell_extract_lfn_part(&d_buf, j + 14, 6, &lfn.buf, offset + 5);
-                                    shell_extract_lfn_part(&d_buf, j + 28, 2, &lfn.buf, offset + 11);
-                                }
-                                continue;
-                            }
+                            if (fat.consume_lfn_entry(&d_buf, j, &lfn)) continue;
 
                             if (is_cd_cmd and (d_buf[j + 11] & 0x10) == 0) {
                                 lfn.active = false;
                                 continue;
                             }
 
-                            // Checksum for LFN match
-                            var sum: u8 = 0;
-                            for (0..11) |k| {
-                                const is_odd = (sum & 1) != 0;
-                                sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-                                sum = sum +% d_buf[j + k];
-                            }
-
                             var name_str: []const u8 = undefined;
                             const sn = fat.get_name_from_raw(d_buf[j .. j + 32]);
 
-                            if (lfn.active and lfn.checksum == sum) {
+                            if (lfn.active) {
                                 var len: usize = 0;
                                 while (len < 256 and lfn.buf[len] != 0) : (len += 1) {}
                                 name_str = lfn.buf[0..len];
@@ -814,7 +737,7 @@ fn autocomplete() void {
         const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
         if (fat.read_bpb(drive)) |bpb| {
             var d_buf: [512]u8 = undefined;
-            var lfn: ShellLfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
+            var lfn: fat.LfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
 
             if (common.current_dir_cluster == 0 and bpb.fat_type != .FAT32) {
                 var sector = bpb.first_root_dir_sector;
@@ -830,44 +753,16 @@ fn autocomplete() void {
                             lfn.active = false;
                             continue;
                         }
-                        if (d_buf[j + 11] == 0x0F) {
-                            // LFN Parse
-                            const seq = d_buf[j];
-                            const chk = d_buf[j + 13];
-                            if ((seq & 0x40) != 0) {
-                                lfn.active = true;
-                                lfn.checksum = chk;
-                                @memset(&lfn.buf, 0);
-                            } else if (!lfn.active or lfn.checksum != chk) {
-                                lfn.active = false;
-                                continue;
-                            }
-                            var index = (seq & 0x1F);
-                            if (index < 1) index = 1;
-                            const offset = (index - 1) * 13;
-                            if (offset < 240) {
-                                shell_extract_lfn_part(&d_buf, j + 1, 5, &lfn.buf, offset);
-                                shell_extract_lfn_part(&d_buf, j + 14, 6, &lfn.buf, offset + 5);
-                                shell_extract_lfn_part(&d_buf, j + 28, 2, &lfn.buf, offset + 11);
-                            }
-                            continue;
-                        }
+                        if (fat.consume_lfn_entry(&d_buf, j, &lfn)) continue;
                         if (is_cd_cmd and (d_buf[j + 11] & 0x10) == 0) {
                             lfn.active = false;
                             continue;
                         }
 
-                        var sum: u8 = 0;
-                        for (0..11) |k| {
-                            const is_odd = (sum & 1) != 0;
-                            sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-                            sum = sum +% d_buf[j + k];
-                        }
-
                         var name_str: []const u8 = undefined;
                         const sn = fat.get_name_from_raw(d_buf[j .. j + 32]);
 
-                        if (lfn.active and lfn.checksum == sum) {
+                        if (lfn.active) {
                             var len: usize = 0;
                             while (len < 256 and lfn.buf[len] != 0) : (len += 1) {}
                             name_str = lfn.buf[0..len];
@@ -910,44 +805,16 @@ fn autocomplete() void {
                                 lfn.active = false;
                                 continue;
                             }
-                            if (d_buf[j + 11] == 0x0F) {
-                                // LFN Parse
-                                const seq = d_buf[j];
-                                const chk = d_buf[j + 13];
-                                if ((seq & 0x40) != 0) {
-                                    lfn.active = true;
-                                    lfn.checksum = chk;
-                                    @memset(&lfn.buf, 0);
-                                } else if (!lfn.active or lfn.checksum != chk) {
-                                    lfn.active = false;
-                                    continue;
-                                }
-                                var index = (seq & 0x1F);
-                                if (index < 1) index = 1;
-                                const offset = (index - 1) * 13;
-                                if (offset < 240) {
-                                    shell_extract_lfn_part(&d_buf, j + 1, 5, &lfn.buf, offset);
-                                    shell_extract_lfn_part(&d_buf, j + 14, 6, &lfn.buf, offset + 5);
-                                    shell_extract_lfn_part(&d_buf, j + 28, 2, &lfn.buf, offset + 11);
-                                }
-                                continue;
-                            }
+                            if (fat.consume_lfn_entry(&d_buf, j, &lfn)) continue;
                             if (is_cd_cmd and (d_buf[j + 11] & 0x10) == 0) {
                                 lfn.active = false;
                                 continue;
                             }
 
-                            var sum: u8 = 0;
-                            for (0..11) |k| {
-                                const is_odd = (sum & 1) != 0;
-                                sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-                                sum = sum +% d_buf[j + k];
-                            }
-
                             var name_str: []const u8 = undefined;
                             const sn = fat.get_name_from_raw(d_buf[j .. j + 32]);
 
-                            if (lfn.active and lfn.checksum == sum) {
+                            if (lfn.active) {
                                 var len: usize = 0;
                                 while (len < 256 and lfn.buf[len] != 0) : (len += 1) {}
                                 name_str = lfn.buf[0..len];

@@ -9,6 +9,7 @@ pub const read_bpb = fat.read_bpb;
 pub const DirEntry = fat.DirEntry;
 pub const LfnState = fat.LfnState;
 pub const extract_lfn_part = fat.extract_lfn_part;
+pub const consume_lfn_entry = fat.consume_lfn_entry;
 
 pub const EntryLocation = fat.EntryLocation;
 pub const FatName = fat.FatName;

@@ -1035,7 +1035,7 @@ fn short_name_checksum(name: []const u8) u8 {
 /// If the entry is a long-filename (LFN) entry, updates `lfn` and returns
 /// true (caller should `continue` to the next entry).
 /// Otherwise returns false and resets `lfn.active`.
-fn consume_lfn_entry(buffer: []const u8, idx: usize, lfn: *LfnState) bool {
+pub fn consume_lfn_entry(buffer: []const u8, idx: usize, lfn: *LfnState) bool {
     if (buffer[idx + 11] != 0x0F) {
         // Short entry — compute checksum to match pending LFN
         const sum = short_name_checksum(buffer[idx .. idx + 32]);
