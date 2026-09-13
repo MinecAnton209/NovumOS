@@ -105,8 +105,11 @@ fn init_disk_check() void {
     const boot_spinner = [_]u8{ '|', '/', '-', '\\' };
     var boot_elapsed: usize = 0;
     var boot_last: usize = 0;
-    var disk_found = false;
 
+    // Probe both Master and Slave in a short loop (≤2s).
+    // Select whichever has a valid BPB; prefer Slave to match legacy behavior.
+    var master_probed = false;
+    var slave_probed = false;
     while (boot_elapsed < 2000) {
         const now = timer.get_ticks();
         if (now - boot_last >= 10) {
@@ -115,14 +118,23 @@ fn init_disk_check() void {
             common.print_char(8);
         }
 
-        const size = ata.identify(.Slave);
-        if (size > 0) { disk_found = true; break; }
+        if (!slave_probed and ata.identify(.Slave) > 0) {
+            slave_probed = true;
+            if (fat.read_bpb(.Slave) != null) {
+                common.selected_disk = 1;
+                break;
+            }
+        }
+        if (!master_probed and ata.identify(.Master) > 0) {
+            master_probed = true;
+            if (fat.read_bpb(.Master) != null) {
+                common.selected_disk = 0;
+                break;
+            }
+        }
+        if (slave_probed and master_probed) break;
         timer.sleep(10);
         boot_elapsed += 10;
-    }
-
-    if (disk_found) {
-        if (fat.read_bpb(.Slave) != null) common.selected_disk = 1;
     }
     common.fs_init();
 
