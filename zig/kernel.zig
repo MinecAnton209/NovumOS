@@ -60,52 +60,48 @@ pub fn panic(msg: []const u8, _: ?*@import("std").builtin.StackTrace, _: ?usize)
 }
 const scheduler = @import("scheduler.zig");
 
-// --- Kernel Entry Point ---
-export fn kmain() void {
-    // 1. Initialize Memory first so we can use paging, heap and LFB mapping
+
+/// Main Kernel Loop - Exported for re-entry from User Mode
+pub export fn kernel_loop() noreturn {
+    while (true) {
+        read_command();
+        execute_command();
+        vga.vga_flush();
+    }
+}
+
+fn init_memory() void {
     memory.pmm.init();
     memory.heap.init();
     memory.init_paging();
+}
 
-    // 2. Initialize timer early so we can do small delays for animation
+fn init_display() void {
     timer.init();
-
-    // 3. Initialize display so we can show boot progress
     lfb.init();
     vga.clear_screen();
-
-    vga.set_color(11, 0); // Light Cyan
+    vga.set_color(11, 0);
     common.printZ("\nInitializing NovumOS Kernel...\n\n");
+}
 
-    // Step 1: Memory
-    vga.set_color(15, 0);
-    common.printZ("Checking PMM: ");
-    vga.set_color(10, 0);
-    common.printZ("OK\n");
-
-    // Step 2: Drivers
+fn init_drivers_spinner() void {
     vga.set_color(15, 0);
     common.printZ("Loading drivers:");
+    vga.set_color(10, 0);
     vga.vga_flush();
-
-    // Actual drivers init
-    _ = acpi.init();
     const spinner = [_]u8{ '|', '/', '-', '\\' };
     var i: usize = 0;
     while (i < 8) : (i += 1) {
         common.set_cursor(2, 17);
         common.print_char(spinner[i % 4]);
     }
-    common.set_cursor(2, 17);
-    vga.set_color(10, 0);
-    common.printZ("OK\n");
+}
 
-    // Step 3: File System
+fn init_disk_check() void {
     vga.set_color(15, 0);
     common.printZ("Checking disks: ");
     vga.vga_flush();
 
-    // Boot spinner + disk check
     const boot_spinner = [_]u8{ '|', '/', '-', '\\' };
     var boot_elapsed: usize = 0;
     var boot_last: usize = 0;
@@ -120,75 +116,66 @@ export fn kmain() void {
         }
 
         const size = ata.identify(.Slave);
-        if (size > 0) {
-            disk_found = true;
-            break;
-        }
+        if (size > 0) { disk_found = true; break; }
         timer.sleep(10);
         boot_elapsed += 10;
     }
 
     if (disk_found) {
-        if (fat.read_bpb(.Slave) != null) {
-            common.selected_disk = 1;
-        }
+        if (fat.read_bpb(.Slave) != null) common.selected_disk = 1;
     }
     common.fs_init();
 
-    // Clear spinner and show OK
     common.print_char(8);
     common.print_char(' ');
     common.print_char(8);
     vga.set_color(10, 0);
     common.printZ(" OK\n");
-
-    // Now init LFB dimensions
-    vga.init_dimensions();
-
-    vga.clear_screen();
-    vga.vga_flush();
-
-    // Print welcome banner in LFB
-    messages.print_welcome();
-
-    // Initialize Scheduler
-    scheduler.init();
-    // Get current ESP to bootstrap
-    var current_esp: u32 = undefined;
-    asm volatile ("mov %%esp, %[esp]"
-        : [esp] "=r" (current_esp),
-    );
-    scheduler.bootstrap(current_esp);
-
-    // Initialize Dumb SMP (Kick Core 1)
-    smp.init();
-
-    // Save IDT snapshot for watchdog (after all IDT setup is complete)
-    idt_watchdog.save_snapshot();
-
-    speaker.init();
-    timer.set_tick_callback(&speaker.beep_async_tick);
-    if (config.ENABLE_BOOT_BEEP) {
-        speaker.beep(1000, 100);
-    }
-
-    // Initialize PS/2 mouse
-    mouse.init();
-
-    // Initialize QRNG (detect RDRAND, seed entropy pool)
-    quantum.init();
-
-    // Jump to Shell in Ring 3 (User Mode)
-    user.jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true);
 }
 
-/// Main Kernel Loop - Exported for re-entry from User Mode
-pub export fn kernel_loop() noreturn {
-    // Reset any potentially corrupted state here if needed
-    // For now, just enter the shell loop
-    while (true) {
-        read_command();
-        execute_command();
-        vga.vga_flush();
-    }
+fn init_scheduler() void {
+    scheduler.init();
+    var current_esp: u32 = undefined;
+    asm volatile ("mov %%esp, %[esp]" : [esp] "=r" (current_esp));
+    scheduler.bootstrap(current_esp);
+}
+
+fn init_peripherals() void {
+    speaker.init();
+    timer.set_tick_callback(&speaker.beep_async_tick);
+    if (config.ENABLE_BOOT_BEEP) speaker.beep(1000, 100);
+    mouse.init();
+    quantum.init();
+}
+
+/// Kernel entry point.
+export fn kmain() void {
+    // 1. Memory (paging, heap, PMM)
+    init_memory();
+    init_display();
+
+    // 2. Drivers
+    common.printZ("Checking PMM: ");
+    vga.set_color(10, 0);
+    common.printZ("OK\n");
+    _ = acpi.init();
+    init_drivers_spinner();
+
+    // 3. File System + disk check
+    init_disk_check();
+
+    // 4. Display dimensions + welcome
+    vga.init_dimensions();
+    vga.clear_screen();
+    vga.vga_flush();
+    messages.print_welcome();
+
+    // 5. Scheduler + multicore
+    init_scheduler();
+    smp.init();
+    idt_watchdog.save_snapshot();
+
+    // 6. Peripherals + user mode
+    init_peripherals();
+    user.jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true);
 }
