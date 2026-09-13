@@ -22,108 +22,50 @@ pub fn getCurrentTimestamp() struct { time: u16, date: u16 } {
     return .{ .time = time, .date = date };
 }
 
-fn printSize(size: u32) void {
+const Format = enum { Compact, Padded, Nice };
+
+const KB: u32 = 1024;
+const MB: u32 = KB * 1024;
+const GB: u32 = MB * 1024;
+
+fn printSizeFmt(size: u32, comptime fmt: Format) void {
     if (size == 0) {
-        common.printZ("0 B");
+        const s = comptime switch (fmt) { .Compact => "0B", .Padded => "   0B ", .Nice => "0B " };
+        common.printZ(s);
         return;
     }
-    const kb: u32 = 1024;
-    const mb: u32 = kb * 1024;
-    const gb: u32 = mb * 1024;
 
-    if (size >= gb) {
-        common.printNum(@intCast(size / gb));
-        common.printZ(".");
-        common.printNum(@intCast((size % gb) / (mb / 10)));
-        common.printZ("G");
-    } else if (size >= mb) {
-        common.printNum(@intCast(size / mb));
-        common.printZ(".");
-        common.printNum(@intCast((size % mb) / (kb / 10)));
-        common.printZ("M");
-    } else if (size >= kb) {
-        common.printNum(@intCast(size / kb));
-        common.printZ(".");
-        common.printNum(@intCast((size % kb) / 10));
-        common.printZ("K");
-    } else {
-        common.printNum(@intCast(size));
-        common.printZ("B");
+    // Determine unit, whole part, and one-decimal fractional part.
+    // PrintSize/PrintSizePad always print ".X" (X = size % unit / (unit/10)).
+    // PrintSizeNice prints ".X" only when X > 0, and X = size % unit / next_smaller_unit.
+    const is_nice = fmt == .Nice;
+    const suffix: u8, const whole: u32, const frac: u32, const show_frac: bool = if (size >= GB) .{
+        'G', size / GB,
+        if (is_nice) @intCast((size % GB) / MB) else @intCast(((size % GB) * 10) / GB),
+        !is_nice or (size % GB) / MB > 0,
+    } else if (size >= MB) .{
+        'M', size / MB,
+        if (is_nice) @intCast((size % MB) / KB) else @intCast(((size % MB) * 10) / MB),
+        !is_nice or (size % MB) / KB > 0,
+    } else if (size >= KB) .{
+        'K', size / KB,
+        @intCast((size % KB) * 10 / KB),
+        !is_nice,
+    } else .{
+        'B', size, 0, false,
+    };
+
+    common.printNum(@intCast(whole));
+    if (show_frac) {
+        common.print_char('.');
+        common.printNum(@intCast(frac));
     }
+    common.printZ(&[_]u8{suffix} ++ comptime (if (fmt == .Padded) " " else ""));
 }
 
-fn printSizePad(size: u32) void {
-    if (size == 0) {
-        common.printZ("   0B ");
-        return;
-    }
-    const kb: u32 = 1024;
-    const mb: u32 = kb * 1024;
-    const gb: u32 = mb * 1024;
-
-    if (size >= gb) {
-        common.printNum(@intCast(size / gb));
-        common.printZ(".");
-        common.printNum(@intCast((size % gb) / (mb / 10)));
-        common.printZ("G ");
-    } else if (size >= mb) {
-        common.printNum(@intCast(size / mb));
-        common.printZ(".");
-        common.printNum(@intCast((size % mb) / (kb / 10)));
-        common.printZ("M ");
-    } else if (size >= kb) {
-        common.printNum(@intCast(size / kb));
-        common.printZ(".");
-        common.printNum(@intCast((size % kb) / 10));
-        common.printZ("K ");
-    } else {
-        common.printNum(@intCast(size));
-        common.printZ("B ");
-    }
-}
-
-fn printSizeNice(size: u32) void {
-    if (size == 0) {
-        common.printZ("0B ");
-        return;
-    }
-    const kb: u32 = 1024;
-    const mb: u32 = kb * 1024;
-    const gb: u32 = mb * 1024;
-
-    if (size >= gb) {
-        const gb_val = size / gb;
-        const mb_val = (size % gb) / mb;
-        if (mb_val > 0) {
-            common.printNum(@intCast(gb_val));
-            common.print_char('.');
-            common.printNum(@intCast(mb_val));
-            common.printZ("G");
-        } else {
-            common.printNum(@intCast(gb_val));
-            common.printZ("G");
-        }
-    } else if (size >= mb) {
-        const mb_val = size / mb;
-        const kb_val = (size % mb) / kb;
-        if (kb_val > 0) {
-            common.printNum(@intCast(mb_val));
-            common.print_char('.');
-            common.printNum(@intCast(kb_val));
-            common.printZ("M");
-        } else {
-            common.printNum(@intCast(mb_val));
-            common.printZ("M");
-        }
-    } else if (size >= kb) {
-        const kb_val = size / kb;
-        common.printNum(@intCast(kb_val));
-        common.printZ("K");
-    } else {
-        common.printNum(@intCast(size));
-        common.printZ("B");
-    }
-}
+fn printSize(size: u32) void       { printSizeFmt(size, .Compact); }
+fn printSizePad(size: u32) void    { printSizeFmt(size, .Padded);  }
+fn printSizeNice(size: u32) void   { printSizeFmt(size, .Nice);    }
 
 fn printIntToBuf(n: u32, out: []u8) usize {
     var i: usize = 0;
