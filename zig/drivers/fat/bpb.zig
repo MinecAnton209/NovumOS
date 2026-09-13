@@ -1,7 +1,16 @@
 const common = @import("../../commands/common.zig");
 const ata = @import("../ata.zig");
 
+/// BPB cache: drive enum → parsed BPB.
+/// Avoids re-reading sector 0 on every file syscall.
+var bpb_cache: struct {
+    master: ?BPB = null,
+    slave: ?BPB = null,
+    valid: bool = false,
+} = .{};
+
 pub const FatType = enum {
+
     None,
     FAT12,
     FAT16,
@@ -34,6 +43,14 @@ pub const BPB = struct {
 };
 
 pub fn read_bpb(drive: ata.Drive) ?BPB {
+    // Fast path: check cache
+    const cached: ?BPB = switch (drive) {
+        .Master => bpb_cache.master,
+        .Slave  => bpb_cache.slave,
+    };
+    if (cached) |bpb| if (bpb_cache.valid) return bpb else {};
+
+    // Slow path: read sector 0 and parse
     var buffer: [512]u8 = undefined;
     ata.read_sector(drive, 0, &buffer);
 
@@ -86,7 +103,21 @@ pub fn read_bpb(drive: ata.Drive) ?BPB {
         bpb.fat_type = .FAT16;
     }
 
+    // Store in cache
+    bpb_cache.valid = true;
+    switch (drive) {
+        .Master => bpb_cache.master = bpb,
+        .Slave  => bpb_cache.slave = bpb,
+    }
     return bpb;
+}
+
+/// Invalidate the BPB cache for a drive (call after mkfs/reformat).
+pub fn invalidate_bpb_cache(drive: ata.Drive) void {
+    switch (drive) {
+        .Master => bpb_cache.master = null,
+        .Slave  => bpb_cache.slave = null,
+    }
 }
 
 pub const DirEntry = struct {

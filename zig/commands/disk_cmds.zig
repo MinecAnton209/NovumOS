@@ -1,6 +1,7 @@
 // Disk Management Commands
 const common = @import("common.zig");
 const ata = @import("../drivers/ata.zig");
+const bpb_mod = @import("../drivers/fat/bpb.zig");
 
 pub fn lsdsk() void {
     common.printZ("Scanning for ATA disks...\n");
@@ -334,6 +335,7 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
         },
     }
 
+    bpb_mod.invalidate_bpb_cache(drive);
     common.printZ("Format complete.\n");
 }
 
