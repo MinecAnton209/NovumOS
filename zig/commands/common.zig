@@ -230,133 +230,87 @@ pub const fs_write = fs.fs_write;
 
 // --- System Control (I/O Ports) ---
 
-/// Send a byte to an I/O port
-pub fn outb(port: u16, value: u8) void {
+/// Core I/O — width (8/16/32-bit), is_out (true = write, false = read).
+/// Ring 3 (user mode): uses kernel syscalls (out:7/9/17, in:6/8/16).
+/// Ring 0 (kernel): native `in`/`out` instructions.
+/// Returns the read value (truncated to width), or null when is_out.
+fn io_port(comptime width: u6, comptime is_out: bool, port: u16, value: ?u32) ?u32 {
+    const sys_in: u32, const sys_out: u32, const ret_ty: type = switch (width) {
+        8  => .{ 6, 7, u8 },
+        16 => .{ 8, 9, u16 },
+        32 => .{ 16, 17, u32 },
+        else => unreachable,
+    };
+
     var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
+    asm volatile ("mov %%cs, %[cs]" : [cs] "=r" (cs));
     if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 7)),
-              [p] "{ebx}" (@as(u32, port)),
-              [v] "{ecx}" (@as(u32, value)),
+        if (is_out) {
+            asm volatile ("int $0x80"
+                :
+                : [sys] "{eax}" (@as(u32, sys_out)),
+                  [p]   "{ebx}" (@as(u32, port)),
+                  [v]   "{ecx}" (@as(u32, value orelse 0)),
+            );
+            return null;
+        }
+        return asm volatile ("int $0x80"
+            : [ret] "={eax}" (-> ret_ty),
+            : [sys] "{eax}" (@as(u32, sys_in)),
+              [p]   "{ebx}" (@as(u32, port)),
         );
-        return;
     }
 
-    asm volatile ("outb %[value], %[port]"
-        :
-        : [value] "{al}" (value),
-          [port] "{dx}" (port),
-    );
+    // Ring 0: native in/out via comptime-selected asm blocks.
+    if (is_out) {
+        const val: u32 = value orelse 0;
+        const v8: u8 = @intCast(val);
+        const v16: u16 = @intCast(val);
+        switch (width) {
+            8  => asm volatile ("outb %[v], %[p]" :: [v] "{al}" (v8), [p] "{dx}" (port)),
+            16 => asm volatile ("outw %[v], %[p]" :: [v] "{ax}" (v16), [p] "{dx}" (port)),
+            32 => asm volatile ("outl %[v], %[p]" :: [v] "{eax}" (val), [p] "{dx}" (port)),
+            else => unreachable,
+        }
+        return null;
+    }
+
+    return switch (width) {
+        8  => asm volatile ("inb %[p], %[r]" : [r] "={al}" (-> u8),  : [p] "{dx}" (port)),
+        16 => asm volatile ("inw %[p], %[r]" : [r] "={ax}" (-> u16),  : [p] "{dx}" (port)),
+        32 => asm volatile ("inl %[p], %[r]" : [r] "={eax}" (-> u32), : [p] "{dx}" (port)),
+        else => unreachable,
+    };
+}
+
+/// Send a byte to an I/O port
+pub fn outb(port: u16, value: u8) void {
+    _ = io_port(8, true, port, value);
 }
 
 /// Send a word (16-bit) to an I/O port
 pub fn outw(port: u16, value: u16) void {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 9)),
-              [p] "{ebx}" (@as(u32, port)),
-              [v] "{ecx}" (@as(u32, value)),
-        );
-        return;
-    }
-
-    asm volatile ("outw %[value], %[port]"
-        :
-        : [value] "{ax}" (value),
-          [port] "{dx}" (port),
-    );
+    _ = io_port(16, true, port, value);
 }
 
 /// Send a double word (32-bit) to an I/O port
 pub fn outl(port: u16, value: u32) void {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 17)),
-              [p] "{ebx}" (@as(u32, port)),
-              [v] "{ecx}" (value),
-        );
-        return;
-    }
-
-    asm volatile ("outl %[value], %[port]"
-        :
-        : [value] "{eax}" (value),
-          [port] "{dx}" (port),
-    );
+    _ = io_port(32, true, port, value);
 }
 
 /// Read a byte from an I/O port
 pub fn inb(port: u16) u8 {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        return asm volatile ("int $0x80"
-            : [ret] "={eax}" (-> u8),
-            : [sys] "{eax}" (@as(u32, 6)),
-              [p] "{ebx}" (@as(u32, port)),
-        );
-    }
-
-    return asm volatile ("inb %[port], %[ret]"
-        : [ret] "={al}" (-> u8),
-        : [port] "{dx}" (port),
-    );
+    return @intCast(io_port(8, false, port, null) orelse 0);
 }
 
 /// Read a word (16-bit) from an I/O port
 pub fn inw(port: u16) u16 {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        return asm volatile ("int $0x80"
-            : [ret] "={eax}" (-> u16),
-            : [sys] "{eax}" (@as(u32, 8)),
-              [p] "{ebx}" (@as(u32, port)),
-        );
-    }
-
-    return asm volatile ("inw %[port], %[ret]"
-        : [ret] "={ax}" (-> u16),
-        : [port] "{dx}" (port),
-    );
+    return @intCast(io_port(16, false, port, null) orelse 0);
 }
 
 /// Read a double word (32-bit) from an I/O port
 pub fn inl(port: u16) u32 {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        return asm volatile ("int $0x80"
-            : [ret] "={eax}" (-> u32),
-            : [sys] "{eax}" (@as(u32, 16)),
-              [p] "{ebx}" (@as(u32, port)),
-        );
-    }
-
-    return asm volatile ("inl %[port], %[ret]"
-        : [ret] "={eax}" (-> u32),
-        : [port] "{dx}" (port),
-    );
+    return @intCast(io_port(32, false, port, null) orelse 0);
 }
 
 /// Reset the computer via the keyboard controller pulse
