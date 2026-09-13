@@ -1108,6 +1108,22 @@ pub fn find_free_cluster(drive: ata.Drive, bpb: BPB) ?u32 {
 
 const ATTR_LONG_NAME = 0x0F;
 
+/// Characters not permitted in 8.3 short names (FAT spec).
+const FAT_INVALID_CHARS: []const u8 = &[_]u8{
+    ' ', '+', ',', ';', '=', '[', ']', '"', '*', '<', '>', '?', '|',
+};
+
+/// True when `c` is a valid FAT character.
+/// If `allow_lower` is false, lowercase letters are rejected (they require an
+/// LFN entry).
+fn is_valid_fat_char(c: u8, allow_lower: bool) bool {
+    if (!allow_lower and c >= 'a' and c <= 'z') return false;
+    for (FAT_INVALID_CHARS) |bad| {
+        if (c == bad) return false;
+    }
+    return true;
+}
+
 fn check_needs_lfn(name: []const u8) bool {
     if (name.len > 12) return true;
     var dot_pos: ?usize = null;
@@ -1117,9 +1133,7 @@ fn check_needs_lfn(name: []const u8) bool {
             if (i > 8) return true;
             dot_pos = i;
         } else {
-            if (c >= 'a' and c <= 'z') return true;
-            if (c == ' ' or c == '+' or c == ',' or c == ';' or c == '=' or c == '[' or c == ']' or
-                c == '"' or c == '*' or c == '<' or c == '>' or c == '?' or c == '|') return true;
+            if (!is_valid_fat_char(c, false)) return true; // false → lowercase a-z rejected
         }
     }
     if (dot_pos) |pos| {
@@ -1147,8 +1161,7 @@ fn generate_short_alias(name: []const u8, out: *[11]u8) void {
     while (i < name.len and out_idx < 6) {
         const c = name[i];
         if (c == '.') break;
-        if (c != ' ' and c != '+' and c != ',' and c != ';' and c != '=' and c != '[' and c != ']' and
-            c != '"' and c != '*' and c != '<' and c != '>' and c != '?' and c != '|')
+        if (is_valid_fat_char(c, true))
         {
             out[out_idx] = toUpper(c);
             out_idx += 1;
@@ -1164,8 +1177,7 @@ fn generate_short_alias(name: []const u8, out: *[11]u8) void {
         var ext_idx: usize = 8;
         while (i < name.len and ext_idx < 11) : (i += 1) {
             const c = name[i];
-            if (c != ' ' and c != '.' and c != '+' and c != ',' and c != ';' and c != '=' and c != '[' and c != ']' and
-                c != '"' and c != '*' and c != '<' and c != '>' and c != '?' and c != '|')
+            if (c != '.' and is_valid_fat_char(c, true))
             {
                 out[ext_idx] = toUpper(c);
                 ext_idx += 1;
