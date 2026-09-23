@@ -997,9 +997,12 @@ pub fn free_cluster_chain(drive: ata.Drive, bpb: BPB, start_cluster: u32) void {
     }
 }
 
-pub fn find_free_cluster(drive: ata.Drive, bpb: BPB) ?u32 {
-    var cluster: u32 = 2;
+// ponytail: allocation scan hint (next-fit). Correctness without
+// invalidation: the wrap-up phase re-scans [2, hint), which immediately
+// finds free clusters after mkfs or on a drive switch.
+var free_cluster_hint: u32 = 2;
 
+pub fn find_free_cluster(drive: ata.Drive, bpb: BPB) ?u32 {
     const max_clusters = switch (bpb.fat_type) {
         .FAT12 => @as(u32, 4085),
         .FAT16 => @as(u32, 65525),
@@ -1007,9 +1010,27 @@ pub fn find_free_cluster(drive: ata.Drive, bpb: BPB) ?u32 {
         else => 0,
     };
 
+    const scan_to = if (free_cluster_hint >= 2 and free_cluster_hint < max_clusters)
+        free_cluster_hint
+    else
+        2;
+
+    var cluster: u32 = scan_to;
     while (cluster < max_clusters) : (cluster += 1) {
         const val = get_fat_entry(drive, bpb, cluster);
-        if (val == 0) return cluster;
+        if (val == 0) {
+            free_cluster_hint = cluster + 1;
+            return cluster;
+        }
+    }
+
+    cluster = 2;
+    while (cluster < scan_to) : (cluster += 1) {
+        const val = get_fat_entry(drive, bpb, cluster);
+        if (val == 0) {
+            free_cluster_hint = cluster + 1;
+            return cluster;
+        }
     }
     return null;
 }
