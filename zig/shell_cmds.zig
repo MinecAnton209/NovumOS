@@ -11,6 +11,11 @@ const timer = @import("drivers/timer.zig");
 const disk_cmds = @import("commands/disk_cmds.zig");
 const fat = @import("drivers/fat.zig");
 const ata = @import("drivers/ata.zig");
+
+/// Drive implied by the current disk selection.
+pub fn current_drive() ata.Drive {
+    return if (common.selected_disk == 0) .Master else .Slave;
+}
 const edit = @import("commands/edit.zig");
 const rtc = @import("drivers/time/time.zig");
 const sysinfo = @import("commands/sysinfo.zig");
@@ -82,7 +87,7 @@ pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
         return;
     }
 
-    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    const drive = current_drive();
     const bpb = fat.read_bpb(drive) orelse {
         common.printError("Error: Could not read BPB\n");
         return;
@@ -196,7 +201,7 @@ pub export fn cmd_ls(args_ptr: [*]const u8, args_len: u32) void {
     if (common.selected_disk < 0) {
         ls.execute();
     } else {
-        const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+        const drive = current_drive();
         if (fat.read_bpb(drive)) |bpb| {
             if (path_arg == null) {
                 fat.list_directory(drive, bpb, common.current_dir_cluster, show_hidden);
@@ -234,7 +239,7 @@ pub export fn cmd_cat(name_ptr: [*]const u8, name_len: u32) void {
     if (common.selected_disk < 0) {
         cat.execute(name.ptr, @intCast(name.len));
     } else {
-        const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+        const drive = current_drive();
         if (fat.read_bpb(drive)) |bpb| {
             if (!fat.stream_to_console(drive, bpb, common.current_dir_cluster, name)) {
                 common.printError("Error: File not found\n");
@@ -256,7 +261,7 @@ pub export fn cmd_touch(name_ptr: [*]const u8, name_len: u32) void {
         if (common.selected_disk < 0) {
             touch.execute(name.ptr, @intCast(name.len));
         } else {
-            const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+            const drive = current_drive();
             if (fat.read_bpb(drive)) |bpb| {
                 common.printZ("Touch: ");
                 common.printZ(name);
@@ -279,7 +284,7 @@ pub export fn cmd_touch(name_ptr: [*]const u8, name_len: u32) void {
 /// BPB validity, entry existence, and read-only/system attribute.
 /// Returns the handle (mutable copy) if the file can be safely modified.
 fn with_file_handle(filename: []const u8, check_write_attrs: bool, out: *fat.FileHandle) bool {
-    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    const drive = current_drive();
     const bpb = fat.read_bpb(drive) orelse {
         common.printError("Error: Disk not formatted\n");
         return false;
@@ -413,7 +418,7 @@ pub export fn cmd_sync() void {
         return;
     }
 
-    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    const drive = current_drive();
     if (fat.read_bpb(drive)) |bpb| {
         const result = fat.fat_sync(drive, bpb);
         if (result == 0) {
@@ -559,7 +564,7 @@ pub export fn cmd_attrib(args_ptr: [*]const u8, args_len: u32) void {
         return;
     }
 
-    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    const drive = current_drive();
     if (fat.read_bpb(drive)) |bpb| {
         const ro = read_only orelse false;
         const h = hidden orelse false;
@@ -628,7 +633,7 @@ pub export fn cmd_rm(args_ptr: [*]const u8, args_len: u32) void {
         }
     }
 
-    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    const drive = current_drive();
     if (fat.read_bpb(drive)) |bpb| {
         var prefix: []const u8 = "";
         var is_wildcard = false;
@@ -904,7 +909,7 @@ pub export fn cmd_mkdir(name_ptr: [*]const u8, name_len: u32) void {
         return;
     }
 
-    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    const drive = current_drive();
     if (fat.read_bpb(drive)) |bpb| {
         if (!fat.create_directory(drive, bpb, common.current_dir_cluster, argv[0])) {
             common.printError("Error: Failed to create directory\n");
@@ -921,7 +926,7 @@ pub export fn cmd_cd(args_ptr: [*]const u8, args_len: u32) void {
     var argv: [8][]const u8 = undefined;
     const argc = common.parseArgs(args_ptr[0..args_len], &argv);
 
-    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    const drive = current_drive();
     const bpb = fat.read_bpb(drive) orelse {
         common.printError("Error: Disk not formatted\n");
         return;
@@ -963,7 +968,7 @@ pub export fn cmd_tree() void {
         common.printError("Error: tree only supported on Disk FS\n");
         return;
     }
-    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    const drive = current_drive();
     if (fat.read_bpb(drive)) |bpb| {
         common.printZ(".\n");
         tree_node(drive, bpb, common.current_dir_cluster, 1);
@@ -1092,7 +1097,7 @@ pub export fn cmd_write(name_ptr: [*]const u8, name_len: u32, data_ptr: [*]const
             _ = common.fs_write(@intCast(id), data_ptr, @intCast(data_len));
         }
     } else {
-        const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+        const drive = current_drive();
         if (fat.read_bpb(drive)) |bpb| {
             const name = name_ptr[0..name_len];
             const data = data_ptr[0..data_len];
@@ -1425,7 +1430,7 @@ pub export fn cmd_hexdump(name_ptr: [*]const u8, name_len: u32) void {
         return;
     }
 
-    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    const drive = current_drive();
     const bpb = fat.read_bpb(drive) orelse {
         common.printError("Error: Disk not formatted\n");
         return;
@@ -1514,7 +1519,7 @@ pub export fn cmd_more(name_ptr: [*]const u8, name_len: u32) void {
                 common.printError("more: Not supported on RAM FS yet\n");
                 return;
             }
-            const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+            const drive = current_drive();
             const bpb = fat.read_bpb(drive) orelse {
                 common.printError("Error: Disk not formatted\n");
                 return;
