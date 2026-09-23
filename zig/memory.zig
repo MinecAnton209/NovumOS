@@ -663,6 +663,51 @@ pub const heap = struct {
         binPush(block);
     }
 
+    /// Remove and return the first free block big enough for need_block.
+    fn find_fit(need_block: u32) ?*BlockHeader {
+        var bin_idx = binIndex(need_block);
+        while (bin_idx < BIN_COUNT) : (bin_idx += 1) {
+            var block = bins[bin_idx];
+            while (block) |blk| : (block = nextFree(blk)) {
+                if (blk.size >= need_block) {
+                    binRemove(blk);
+                    return blk;
+                }
+            }
+        }
+        return null;
+    }
+
+    /// Shrink blk to need_block when the leftover can stand alone as a
+    /// separate free block; bin the remainder.
+    fn split_block(blk: *BlockHeader, need_block: u32) void {
+        const remaining = blk.size - need_block;
+        if (remaining >= MIN_BLOCK_SIZE) {
+            const next_addr = @intFromPtr(blk) + need_block;
+            const new_block = @as(*BlockHeader, @ptrFromInt(next_addr));
+            new_block.magic = HEAP_MAGIC;
+            new_block.size = remaining;
+            new_block.is_free = true;
+            new_block.requested = 0;
+            writeFooter(new_block);
+            binPush(new_block);
+            blk.size = need_block;
+        }
+    }
+
+    /// Grow the heap by one page, publish it as a free (coalesced) block.
+    fn allocate_new_page() ?*BlockHeader {
+        const page_addr = pmm.alloc_page() orelse return null;
+        const new_block = @as(*BlockHeader, @ptrFromInt(page_addr));
+        new_block.magic = HEAP_MAGIC;
+        new_block.size = @as(u32, @intCast(PAGE_SIZE));
+        new_block.is_free = true;
+        new_block.requested = 0;
+        writeFooter(new_block);
+        binPush(tryCoalesce(new_block));
+        return new_block;
+    }
+
     pub fn alloc(size: usize) ?[*]u8 {
         if (size > MAX_ALLOC_SIZE) {
             logger.security("Heap alloc: requested size exceeds maximum (16MB)");
@@ -684,52 +729,26 @@ pub const heap = struct {
         );
 
         while (true) {
-            var bin_idx = binIndex(need_block);
-            while (bin_idx < BIN_COUNT) : (bin_idx += 1) {
-                var block = bins[bin_idx];
-                while (block) |blk| : (block = nextFree(blk)) {
-                    if (blk.size >= need_block) {
-                        binRemove(blk);
+            if (find_fit(need_block)) |blk| {
+                split_block(blk, need_block);
 
-                        const remaining = blk.size - need_block;
-                        if (remaining >= MIN_BLOCK_SIZE) {
-                            const next_addr = @intFromPtr(blk) + need_block;
-                            const new_block = @as(*BlockHeader, @ptrFromInt(next_addr));
-                            new_block.magic = HEAP_MAGIC;
-                            new_block.size = remaining;
-                            new_block.is_free = true;
-                            new_block.requested = 0;
-                            writeFooter(new_block);
-                            binPush(new_block);
-                            blk.size = need_block;
-                        }
+                writeFooter(blk);
+                blk.is_free = false;
+                blk.requested = @as(u32, @intCast(size));
 
-                        writeFooter(blk);
-                        blk.is_free = false;
-                        blk.requested = @as(u32, @intCast(size));
+                const data_ptr = dataPtr(blk);
+                @memset(data_ptr[0..size], POISON_ALLOC);
 
-                        const data_ptr = dataPtr(blk);
-                        @memset(data_ptr[0..size], POISON_ALLOC);
+                const canary_off = HEADER_SIZE + aligned;
+                @as(*align(1) u32, @ptrFromInt(@intFromPtr(blk) + canary_off)).* = END_CANARY;
 
-                        const canary_off = HEADER_SIZE + aligned;
-                        @as(*align(1) u32, @ptrFromInt(@intFromPtr(blk) + canary_off)).* = END_CANARY;
-
-                        if (aligned > size32) {
-                            @memset(data_ptr[size..@as(usize, aligned)], CANARY_BYTE);
-                        }
-                        return data_ptr;
-                    }
+                if (aligned > size32) {
+                    @memset(data_ptr[size..@as(usize, aligned)], CANARY_BYTE);
                 }
+                return data_ptr;
             }
 
-            const page_addr = pmm.alloc_page() orelse return null;
-            const new_block = @as(*BlockHeader, @ptrFromInt(page_addr));
-            new_block.magic = HEAP_MAGIC;
-            new_block.size = @as(u32, @intCast(PAGE_SIZE));
-            new_block.is_free = true;
-            new_block.requested = 0;
-            writeFooter(new_block);
-            binPush(tryCoalesce(new_block));
+            _ = allocate_new_page() orelse return null;
         }
     }
 
