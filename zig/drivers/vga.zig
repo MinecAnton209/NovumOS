@@ -190,7 +190,9 @@ fn scroll() void {
         }
     }
 
-    lfb.swap_buffers_immediate(); // no vsync: a frame wait per line stalls output on a full screen
+    // No flush here: kernel_loop does one vga_flush after execute_command,
+    // so a burst paints in a single pass. A per-line VRAM copy made output
+    // O(screen) for every new line once the display was full.
 }
 
 fn internal_newline() void {
