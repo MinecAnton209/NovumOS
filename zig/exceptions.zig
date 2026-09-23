@@ -360,14 +360,7 @@ fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]cons
         }
         fn hex(row: u32, col: u32, val: u32, color: u32) void {
             var buf: [10]u8 = undefined;
-            buf[0] = '0';
-            buf[1] = 'x';
-            var i: i8 = 7;
-            while (i >= 0) : (i -= 1) {
-                const nibble = @as(u8, @intCast((val >> @as(u5, @intCast(i * 4))) & 0xF));
-                buf[@as(usize, @intCast(7 - i)) + 2] = if (nibble < 10) '0' + nibble else 'A' + (nibble - 10);
-            }
-            str(row, col, &buf, color);
+            str(row, col, fmt_hex8(val, &buf), color);
         }
     };
 
@@ -781,6 +774,19 @@ fn inb(port: u16) u8 {
     );
 }
 
+/// Format val as "0x" plus exactly 8 hex digits; single implementation
+/// shared by the LFB, VGA-text and serial renderers below.
+fn fmt_hex8(val: u32, buf: *[10]u8) []const u8 {
+    buf[0] = '0';
+    buf[1] = 'x';
+    var i: i8 = 7;
+    while (i >= 0) : (i -= 1) {
+        const nibble = @as(u8, @intCast((val >> @as(u5, @intCast(i * 4))) & 0xF));
+        buf[@as(usize, @intCast(7 - i)) + 2] = if (nibble < 10) '0' + nibble else 'A' + (nibble - 10);
+    }
+    return buf[0..10];
+}
+
 fn print_at(row: usize, col: usize, msg: []const u8, attr: u16) void {
     for (msg, 0..) |c, i| {
         if (col + i >= 80) break;
@@ -789,22 +795,11 @@ fn print_at(row: usize, col: usize, msg: []const u8, attr: u16) void {
 }
 
 fn print_hex_at(row: usize, col: usize, val: u32, attr: u16) void {
-    print_at(row, col, "0x", attr);
-    var i: i8 = 7;
-    while (i >= 0) : (i -= 1) {
-        const nibble = @as(u8, @intCast((val >> @as(u5, @intCast(i * 4))) & 0xF));
-        const char = if (nibble < 10) '0' + nibble else 'A' + (nibble - 10);
-        vga.VIDEO_MEMORY[row * 80 + col + 2 + @as(usize, @intCast(7 - i))] = (attr << 8) | @as(u16, char);
-    }
+    var buf: [10]u8 = undefined;
+    print_at(row, col, fmt_hex8(val, &buf), attr);
 }
 
 fn serial_print_hex(val: u32) void {
-    serial.serial_print_str("0x");
-    var i: i8 = 7;
-    while (i >= 0) : (i -= 1) {
-        const nibble = @as(u8, @intCast((val >> @as(u5, @intCast(i * 4))) & 0xF));
-        const char = if (nibble < 10) '0' + nibble else 'A' + (nibble - 10);
-        const buf = [1]u8{char};
-        serial.serial_print_str(&buf);
-    }
+    var buf: [10]u8 = undefined;
+    serial.serial_print_str(fmt_hex8(val, &buf));
 }
