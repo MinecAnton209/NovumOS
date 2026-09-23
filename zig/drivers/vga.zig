@@ -405,7 +405,7 @@ pub export fn erase_vga_cursor() void {
         interrupts_restore_vga(eflags);
     }
     erase_vga_cursor_internal();
-    lfb.swap_buffers(); // flush after erase
+    lfb.swap_buffers_immediate(); // under cli+vga_lock: never vsync (timer sleep) here
 }
 
 pub export fn update_vga_cursor() void {
@@ -444,7 +444,7 @@ pub export fn update_vga_cursor() void {
     prev_cursor_row = r;
     prev_cursor_col = c;
     cursor_visible = true;
-    lfb.swap_buffers();
+    lfb.swap_buffers_immediate(); // under cli+vga_lock: never vsync (timer sleep) here
 }
 
 pub export fn update_hardware_cursor() void {
