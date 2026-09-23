@@ -190,7 +190,7 @@ fn scroll() void {
         }
     }
 
-    lfb.swap_buffers(); // Flush after scrolling
+    lfb.swap_buffers_immediate(); // no vsync: a frame wait per line stalls output on a full screen
 }
 
 fn internal_newline() void {

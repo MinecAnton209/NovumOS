@@ -388,13 +388,8 @@ pub fn smart_vsync() void {
     last_vsync_tick = timer.get_ticks();
 }
 
-pub fn swap_buffers() void {
-    if (!initialized or framebuffer == null or !dirty) return;
+fn flush_dirty() void {
     const backbuffer = backbuffer_ptr orelse return;
-
-    // Use Smart VSync to prevent tearing but let CPU rest
-    smart_vsync();
-
     const fb = framebuffer.?;
 
     // Copy only the dirty region to VRAM
@@ -409,6 +404,24 @@ pub fn swap_buffers() void {
     }
 
     dirty = false;
+}
+
+pub fn swap_buffers() void {
+    if (!initialized or framebuffer == null or !dirty) return;
+
+    // Use Smart VSync to prevent tearing but let CPU rest
+    smart_vsync();
+
+    flush_dirty();
+}
+
+/// Flush the dirty region without waiting for vsync. The console scroll
+/// path uses this: one vsync frame per line stalls output once the
+/// screen is full.
+/// ponytail: may tear a single frame on real HW; vsync every Nth scroll if that ever matters
+pub fn swap_buffers_immediate() void {
+    if (!initialized or framebuffer == null or !dirty) return;
+    flush_dirty();
 }
 
 fn inb(port: u16) u8 {
