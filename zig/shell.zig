@@ -1105,7 +1105,7 @@ pub fn shell_execute_literal(cmd: []const u8) void {
     if (try_builtin(cmd_raw, cmd_name)) return;
 
     // 2-4. Nova scripts (relative path, builtin, system path)
-    if (try_nova_script(cmd_name, argv, argc)) {
+    if (!try_nova_script(cmd_name, argv, argc)) {
         common.printError("shell: command not found: ");
         common.printError(cmd_name);
         common.printError("\n");
