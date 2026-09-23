@@ -27,9 +27,9 @@ fn get_fat_state() ?struct { ata.Drive, fat.BPB } {
     return .{ drive, bpb };
 }
 
-/// Helper: validate path from user, check policy, resolve via FAT.
-/// Returns the resolved PathResolution on success.
-fn resolve_user_path(path_ptr: u32) ?fat.PathResolution {
+/// Helper: validate a user path string — well-formed, absolute, allowed
+/// by path policy. Returns null with a security log on any failure.
+fn validated_path(path_ptr: u32) ?[]const u8 {
     const path = syscalls.safe_str_from_user(path_ptr, syscalls.MAX_SYSCALL_PATH_LEN) orelse {
         logger.security("File syscall: invalid path string");
         return null;
@@ -42,24 +42,23 @@ fn resolve_user_path(path_ptr: u32) ?fat.PathResolution {
         logger.security("File syscall: path blocked by policy");
         return null;
     }
+    return path;
+}
+
+/// Helper: validate path from user, check policy, resolve via FAT.
+/// Returns the resolved PathResolution on success.
+fn resolve_user_path(path_ptr: u32) ?fat.PathResolution {
+    const path = validated_path(path_ptr) orelse return null;
     const state = get_fat_state() orelse return null;
     return fat.resolve_path(state[0], state[1], 0, path);
 }
 
 /// Syscall 45: ReadFile(EBX=path, ECX=buf, EDX=buf_size) -> EAX (bytes read or -1)
 pub fn readFile(regs: *user.Registers) void {
-    const path = syscalls.safe_str_from_user(regs.ebx, syscalls.MAX_SYSCALL_PATH_LEN) orelse {
+    const path = validated_path(regs.ebx) orelse {
         regs.eax = 0xFFFFFFFF;
         return;
     };
-    if (path.len == 0 or (path[0] != '/' and path[0] != '\\')) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
-    if (!path_policy.is_path_allowed(path)) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
     const state = get_fat_state() orelse {
         regs.eax = 0xFFFFFFFF;
         return;
@@ -79,18 +78,10 @@ pub fn readFile(regs: *user.Registers) void {
 
 /// Syscall 46: WriteFile(EBX=path, ECX=data, EDX=data_len) -> EAX (0=success, -1=error)
 pub fn writeFile(regs: *user.Registers) void {
-    const path = syscalls.safe_str_from_user(regs.ebx, syscalls.MAX_SYSCALL_PATH_LEN) orelse {
+    const path = validated_path(regs.ebx) orelse {
         regs.eax = 0xFFFFFFFF;
         return;
     };
-    if (path.len == 0 or (path[0] != '/' and path[0] != '\\')) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
-    if (!path_policy.is_path_allowed(path)) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
     if (!syscalls.is_safe_user_range(regs.ecx, regs.edx)) {
         logger.security("WriteFile: invalid data buffer");
         regs.eax = 0xFFFFFFFF;
@@ -110,18 +101,10 @@ pub fn writeFile(regs: *user.Registers) void {
 
 /// Syscall 47: Delete(EBX=path) -> EAX (0=success, -1=error)
 pub fn deleteFile(regs: *user.Registers) void {
-    const path = syscalls.safe_str_from_user(regs.ebx, syscalls.MAX_SYSCALL_PATH_LEN) orelse {
+    const path = validated_path(regs.ebx) orelse {
         regs.eax = 0xFFFFFFFF;
         return;
     };
-    if (path.len == 0 or (path[0] != '/' and path[0] != '\\')) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
-    if (!path_policy.is_path_allowed(path)) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
     const state = get_fat_state() orelse {
         regs.eax = 0xFFFFFFFF;
         return;
@@ -164,18 +147,10 @@ pub fn renameFile(regs: *user.Registers) void {
 
 /// Syscall 49: Stat(EBX=path, ECX=StatResult_ptr) -> EAX (0=success, -1=error)
 pub fn statFile(regs: *user.Registers) void {
-    const path = syscalls.safe_str_from_user(regs.ebx, syscalls.MAX_SYSCALL_PATH_LEN) orelse {
+    const path = validated_path(regs.ebx) orelse {
         regs.eax = 0xFFFFFFFF;
         return;
     };
-    if (path.len == 0 or (path[0] != '/' and path[0] != '\\')) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
-    if (!path_policy.is_path_allowed(path)) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
     if (!syscalls.is_safe_user_range(regs.ecx, @sizeOf(StatResult))) {
         logger.security("StatFile: invalid StatResult pointer");
         regs.eax = 0xFFFFFFFF;
@@ -201,18 +176,10 @@ pub fn statFile(regs: *user.Registers) void {
 /// Syscall 50: GetRes(EBX=path) -> EAX (file size or -1)
 /// Returns the size of the file at the given path.
 pub fn getRes(regs: *user.Registers) void {
-    const path = syscalls.safe_str_from_user(regs.ebx, syscalls.MAX_SYSCALL_PATH_LEN) orelse {
+    const path = validated_path(regs.ebx) orelse {
         regs.eax = 0xFFFFFFFF;
         return;
     };
-    if (path.len == 0 or (path[0] != '/' and path[0] != '\\')) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
-    if (!path_policy.is_path_allowed(path)) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
     const state = get_fat_state() orelse {
         regs.eax = 0xFFFFFFFF;
         return;
@@ -230,20 +197,10 @@ pub fn getRes(regs: *user.Registers) void {
 
 /// Syscall 51: Exists(EBX=path) -> EAX (1=exists, 0=not found)
 pub fn existsFile(regs: *user.Registers) void {
-    const path = syscalls.safe_str_from_user(regs.ebx, syscalls.MAX_SYSCALL_PATH_LEN) orelse {
+    const path = validated_path(regs.ebx) orelse {
         regs.eax = 0;
         return;
     };
-    if (path.len == 0 or (path[0] != '/' and path[0] != '\\')) {
-        regs.eax = 0;
-        return;
-    }
-    // Path policy doesn't block existence checks — allow even blocked paths
-    // to report existence (no data access). But for safety, apply policy.
-    if (!path_policy.is_path_allowed(path)) {
-        regs.eax = 0;
-        return;
-    }
     const state = get_fat_state() orelse {
         regs.eax = 0;
         return;
