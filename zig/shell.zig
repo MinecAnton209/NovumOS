@@ -478,17 +478,18 @@ fn load_history_from_disk() void {
 
 fn refresh_line() void {
     render_vga_line();
+    render_serial_line();
+    move_screen_cursor();
+    serial.serial_show_cursor();
+    draw_status_indicators();
+}
 
-    // 2. Serial Update
+/// Redraw cmd_buffer on the serial console at the prompt position.
+fn render_serial_line() void {
     serial.serial_hide_cursor();
     serial.serial_set_cursor(prompt_row, prompt_col);
     serial.serial_print_str(cmd_buffer[0..cmd_len]);
     serial.serial_clear_line();
-
-    move_screen_cursor();
-    serial.serial_show_cursor();
-
-    draw_status_indicators();
 }
 
 /// Render cmd_buffer to VGA, tracking prompt_row for scroll correction.
