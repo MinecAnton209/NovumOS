@@ -201,6 +201,7 @@ var history_index: u8 = 0;
 var insert_mode: bool = true;
 var prompt_row: u8 = 0;
 var prompt_col: u8 = 0;
+var prompt_start_col: u8 = 0;
 
 var history_loaded: bool = false;
 
@@ -478,10 +479,41 @@ fn load_history_from_disk() void {
 
 fn refresh_line() void {
     render_vga_line();
+    draw_prompt_clock();
     render_serial_line();
     move_screen_cursor();
     serial.serial_show_cursor();
     draw_status_indicators();
+}
+
+/// Overwrite the prompt's HH:MM:SS digits in place so the clock keeps
+/// ticking while the user types.
+fn draw_prompt_clock() void {
+    const now = rtc.get_datetime();
+    var buf: [8]u8 = undefined;
+    buf[0] = @as(u8, '0') + @as(u8, @intCast(now.hour / 10));
+    buf[1] = @as(u8, '0') + @as(u8, @intCast(now.hour % 10));
+    buf[2] = ':';
+    buf[3] = @as(u8, '0') + @as(u8, @intCast(now.minute / 10));
+    buf[4] = @as(u8, '0') + @as(u8, @intCast(now.minute % 10));
+    buf[5] = ':';
+    buf[6] = @as(u8, '0') + @as(u8, @intCast(now.second / 10));
+    buf[7] = @as(u8, '0') + @as(u8, @intCast(now.second % 10));
+
+    // Raw VGA write: common.print_char would mirror to serial at stream
+    // position instead of the addressed prompt cell.
+    const save_row = vga.cursor_row;
+    const save_col = vga.cursor_col;
+    vga.cursor_row = prompt_row;
+    vga.cursor_col = prompt_start_col + 1;
+    vga.set_color(7, 0);
+    for (buf) |ch| vga.zig_print_char(ch);
+    vga.reset_color();
+    vga.cursor_row = save_row;
+    vga.cursor_col = save_col;
+
+    serial.serial_set_cursor(prompt_row, prompt_start_col + 1);
+    serial.serial_print_str(&buf);
 }
 
 /// Redraw cmd_buffer on the serial console at the prompt position.
@@ -1704,6 +1736,7 @@ fn display_prompt() void {
     if (vga.zig_get_cursor_col() > 0) common.print_char('\n');
 
     // 1. Clock [HH:MM:SS]
+    prompt_start_col = vga.zig_get_cursor_col();
     const now = rtc.get_datetime();
     vga.set_color(8, 0); // Dark Gray
     common.print_char('[');
