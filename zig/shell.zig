@@ -1049,10 +1049,11 @@ pub fn shell_execute_literal(cmd: []const u8) void {
 
     const cmd_name = argv[0];
 
-    // Setup redirect guard
+    // Setup redirect guard. The cleanup defer must live at function scope:
+    // Zig's defer is block-scoped, so nesting it in the if would flush
+    // before the command even runs.
     const is_redirect = redir.file != null;
     const append_mode = redir.append;
-    const redirect_file = redir.file.?;
     if (is_redirect) {
         if (common.selected_disk < 0) {
             common.printError("Error: Redirection requires a mounted disk\n");
@@ -1060,9 +1061,11 @@ pub fn shell_execute_literal(cmd: []const u8) void {
         }
         common.redirect_active = true;
         common.redirect_pos = 0;
-        defer {
+    }
+    defer {
+        if (is_redirect) {
             common.redirect_active = false;
-            flush_redirect(append_mode, redirect_file);
+            flush_redirect(append_mode, redir.file.?);
         }
     }
 
