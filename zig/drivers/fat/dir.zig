@@ -64,10 +64,6 @@ fn printSizeFmt(size: u32, comptime fmt: Format) void {
     common.printZ(&[_]u8{suffix} ++ comptime (if (fmt == .Padded) " " else ""));
 }
 
-fn printSize(size: u32) void       { printSizeFmt(size, .Compact); }
-fn printSizePad(size: u32) void    { printSizeFmt(size, .Padded);  }
-fn printSizeNice(size: u32) void   { printSizeFmt(size, .Nice);    }
-
 fn printIntToBuf(n: u32, out: []u8) usize {
     var i: usize = 0;
     if (n == 0) {
@@ -377,7 +373,7 @@ fn list_sector(drive: ata.Drive, sector: u32, show_hidden: bool, lfn: *LfnState)
         } else {
             const size = @as(u32, buffer[i + 28]) | (@as(u32, buffer[i + 29]) << 8) | (@as(u32, buffer[i + 30]) << 16) | (@as(u32, buffer[i + 31]) << 24);
             vga.set_color(15, 0);
-            printSizeNice(size);
+            printSizeFmt(size, .Nice);
         }
 
         common.printZ(" ");
