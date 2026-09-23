@@ -165,21 +165,18 @@ fn process_return_stub() noreturn {
     exit_process();
 }
 
-pub fn schedule(current_esp: u32) u32 {
-    if (current_process) |curr| {
-        curr.esp = current_esp;
-        if (curr.state == .Running) curr.state = .Ready;
-    }
-
-    // Scatter watchdog check - random based on build hash
+/// Scatter watchdog check - random based on build hash.
+fn maybe_watchdog(current_esp: u32) void {
     if (config.ENABLE_IDT_WATCHDOG and (current_esp & config.BUILD_HASH) == 0) {
         const idtw = @import("idt_watchdog.zig");
         if (!idtw.check_idt()) {
             idtw.trigger_panic();
         }
     }
+}
 
-    // Simple Round Robin
+/// Simple Round Robin: pick next Ready process, else keep running current.
+fn pick_next_esp(fallback_esp: u32) u32 {
     var i: u32 = 0;
     while (i < 64) : (i += 1) {
         current_process_idx = (current_process_idx + 1) % 64;
@@ -196,7 +193,17 @@ pub fn schedule(current_esp: u32) u32 {
         }
     }
 
-    return current_esp; // No other task, keep running current
+    return fallback_esp; // No other task, keep running current
+}
+
+pub fn schedule(current_esp: u32) u32 {
+    if (current_process) |curr| {
+        curr.esp = current_esp;
+        if (curr.state == .Running) curr.state = .Ready;
+    }
+
+    maybe_watchdog(current_esp);
+    return pick_next_esp(current_esp);
 }
 
 pub fn list_processes() void {
