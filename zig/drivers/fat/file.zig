@@ -232,6 +232,20 @@ fn current_sector_lba(handle: *FileHandle, offset_in_cluster: u32) u32 {
     return sector_lba + offset_in_cluster / 512;
 }
 
+/// Per-iteration geometry shared by the sector IO loops: LBA, byte offset
+/// within that sector, and how many bytes remain until the sector boundary.
+const SectorWindow = struct { lba: u32, off: u32, capacity: u32 };
+
+fn sector_window(handle: *FileHandle) SectorWindow {
+    const cluster_size = @as(u32, handle.bpb.sectors_per_cluster) * 512;
+    const off = (handle.offset % cluster_size) % 512;
+    return .{
+        .lba = current_sector_lba(handle, handle.offset % cluster_size),
+        .off = off,
+        .capacity = 512 - off,
+    };
+}
+
 /// Advance to the next cluster. Returns false on EOF, true on success.
 fn advance_cluster(handle: *FileHandle) bool {
     const next_cluster = get_fat_entry(handle.drive, handle.bpb, handle.cluster);
@@ -266,20 +280,17 @@ pub fn fat_gets(handle: *FileHandle, buffer: [*]u8, max_len: u32) i32 {
     if (handle.offset >= handle.size) return -1;
 
     var bytes_read: u32 = 0;
-    const cluster_size = @as(u32, handle.bpb.sectors_per_cluster) * 512;
     var sector_buf: [512]u8 = undefined;
 
     while (bytes_read < max_len and handle.offset < handle.size) {
-        const offset_in_cluster = handle.offset % cluster_size;
-        const lba = current_sector_lba(handle, offset_in_cluster);
-        ata.read_sector(handle.drive, @intCast(lba), &sector_buf);
+        const win = sector_window(handle);
+        ata.read_sector(handle.drive, win.lba, &sector_buf);
 
-        const remaining_in_sector = 512 - (offset_in_cluster % 512);
-        const to_read = @min(remaining_in_sector, max_len - bytes_read);
+        const to_read = @min(win.capacity, max_len - bytes_read);
 
         var j: u32 = 0;
         while (j < to_read and handle.offset < handle.size) {
-            const ch = sector_buf[(offset_in_cluster % 512) + j];
+            const ch = sector_buf[win.off + j];
             buffer[bytes_read] = ch;
             bytes_read += 1;
             handle.offset += 1;
@@ -303,17 +314,15 @@ pub fn fat_puts(handle: *FileHandle, str: [*]const u8, len: u32) i32 {
     var written: u32 = 0;
 
     while (written < len) {
-        const offset_in_cluster = handle.offset % cluster_size;
-        const lba = current_sector_lba(handle, offset_in_cluster);
-        const offset_in_sector = offset_in_cluster % 512;
-        const to_write = @min(512 - offset_in_sector, len - written);
+        const win = sector_window(handle);
+        const to_write = @min(win.capacity, len - written);
 
-        if (offset_in_sector > 0) {
-            ata.read_sector(handle.drive, @intCast(lba), &sector_buf);
+        if (win.off > 0) {
+            ata.read_sector(handle.drive, win.lba, &sector_buf);
         }
 
-        @memcpy(sector_buf[offset_in_sector .. offset_in_sector + to_write], str[written .. written + to_write]);
-        ata.write_sector(handle.drive, @intCast(lba), &sector_buf);
+        @memcpy(sector_buf[win.off .. win.off + to_write], str[written .. written + to_write]);
+        ata.write_sector(handle.drive, win.lba, &sector_buf);
 
         written += to_write;
         handle.offset += to_write;
