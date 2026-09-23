@@ -1,4 +1,4 @@
-const user = @import("../arch/x86/user.zig");
+const user = @import("../arch/mod.zig").user;
 const syscalls = @import("mod.zig");
 const quantum = @import("../kernel/quantum.zig");
 

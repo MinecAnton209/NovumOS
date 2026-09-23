@@ -1,6 +1,12 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
+    const arch = b.option([]const u8, "arch", "Target architecture (supported: x86)") orelse "x86";
+    if (!std.mem.eql(u8, arch, "x86")) {
+        std.log.err("unsupported -Darch={s}; supported: x86", .{arch});
+        return;
+    }
+
     // Target: i386 freestanding (no OS)
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .x86,
@@ -32,6 +38,7 @@ pub fn build(b: *std.Build) void {
     // Build options
     const history_size = b.option(u32, "history_size", "Number of commands to keep in history");
     const options = b.addOptions();
+    options.addOption([]const u8, "target_arch", arch);
     options.addOption(?u32, "history_size", history_size);
     kernel_mod.addOptions("build_config", options);
 

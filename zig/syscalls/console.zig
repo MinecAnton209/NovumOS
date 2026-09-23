@@ -3,8 +3,8 @@
 
 const common = @import("../commands/common.zig");
 const vga = @import("../drivers/vga.zig");
-const keyboard = @import("../arch/x86/keyboard_isr.zig");
-const user = @import("../arch/x86/user.zig");
+const keyboard = @import("../arch/mod.zig").keyboard_isr;
+const user = @import("../arch/mod.zig").user;
 const logger = @import("../kernel/logger.zig");
 const syscalls = @import("mod.zig");
 

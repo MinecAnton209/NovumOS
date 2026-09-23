@@ -1,6 +1,6 @@
 const ata = @import("../drivers/ata.zig");
 const fat = @import("../drivers/fat/fat.zig");
-const user = @import("../arch/x86/user.zig");
+const user = @import("../arch/mod.zig").user;
 const logger = @import("../kernel/logger.zig");
 const memory = @import("../kernel/memory.zig");
 const path_policy = @import("../kernel/path_policy.zig");

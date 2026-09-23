@@ -1,7 +1,7 @@
 const config = @import("../config.zig");
 const common = @import("../commands/common.zig");
 const timer = @import("timer.zig");
-const smp = @import("../arch/x86/smp.zig");
+const smp = @import("../arch/mod.zig").smp;
 const logger = @import("../kernel/logger.zig");
 
 const PIT_COMMAND = 0x43;

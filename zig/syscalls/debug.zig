@@ -2,8 +2,8 @@
 // Debug-only syscalls: IDT watchdog check/inject, ctrl-c detection, WriteBuf.
 
 const common = @import("../commands/common.zig");
-const user = @import("../arch/x86/user.zig");
-const keyboard = @import("../arch/x86/keyboard_isr.zig");
+const user = @import("../arch/mod.zig").user;
+const keyboard = @import("../arch/mod.zig").keyboard_isr;
 const logger = @import("../kernel/logger.zig");
 const config = @import("../config.zig");
 const syscalls = @import("mod.zig");
@@ -19,7 +19,7 @@ pub fn idtCheck(regs: *user.Registers) void {
         regs.eax = 0;
         return;
     }
-    const idt_watchdog = @import("../arch/x86/idt_watchdog.zig");
+    const idt_watchdog = @import("../arch/mod.zig").idt_watchdog;
     regs.eax = if (idt_watchdog.check_idt()) @as(u32, 1) else @as(u32, 0);
 }
 
@@ -29,7 +29,7 @@ pub fn idtMove(regs: *user.Registers) void {
         regs.eax = 0;
         return;
     }
-    const idt_watchdog = @import("../arch/x86/idt_watchdog.zig");
+    const idt_watchdog = @import("../arch/mod.zig").idt_watchdog;
     const idt_base = idt_watchdog.get_idt_base();
     const idt_ptr = @as([*]u8, @ptrFromInt(idt_base));
     idt_ptr[0x90 * 8] = 0xCC; // Modify unused vector

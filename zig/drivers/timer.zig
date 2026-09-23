@@ -1,7 +1,7 @@
 // PIT (Programmable Interval Timer) Driver
 const common = @import("../commands/common.zig");
 const config = @import("../config.zig");
-const keyboard = @import("../arch/x86/keyboard_isr.zig");
+const keyboard = @import("../arch/mod.zig").keyboard_isr;
 
 var tick_callback: ?*const fn () void = null;
 
@@ -53,7 +53,7 @@ pub export fn isr_timer(esp: u32) u32 {
     // Obfuscated watchdog check - timing based on build seed
     check_counter +%= 1;
     if ((check_counter & TIMING_SEED) == 0) {
-        const idtw = @import("../arch/x86/idt_watchdog.zig");
+        const idtw = @import("../arch/mod.zig").idt_watchdog;
         if (!idtw.check_idt_safe()) {
             idtw.trigger_panic();
         }

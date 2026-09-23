@@ -1,5 +1,5 @@
 const common = @import("common.zig");
-const smp = @import("../arch/x86/smp.zig");
+const smp = @import("../arch/mod.zig").smp;
 
 pub fn execute() void {
     const info = smp.get_cpu_info();

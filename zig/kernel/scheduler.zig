@@ -1,7 +1,7 @@
 const std = @import("std");
 const memory = @import("memory.zig");
 const logger = @import("logger.zig");
-const exceptions = @import("../arch/x86/exceptions.zig");
+const exceptions = @import("../arch/mod.zig").exceptions;
 const common = @import("../commands/common.zig");
 const config = @import("../config.zig");
 
@@ -168,7 +168,7 @@ fn process_return_stub() noreturn {
 /// Scatter watchdog check - random based on build hash.
 fn maybe_watchdog(current_esp: u32) void {
     if (config.ENABLE_IDT_WATCHDOG and (current_esp & config.BUILD_HASH) == 0) {
-        const idtw = @import("../arch/x86/idt_watchdog.zig");
+        const idtw = @import("../arch/mod.zig").idt_watchdog;
         if (!idtw.check_idt()) {
             idtw.trigger_panic();
         }

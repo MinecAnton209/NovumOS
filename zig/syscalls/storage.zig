@@ -10,7 +10,7 @@
 // for shell-internal disk operations.
 
 const common = @import("../commands/common.zig");
-const user = @import("../arch/x86/user.zig");
+const user = @import("../arch/mod.zig").user;
 const ata = @import("../drivers/ata.zig");
 const logger = @import("../kernel/logger.zig");
 const syscalls = @import("mod.zig");

@@ -2,7 +2,7 @@
 // Process control syscalls: Exit, Execve, JumpToUser, Yield.
 // Also hosts per-process alloc tracking for Nova Ring 3 protection.
 
-const user = @import("../arch/x86/user.zig");
+const user = @import("../arch/mod.zig").user;
 const memory = @import("../kernel/memory.zig");
 const logger = @import("../kernel/logger.zig");
 const syscalls = @import("mod.zig");

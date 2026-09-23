@@ -8,13 +8,13 @@ const shell = @import("../shell/shell.zig");
 const fat = @import("../drivers/fat.zig");
 const ata = @import("../drivers/ata.zig");
 const global_common = @import("../commands/common.zig");
-const keyboard = @import("../arch/x86/keyboard_isr.zig");
+const keyboard = @import("../arch/mod.zig").keyboard_isr;
 const vga = @import("../drivers/vga.zig");
 const math_mod = @import("modules/math.zig");
 const sys_mod = @import("modules/sys.zig");
 const speaker_mod = @import("modules/speaker.zig");
 const quantum_mod = @import("modules/quantum.zig");
-const user = @import("../arch/x86/user.zig");
+const user = @import("../arch/mod.zig").user;
 
 pub const VM = struct {
     tokens: lexer.TokenList,

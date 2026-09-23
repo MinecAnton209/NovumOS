@@ -103,7 +103,7 @@ pub fn get_char() u8 {
     if (in_ring3()) {
         return @intCast(syscall_proxy(2, 0, 0, 0, 0));
     }
-    const keyboard = @import("../arch/x86/keyboard_isr.zig");
+    const keyboard = @import("../arch/mod.zig").keyboard_isr;
     return keyboard.keyboard_wait_char();
 }
 
@@ -349,7 +349,7 @@ pub fn idt_check() bool {
         );
         return result == 1;
     }
-    const idt_watchdog = @import("../arch/x86/idt_watchdog.zig");
+    const idt_watchdog = @import("../arch/mod.zig").idt_watchdog;
     return idt_watchdog.check_idt();
 }
 
@@ -367,7 +367,7 @@ pub fn idt_move() void {
         );
         return;
     }
-    const idt_watchdog = @import("../arch/x86/idt_watchdog.zig");
+    const idt_watchdog = @import("../arch/mod.zig").idt_watchdog;
     idt_watchdog.trigger_panic();
 }
 

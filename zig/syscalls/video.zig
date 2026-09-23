@@ -1,4 +1,4 @@
-const user = @import("../arch/x86/user.zig");
+const user = @import("../arch/mod.zig").user;
 const lfb = @import("../drivers/lfb.zig");
 const memory = @import("../kernel/memory.zig");
 const events = @import("../kernel/events.zig");

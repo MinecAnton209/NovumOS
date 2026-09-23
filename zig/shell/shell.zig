@@ -1,6 +1,6 @@
 // NovumOS Shell - Main command line interface
 const common = @import("../commands/common.zig");
-const keyboard = @import("../arch/x86/keyboard_isr.zig");
+const keyboard = @import("../arch/mod.zig").keyboard_isr;
 const shell_cmds = @import("shell_cmds.zig");
 const elf = @import("../kernel/elf.zig");
 const messages = @import("../kernel/messages.zig");
@@ -16,7 +16,7 @@ const top_cmd = @import("../commands/top.zig");
 const doomfire_cmd = @import("../commands/doomfire.zig");
 const lfb = @import("../drivers/lfb.zig");
 const rtc = @import("../drivers/time/time.zig");
-const idt_watchdog = @import("../arch/x86/idt_watchdog.zig");
+const idt_watchdog = @import("../arch/mod.zig").idt_watchdog;
 const mouse = @import("../kernel/mouse.zig");
 const speaker = @import("../drivers/speaker.zig");
 const speaker_timer = @import("../drivers/timer.zig");

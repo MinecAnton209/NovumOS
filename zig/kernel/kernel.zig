@@ -2,7 +2,7 @@
 // Entry point for the Zig portion of the kernel and panic handler.
 
 const shell_cmds = @import("../shell/shell_cmds.zig");
-const keyboard_isr = @import("../arch/x86/keyboard_isr.zig");
+const keyboard_isr = @import("../arch/mod.zig").keyboard_isr;
 const nova = @import("nova.zig");
 const common = @import("../commands/common.zig");
 const shell = @import("../shell/shell.zig");
@@ -12,12 +12,12 @@ const acpi = @import("../drivers/acpi.zig");
 const memory = @import("memory.zig");
 const lfb = @import("../drivers/lfb.zig");
 const vga = @import("../drivers/vga.zig");
-const exceptions = @import("../arch/x86/exceptions.zig");
-const smp = @import("../arch/x86/smp.zig");
+const exceptions = @import("../arch/mod.zig").exceptions;
+const smp = @import("../arch/mod.zig").smp;
 const libc_stubs = @import("libc_stubs.zig");
 const logger = @import("logger.zig");
-const user = @import("../arch/x86/user.zig");
-const idt_watchdog = @import("../arch/x86/idt_watchdog.zig");
+const user = @import("../arch/mod.zig").user;
+const idt_watchdog = @import("../arch/mod.zig").idt_watchdog;
 const ata = @import("../drivers/ata.zig");
 const fat = @import("../drivers/fat.zig");
 const speaker = @import("../drivers/speaker.zig");
@@ -37,7 +37,7 @@ comptime {
     _ = memory;
     _ = exceptions;
     _ = smp;
-    _ = @import("../arch/x86/user.zig");
+    _ = @import("../arch/mod.zig").user;
     _ = @import("../drivers/vga.zig");
     _ = speaker;
     _ = mouse;
