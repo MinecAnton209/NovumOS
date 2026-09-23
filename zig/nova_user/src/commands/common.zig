@@ -1,6 +1,17 @@
 // compat: commands/common.zig — syscall-based Ring 3 implementations
 // replaces kernel's commands/common.zig
 const syscall = @import("../syscall.zig");
+const str_util = @import("str");
+pub const std_mem_eql = str_util.std_mem_eql;
+pub const startsWith = str_util.startsWith;
+pub const endsWith = str_util.endsWith;
+pub const asciiLower = str_util.asciiLower;
+pub const startsWithIgnoreCase = str_util.startsWithIgnoreCase;
+pub const lastIndexOf = str_util.lastIndexOf;
+pub const copy = str_util.copy;
+pub const math_abs = str_util.math_abs;
+pub const math_max = str_util.math_max;
+pub const math_min = str_util.math_min;
 
 // Thin wrappers for callers that reference common.syscall0/1/2
 pub fn syscall0(n: u32) u32 { return syscall.syscall0(n); }
@@ -94,57 +105,6 @@ pub fn get_random(min_v: i32, max_v: i32) i32 {
 }
 
 // --- String utilities (same implementations as kernel) ---
-pub fn std_mem_eql(a: []const u8, b: []const u8) bool {
-    if (a.len != b.len) return false;
-    for (a, 0..) |ca, i| {
-        if (ca != b[i]) return false;
-    }
-    return true;
-}
-
-pub fn startsWith(a: []const u8, b: []const u8) bool {
-    if (b.len > a.len) return false;
-    for (b, 0..) |c, i| {
-        if (a[i] != c) return false;
-    }
-    return true;
-}
-
-pub fn startsWithIgnoreCase(a: []const u8, b: []const u8) bool {
-    if (b.len > a.len) return false;
-    for (b, 0..) |c, i| {
-        const ac = if (a[i] >= 'A' and a[i] <= 'Z') a[i] + 32 else a[i];
-        const bc = if (c >= 'A' and c <= 'Z') c + 32 else c;
-        if (ac != bc) return false;
-    }
-    return true;
-}
-
-pub fn endsWith(a: []const u8, b: []const u8) bool {
-    if (b.len > a.len) return false;
-    const offset = a.len - b.len;
-    for (b, 0..) |c, i| {
-        if (a[offset + i] != c) return false;
-    }
-    return true;
-}
-
-pub fn lastIndexOf(slice: []const u8, c: u8) ?usize {
-    var i = slice.len;
-    while (i > 0) {
-        i -= 1;
-        if (slice[i] == c) return i;
-    }
-    return null;
-}
-
-pub fn copy(dest: []u8, src: []const u8) void {
-    const n = @min(dest.len, src.len);
-    for (src[0..n], 0..) |c, i| {
-        dest[i] = c;
-    }
-}
-
 pub fn fmt_to_buf(buf: []u8, comptime fmt: []const u8, args: anytype) []const u8 {
     _ = buf;
     _ = fmt;
@@ -210,11 +170,6 @@ pub fn intToString(val: i32, buf: []u8) []const u8 {
     return buf[i .. buf.len - 1];
 }
 
-pub fn asciiLower(c: u8) u8 {
-    if (c >= 'A' and c <= 'Z') return c + 32;
-    return c;
-}
-
 pub fn trim(s: []const u8) []const u8 {
     var start: usize = 0;
     while (start < s.len and (s[start] == ' ' or s[start] == '\t')) : (start += 1) {}
@@ -227,14 +182,4 @@ pub fn parseArgs(input: []const u8, argv: anytype) usize {
     _ = input;
     _ = argv;
     return 0;
-}
-
-pub fn math_abs(n: i32) i32 {
-    return if (n < 0) -n else n;
-}
-pub fn math_max(a: i32, b: i32) i32 {
-    return if (a > b) a else b;
-}
-pub fn math_min(a: i32, b: i32) i32 {
-    return if (a < b) a else b;
 }

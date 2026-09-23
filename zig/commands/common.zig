@@ -10,6 +10,18 @@ const acpi = @import("../drivers/acpi.zig");
 const serial = @import("../drivers/serial.zig");
 const logger = @import("../logger.zig");
 
+const str_util = @import("../str.zig");
+pub const std_mem_eql = str_util.std_mem_eql;
+pub const startsWith = str_util.startsWith;
+pub const endsWith = str_util.endsWith;
+pub const asciiLower = str_util.asciiLower;
+pub const startsWithIgnoreCase = str_util.startsWithIgnoreCase;
+pub const lastIndexOf = str_util.lastIndexOf;
+pub const copy = str_util.copy;
+pub const math_abs = str_util.math_abs;
+pub const math_max = str_util.math_max;
+pub const math_min = str_util.math_min;
+
 // --- Global State ---
 pub var selected_disk: i8 = -1; // -1 means RAM FS
 pub var current_dir_cluster: u32 = 0; // 0 = Root on FAT12/16
@@ -381,25 +393,6 @@ pub fn get_random(min_v: i32, max_v: i32) i32 {
     return @as(i32, @intCast(@mod(rnd_state, range))) + min_v;
 }
 
-pub fn math_abs(n: i32) i32 {
-    return if (n < 0) -n else n;
-}
-pub fn math_max(a: i32, b: i32) i32 {
-    return if (a > b) a else b;
-}
-pub fn math_min(a: i32, b: i32) i32 {
-    return if (a < b) a else b;
-}
-
-/// Check if two memory slices are equal
-pub fn std_mem_eql(a: []const u8, b: []const u8) bool {
-    if (a.len != b.len) return false;
-    for (a, 0..) |item, i| {
-        if (item != b[i]) return false;
-    }
-    return true;
-}
-
 pub fn endsWithIgnoreCase(a: []const u8, b: []const u8) bool {
     if (a.len < b.len) return false;
     const start = a.len - b.len;
@@ -407,26 +400,6 @@ pub fn endsWithIgnoreCase(a: []const u8, b: []const u8) bool {
         if (asciiLower(a[start + i]) != asciiLower(b[i])) return false;
     }
     return true;
-}
-
-/// Check if string starts with prefix
-pub fn startsWith(a: []const u8, b: []const u8) bool {
-    if (a.len < b.len) return false;
-    return std_mem_eql(a[0..b.len], b);
-}
-
-pub fn endsWith(a: []const u8, b: []const u8) bool {
-    if (a.len < b.len) return false;
-    return std_mem_eql(a[a.len - b.len ..], b);
-}
-
-pub fn lastIndexOf(slice: []const u8, c: u8) ?usize {
-    var i: usize = slice.len;
-    while (i > 0) {
-        i -= 1;
-        if (slice[i] == c) return i;
-    }
-    return null;
 }
 
 /// Simple indexOf for memory slices
@@ -447,24 +420,6 @@ pub fn trim(s: []const u8) []const u8 {
     var end: usize = s.len;
     while (end > start and s[end - 1] == ' ') : (end -= 1) {}
     return s[start..end];
-}
-
-pub fn asciiLower(c: u8) u8 {
-    if (c >= 'A' and c <= 'Z') return c + 32;
-    return c;
-}
-
-pub fn startsWithIgnoreCase(a: []const u8, b: []const u8) bool {
-    if (a.len < b.len) return false;
-    for (0..b.len) |i| {
-        if (asciiLower(a[i]) != asciiLower(b[i])) return false;
-    }
-    return true;
-}
-
-pub fn copy(dest: []u8, src: []const u8) void {
-    const len = @min(dest.len, src.len);
-    for (0..len) |i| dest[i] = src[i];
 }
 
 /// Parse command line arguments with support for quoted strings

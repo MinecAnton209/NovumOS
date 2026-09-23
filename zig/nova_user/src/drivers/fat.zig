@@ -235,14 +235,7 @@ fn genExt(path: []const u8) [3]u8 {
     return result;
 }
 
-fn lastIndexOf(slice: []const u8, c: u8) ?usize {
-    var i = slice.len;
-    while (i > 0) {
-        i -= 1;
-        if (slice[i] == c) return i;
-    }
-    return null;
-}
+const lastIndexOf = @import("str").lastIndexOf;
 
 fn indexOf(slice: []const u8, c: u8) ?usize {
     for (slice, 0..) |ch, i| {
