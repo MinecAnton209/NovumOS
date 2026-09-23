@@ -13,7 +13,8 @@ This guide covers building and running NovumOS in detail.
 | Zig | 0.16.0 | Build system, linker, compiler |
 | xorriso | latest | Create bootable ISO image |
 | QEMU | latest | Emulator for testing |
-| make, cc (gcc/clang) | latest | Build Limine bootloader (Linux only) |
+| make, cc (gcc/clang) | latest | Build Limine bootloader (Linux/macOS) |
+| qemu-img | latest | Optional: create disk.img via `zig build mkdisk` |
 
 ### Installing Dependencies
 
@@ -28,11 +29,7 @@ This guide covers building and running NovumOS in detail.
 - Add to PATH
 
 **Zig:**
-```powershell
-winget install zig.zig
-# or
-choco install zig
-```
+- Download from https://ziglang.org/download/ (add to PATH)
 
 **xorriso:**
 ```powershell
@@ -67,14 +64,15 @@ Install Zig from https://ziglang.org/download/ (add to PATH).
 
 ## Building
 
+The build scripts do everything end to end: Limine submodule, kernel asm,
+Zig modules, linking, ISO. Windows uses the prebuilt `limine.exe` when
+present; Linux/macOS compile Limine with `make`.
+
 ### Windows
 
 ```bash
 .\build.bat
 ```
-
-Output:
-- `NovumOS.iso` - Bootable ISO image (with Limine + kernel)
 
 ### Linux/macOS
 
@@ -83,8 +81,54 @@ chmod +x build.sh
 ./build.sh
 ```
 
-Output:
-- `NovumOS.iso` - Bootable ISO image (with Limine + kernel)
+If `xorriso` is missing on Linux/macOS, everything else builds and the
+script skips ISO creation with a hint.
+
+### Architecture selection
+
+Sources are laid out per architecture (see [Repository Layout](#repository-layout)):
+
+- `ARCH` environment variable picks asm/include/linker paths
+  (default `x86`, used by both build scripts):
+  ```powershell
+  set ARCH=x86
+  .\build.bat
+  ```
+  ```bash
+  ARCH=x86 ./build.sh
+  ```
+- `zig build -Darch=x86` selects the compiler target and the
+  `arch/mod.zig` facade branch (`x86` is the only supported value today;
+  anything else fails fast with a clear error). The scripts currently run
+  `zig build` with the default, so pass this flag only when invoking
+  `zig build` yourself.
+
+Adding an architecture: drop sources in `zig/arch/<name>/`, register the
+name in `zig/build.zig`'s `-Darch` switch, add branches in
+`zig/arch/mod.zig`, and point `ARCH` at matching asm under `arch/<name>/`.
+
+### Outputs
+
+| Path | What |
+|------|------|
+| `NovumOS.iso` | Bootable ISO (Limine + kernel) |
+| `build/kernel32.elf` | Linked kernel |
+| `build/trampoline.bin` | SMP AP trampoline (also embedded via `zig/arch/*/trampoline.bin`) |
+| `zig/build/nova` | nova user-space ELF, embedded into the kernel with `@embedFile` |
+| `disk.img` | Raw disk, only after `zig build mkdisk` (optional) |
+
+### zig build extras
+
+From the `zig/` directory:
+
+```bash
+zig build mkdisk --disk-size=2G   # create ../disk.img (needs qemu-img; default 32M)
+zig build -Dhistory_size=100      # shell history depth
+```
+
+Known gap: `zig build run` and `zig build run-disk` still reference
+`../build/os-image.bin`, which the current pipeline does not produce —
+launch QEMU manually as shown below.
 
 ## Running
 
@@ -97,8 +141,12 @@ qemu-system-i386 -cdrom NovumOS.iso -serial stdio
 ### With Disk Image
 
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso -drive format=raw,file=disk.img -serial stdio
+zig build mkdisk --disk-size=2G        # from zig/, once
+qemu-system-x86_64 -boot d -cdrom NovumOS.iso -hda disk.img -m 2G -serial stdio
 ```
+
+A freshly created `disk.img` is unformatted: on first boot run `mkfs` in
+the shell before `touch`/`cat`/redirects.
 
 ### Serial Console (No Graphics)
 
@@ -123,7 +171,31 @@ qemu-system-i386 -cdrom NovumOS.iso -serial stdio -s -S
 # Then in gdb: target remote localhost:1234
 ```
 
+## Repository Layout
+
+| Path | Contents |
+|------|----------|
+| `arch/x86/` | `kernel32.asm`, `user_mode.asm`, `idt.asm`, `linker.ld` |
+| `zig/arch/x86/` | exceptions, SMP, keyboard ISR, ring0/ring3 glue, IDT watchdog, trampoline |
+| `zig/arch/mod.zig` | The only arch seam: core imports architecture through this facade |
+| `zig/kernel/` | `kmain`, memory, scheduler, logger, ELF loader, fs glue |
+| `zig/shell/` | shell and command table |
+| `zig/drivers/` | ATA, FAT, VGA/LFB, timer, speaker, RTC, PCI, ACPI |
+| `zig/syscalls/` | `int 0x80` dispatch and handlers |
+| `zig/nova_user/` | modern nova (Ring 3, AST) |
+| `zig/nova_legacy/` | frozen legacy nova (Ring 0) |
+| `zig/config.zig` | feature flags (build root) |
+
 ## Development
+
+### Debug Flags
+
+Edit `zig/config.zig` and rebuild:
+
+- `ENABLE_SERIAL_DEBUG` / `ENABLE_EARLY_LFB_DEBUG` — detected
+  automatically by the build scripts and passed to nasm as `-D` defines.
+- `ENABLE_FAT_DEBUG` — FAT traces (BPB, writes, directory ops) to serial.
+- `ENABLE_SPEAKER` / `ENABLE_BOOT_BEEP` / `ENABLE_ERROR_BEEP` — audio.
 
 ### IDE Setup
 
@@ -153,7 +225,7 @@ For Zig:
 ### Testing Changes
 
 1. Make changes to code
-2. Run `.\build.bat`
+2. Run `.\build.bat` (or `./build.sh`)
 3. Test in QEMU
 4. Repeat
 
@@ -161,12 +233,10 @@ For Zig:
 
 See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
-## CI/Build Matrix
+## CI
 
-| Platform | Build Command | Status |
-|----------|--------------|--------|
-| Windows | `.\build.bat` | ✅ CI |
-| Linux | `./build.sh` | ✅ CI |
+GitHub Actions: `.github/workflows/ci.yml` (build) and
+`.github/workflows/codeql.yml` (CodeQL analysis).
 
 ## Next Steps
 
