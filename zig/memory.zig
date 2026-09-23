@@ -378,6 +378,32 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
     return null;
 }
 
+/// User Mode can only map RAM within [kernel_end, MAX_MEMORY), whitelisted
+/// MMIO (like LFB), the legacy VGA text buffer, or the kernel image itself.
+fn check_user_permissions(vaddr: usize) bool {
+    const kernel_end = @intFromPtr(&ebss);
+
+    const is_vga = (vaddr >= 0xB8000 and vaddr < 0xC0000);
+    const is_kernel_code = (vaddr >= @intFromPtr(&_code_start) and vaddr < @intFromPtr(&_code_end));
+    const is_rodata = (vaddr >= @intFromPtr(&_rodata_start) and vaddr < @intFromPtr(&_rodata_end));
+    const is_data = (vaddr >= @intFromPtr(&_data_start) and vaddr < @intFromPtr(&ebss));
+    const is_system_area = (vaddr >= @intFromPtr(&_system_start) and vaddr < @intFromPtr(&_system_end));
+
+    const is_allowed_mmio = (user_mmio_start != 0 and vaddr >= user_mmio_start and vaddr < user_mmio_end);
+
+    // For general demand paging (identity mapping), we check boundaries.
+    const is_kernel_image = is_kernel_code or is_rodata or is_data or is_system_area;
+    if (!is_vga and !is_allowed_mmio and !is_kernel_image) {
+        if (vaddr < kernel_end or vaddr >= MAX_MEMORY) {
+            logger.security("User-mode unauthorized memory map attempt");
+            var buf: [16]u8 = undefined;
+            logger.debug(common.intToHex(@intCast(vaddr), &buf));
+            return false;
+        }
+    }
+    return true;
+}
+
 /// map_page handles demand paging and discovery of high-memory tables (ACPI, BIOS, MMIO).
 /// If is_user is true, it verifies that the address is within allowed user-mode memory boundaries.
 pub fn map_page(vaddr: usize, is_user: bool) bool {
@@ -406,32 +432,7 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
     }
 
     // Security check for User Mode requests
-    if (is_user) {
-        // User Mode can only map:
-        // 1. RAM within [kernel_end, MAX_MEMORY)
-        // 2. Whitelisted MMIO (like LFB)
-        // 3. Legacy VGA text buffer (0xB8000)
-        const kernel_end = @intFromPtr(&ebss);
-
-        const is_vga = (vaddr >= 0xB8000 and vaddr < 0xC0000);
-        const is_kernel_code = (vaddr >= @intFromPtr(&_code_start) and vaddr < @intFromPtr(&_code_end));
-        const is_rodata = (vaddr >= @intFromPtr(&_rodata_start) and vaddr < @intFromPtr(&_rodata_end));
-        const is_data = (vaddr >= @intFromPtr(&_data_start) and vaddr < @intFromPtr(&ebss));
-        const is_system_area = (vaddr >= @intFromPtr(&_system_start) and vaddr < @intFromPtr(&_system_end));
-
-        const is_allowed_mmio = (user_mmio_start != 0 and vaddr >= user_mmio_start and vaddr < user_mmio_end);
-
-        // For general demand paging (identity mapping), we check boundaries.
-        const is_kernel_image = is_kernel_code or is_rodata or is_data or is_system_area;
-        if (!is_vga and !is_allowed_mmio and !is_kernel_image) {
-            if (vaddr < kernel_end or vaddr >= MAX_MEMORY) {
-                logger.security("User-mode unauthorized memory map attempt");
-                var buf: [16]u8 = undefined;
-                logger.debug(common.intToHex(@intCast(vaddr), &buf));
-                return false;
-            }
-        }
-    }
+    if (is_user and !check_user_permissions(vaddr)) return false;
 
     const eflags = interrupts_save();
     smp.spin_lock(&paging_lock);
