@@ -25,6 +25,28 @@ pub var pipe_buffer: [16384]u8 = [_]u8{0} ** 16384;
 pub var pipe_pos: usize = 0;
 pub var pipe_read_active: bool = false;
 
+/// True when running with Ring 3 privileges (user mode).
+fn in_ring3() bool {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    return (cs & 3) == 3;
+}
+
+/// Issue a syscall from Ring 3 and return raw eax. Call only after in_ring3().
+/// The int 0x80 stub pushad/popad's, so unused arg registers are harmless.
+fn syscall_proxy(comptime num: u32, arg0: u32, arg1: u32, arg2: u32, arg3: u32) u32 {
+    return asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> u32),
+        : [sys] "{eax}" (@as(u32, num)),
+          [b] "{ebx}" (arg0),
+          [c] "{ecx}" (arg1),
+          [d] "{edx}" (arg2),
+          [s] "{esi}" (arg3),
+    );
+}
+
 /// Low-level character output
 pub fn print_char(c: u8) void {
     if (pipe_active) {
@@ -43,19 +65,9 @@ pub fn print_char(c: u8) void {
     }
 
     // Detect User Mode (Ring 3) by checking the low bits of Code Segment (CS)
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-
-    if ((cs & 3) == 3) {
-        // We are in Ring 3! Use syscall 1 (PrintZ logic but for a single char)
+    if (in_ring3()) {
         var buf: [2]u8 = .{ c, 0 };
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 1)),
-              [arg] "{ebx}" (@intFromPtr(&buf)),
-        );
+        _ = syscall_proxy(1, @intFromPtr(&buf), 0, 0, 0);
         return;
     }
 
@@ -64,21 +76,8 @@ pub fn print_char(c: u8) void {
 }
 
 pub fn draw_char_at(row: u8, col: u8, c: u8, attr: u16) void {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-
-    if ((cs & 3) == 3) {
-        // Syscall 18: DrawCharAt
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 18)),
-              [r] "{ebx}" (@as(u32, row)),
-              [c] "{ecx}" (@as(u32, col)),
-              [chr] "{edx}" (@as(u32, c)),
-              [atr] "{esi}" (@as(u32, attr)),
-        );
+    if (in_ring3()) {
+        _ = syscall_proxy(18, row, col, c, attr); // 18: DrawCharAt
         return;
     }
 
@@ -89,81 +88,38 @@ pub fn draw_char_at(row: u8, col: u8, c: u8, attr: u16) void {
 }
 
 pub fn get_char() u8 {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        var res: u32 = 0;
-        asm volatile ("int $0x80"
-            : [ret] "={eax}" (res),
-            : [sys] "{eax}" (@as(u32, 2)),
-        );
-        return @intCast(res);
+    if (in_ring3()) {
+        return @intCast(syscall_proxy(2, 0, 0, 0, 0));
     }
     const keyboard = @import("../keyboard_isr.zig");
     return keyboard.keyboard_wait_char();
 }
 
 pub fn set_cursor(row: u8, col: u8) void {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 3)),
-              [r] "{ebx}" (@as(u32, row)),
-              [c] "{ecx}" (@as(u32, col)),
-        );
+    if (in_ring3()) {
+        _ = syscall_proxy(3, row, col, 0, 0);
         return;
     }
     vga.zig_set_cursor(row, col);
 }
 
 pub fn get_cursor_row() u8 {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        var res: u32 = 0;
-        asm volatile ("int $0x80"
-            : [ret] "={eax}" (res),
-            : [sys] "{eax}" (@as(u32, 4)),
-        );
-        return @intCast(res >> 8);
+    if (in_ring3()) {
+        return @intCast(syscall_proxy(4, 0, 0, 0, 0) >> 8);
     }
     return vga.zig_get_cursor_row();
 }
 
 pub fn get_cursor_col() u8 {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        var res: u32 = 0;
-        asm volatile ("int $0x80"
-            : [ret] "={eax}" (res),
-            : [sys] "{eax}" (@as(u32, 4)),
-        );
-        return @intCast(res & 0xFF);
+    if (in_ring3()) {
+        return @intCast(syscall_proxy(4, 0, 0, 0, 0) & 0xFF);
     }
     return vga.zig_get_cursor_col();
 }
 
 pub fn clear_screen() void {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 5)),
-        );
+    if (in_ring3()) {
+        _ = syscall_proxy(5, 0, 0, 0, 0);
         return;
     }
     vga.clear_screen();
