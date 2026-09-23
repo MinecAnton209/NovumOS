@@ -1,7 +1,7 @@
 // ACPI (Advanced Configuration and Power Interface) Driver
 // Features dynamic AML parsing for S5 (Shutdown) state values
 const common = @import("../commands/common.zig");
-const logger = @import("../logger.zig");
+const logger = @import("../kernel/logger.zig");
 
 var pm1a_control_block: u16 = 0;
 var pm1b_control_block: u16 = 0;

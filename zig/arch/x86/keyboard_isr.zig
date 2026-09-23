@@ -1,6 +1,6 @@
 // Keyboard interrupt handler for NovumOS
 const std = @import("std");
-const events = @import("events.zig");
+const events = @import("../../kernel/events.zig");
 
 // Keyboard buffer
 const BUFFER_SIZE = 256;
@@ -90,7 +90,7 @@ fn inb(port: u16) u8 {
 
 // Keyboard interrupt handler (called from ASM wrapper)
 pub export fn isr_keyboard() void {
-    const config = @import("config.zig");
+    const config = @import("../../config.zig");
     const scancode_byte = inb(0x60);
 
     // Scatter watchdog check - random based on build hash
@@ -385,7 +385,7 @@ pub export fn keyboard_wait_char() u8 {
         );
     }
 
-    const serial = @import("drivers/serial.zig");
+    const serial = @import("../../drivers/serial.zig");
     while (true) {
         if (keyboard_has_data()) return keyboard_getchar();
 

@@ -32,11 +32,11 @@ fi
 if grep -q 'ENABLE_EARLY_LFB_DEBUG = true' zig/config.zig 2>/dev/null; then
     EARLY_LFB_DEBUG=1
 fi
-nasm -f elf32 kernel32.asm -o build/kernel32.o -DENABLE_SERIAL_DEBUG=$SERIAL_DEBUG -DENABLE_EARLY_LFB_DEBUG=$EARLY_LFB_DEBUG
+nasm -f elf32 -iarch/x86/ arch/x86/kernel32.asm -o build/kernel32.o -DENABLE_SERIAL_DEBUG=$SERIAL_DEBUG -DENABLE_EARLY_LFB_DEBUG=$EARLY_LFB_DEBUG
 
 # Assemble SMP Trampoline
 echo "Assembling SMP Trampoline..."
-nasm -f bin zig/smp_trampoline.asm -o build/trampoline.bin
+nasm -f bin zig/arch/x86/smp_trampoline.asm -o build/trampoline.bin
 
 # Build Zig modules
 echo "Building Zig modules..."
@@ -46,11 +46,11 @@ cd ..
 
 # Assemble User Mode
 echo "Assembling User Mode..."
-nasm -f elf32 user_mode.asm -o build/user_mode.o
+nasm -f elf32 arch/x86/user_mode.asm -o build/user_mode.o
 
 # Link kernel
 echo "Linking..."
-zig ld.lld -m elf_i386 -T linker.ld --strip-all -o build/kernel32.elf build/kernel32.o build/user_mode.o zig/build/kernel.o
+zig ld.lld -m elf_i386 -T arch/x86/linker.ld --strip-all -o build/kernel32.elf build/kernel32.o build/user_mode.o zig/build/kernel.o
 
 # Copy Limine files to ISO directory
 cp limine-build/limine-bios.sys iso_root/boot/

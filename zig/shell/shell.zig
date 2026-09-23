@@ -1,26 +1,26 @@
 // NovumOS Shell - Main command line interface
-const common = @import("commands/common.zig");
-const keyboard = @import("keyboard_isr.zig");
+const common = @import("../commands/common.zig");
+const keyboard = @import("../arch/x86/keyboard_isr.zig");
 const shell_cmds = @import("shell_cmds.zig");
-const elf = @import("elf.zig");
-const messages = @import("messages.zig");
-const vga = @import("drivers/vga.zig");
-const versioning = @import("versioning.zig");
-const serial = @import("drivers/serial.zig");
-const fat = @import("drivers/fat.zig");
-const ata = @import("drivers/ata.zig");
-const config = @import("config.zig");
-const nova_legacy_interpreter = @import("nova_legacy/interpreter.zig");
-const nova_legacy_commands = @import("nova_legacy/commands.zig");
-const top_cmd = @import("commands/top.zig");
-const doomfire_cmd = @import("commands/doomfire.zig");
-const lfb = @import("drivers/lfb.zig");
-const rtc = @import("drivers/time/time.zig");
-const idt_watchdog = @import("idt_watchdog.zig");
-const mouse = @import("mouse.zig");
-const speaker = @import("drivers/speaker.zig");
-const speaker_timer = @import("drivers/timer.zig");
-const quantum = @import("quantum.zig");
+const elf = @import("../kernel/elf.zig");
+const messages = @import("../kernel/messages.zig");
+const vga = @import("../drivers/vga.zig");
+const versioning = @import("../kernel/versioning.zig");
+const serial = @import("../drivers/serial.zig");
+const fat = @import("../drivers/fat.zig");
+const ata = @import("../drivers/ata.zig");
+const config = @import("../config.zig");
+const nova_legacy_interpreter = @import("../nova_legacy/interpreter.zig");
+const nova_legacy_commands = @import("../nova_legacy/commands.zig");
+const top_cmd = @import("../commands/top.zig");
+const doomfire_cmd = @import("../commands/doomfire.zig");
+const lfb = @import("../drivers/lfb.zig");
+const rtc = @import("../drivers/time/time.zig");
+const idt_watchdog = @import("../arch/x86/idt_watchdog.zig");
+const mouse = @import("../kernel/mouse.zig");
+const speaker = @import("../drivers/speaker.zig");
+const speaker_timer = @import("../drivers/timer.zig");
+const quantum = @import("../kernel/quantum.zig");
 
 extern const mb2_info: u32;
 extern const fb_addr: u32;
@@ -36,8 +36,8 @@ const EmbeddedScript = struct {
 };
 
 const BUILTIN_SCRIPTS = [_]EmbeddedScript{
-    .{ .name = "hello", .source = @embedFile("nova_legacy/scripts/hello.nv") },
-    .{ .name = "syscheck", .source = @embedFile("nova_legacy/scripts/syscheck.nv") },
+    .{ .name = "hello", .source = @embedFile("../nova_legacy/scripts/hello.nv") },
+    .{ .name = "syscheck", .source = @embedFile("../nova_legacy/scripts/syscheck.nv") },
 };
 
 // Shell configuration

@@ -5,9 +5,9 @@
 const common = @import("../commands/common.zig");
 const fat = @import("../drivers/fat/fat.zig");
 const ata = @import("../drivers/ata.zig");
-const user = @import("../user.zig");
-const logger = @import("../logger.zig");
-const path_policy = @import("../path_policy.zig");
+const user = @import("../arch/x86/user.zig");
+const logger = @import("../kernel/logger.zig");
+const path_policy = @import("../kernel/path_policy.zig");
 const syscalls = @import("mod.zig");
 
 /// StatResult returned by syscall 49 (16 bytes, user-allocated)

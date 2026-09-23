@@ -1,9 +1,9 @@
-const vga = @import("drivers/vga.zig");
-const lfb = @import("drivers/lfb.zig");
-const serial = @import("drivers/serial.zig");
-const config = @import("config.zig");
-const memory = @import("memory.zig");
-const speaker = @import("drivers/speaker.zig");
+const vga = @import("../../drivers/vga.zig");
+const lfb = @import("../../drivers/lfb.zig");
+const serial = @import("../../drivers/serial.zig");
+const config = @import("../../config.zig");
+const memory = @import("../../kernel/memory.zig");
+const speaker = @import("../../drivers/speaker.zig");
 
 pub const ExceptionFrame = extern struct {
     // Pushed by pushad

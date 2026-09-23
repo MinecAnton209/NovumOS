@@ -1,5 +1,5 @@
-const common = @import("commands/common.zig");
-const config = @import("config.zig");
+const common = @import("../commands/common.zig");
+const config = @import("../config.zig");
 const logger = @import("logger.zig");
 
 pub const PAGE_SIZE = 4096;
@@ -25,7 +25,7 @@ var last_free_page: u32 = 0;
 var free_page_count: u32 = 0;
 var pmm_lock: u32 = 0;
 var paging_lock: u32 = 0;
-const smp = @import("smp.zig");
+const smp = @import("../arch/x86/smp.zig");
 
 /// Public alias to the kernel's BSS end symbol (used by user.zig for kernel_end)
 pub const ebss_sym: *const anyopaque = &ebss;

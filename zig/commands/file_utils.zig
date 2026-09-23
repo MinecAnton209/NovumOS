@@ -2,7 +2,7 @@
 const common = @import("../commands/common.zig");
 const fat = @import("../drivers/fat.zig");
 const ata = @import("../drivers/ata.zig");
-const memory = @import("../memory.zig");
+const memory = @import("../kernel/memory.zig");
 
 pub fn cmd_cp(args: []const u8) void {
     var argv: [8][]const u8 = undefined;

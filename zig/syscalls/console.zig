@@ -3,9 +3,9 @@
 
 const common = @import("../commands/common.zig");
 const vga = @import("../drivers/vga.zig");
-const keyboard = @import("../keyboard_isr.zig");
-const user = @import("../user.zig");
-const logger = @import("../logger.zig");
+const keyboard = @import("../arch/x86/keyboard_isr.zig");
+const user = @import("../arch/x86/user.zig");
+const logger = @import("../kernel/logger.zig");
 const syscalls = @import("mod.zig");
 
 /// Syscall 1: PrintZ(EBX = string_ptr) — print null-terminated string

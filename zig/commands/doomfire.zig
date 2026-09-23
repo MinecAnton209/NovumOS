@@ -2,8 +2,8 @@ const common = @import("common.zig");
 const lfb = @import("../drivers/lfb.zig");
 const vga = @import("../drivers/vga.zig");
 const timer = @import("../drivers/timer.zig");
-const keyboard = @import("../keyboard_isr.zig");
-const quantum = @import("../quantum.zig");
+const keyboard = @import("../arch/x86/keyboard_isr.zig");
+const quantum = @import("../kernel/quantum.zig");
 
 // The fire grid is rendered as BLOCKxBLOCK screen pixels per cell,
 // giving the chunky pixel look of the original DOOM fire demo.

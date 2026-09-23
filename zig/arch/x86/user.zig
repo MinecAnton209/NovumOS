@@ -1,16 +1,16 @@
-const common = @import("commands/common.zig");
+const common = @import("../../commands/common.zig");
 const exceptions = @import("exceptions.zig");
 const smp = @import("smp.zig");
 const keyboard = @import("keyboard_isr.zig");
-const vga = @import("drivers/vga.zig");
-const timer = @import("drivers/timer.zig");
-const memory = @import("memory.zig");
-const logger = @import("logger.zig");
-const ata = @import("drivers/ata.zig");
-const rtc = @import("drivers/time/time.zig");
-const config = @import("config.zig");
-const speaker = @import("drivers/speaker.zig");
-const syscalls = @import("syscalls/mod.zig");
+const vga = @import("../../drivers/vga.zig");
+const timer = @import("../../drivers/timer.zig");
+const memory = @import("../../kernel/memory.zig");
+const logger = @import("../../kernel/logger.zig");
+const ata = @import("../../drivers/ata.zig");
+const rtc = @import("../../drivers/time/time.zig");
+const config = @import("../../config.zig");
+const speaker = @import("../../drivers/speaker.zig");
+const syscalls = @import("../../syscalls/mod.zig");
 
 // External jump target to return to kernel shell
 extern fn kernel_loop() noreturn;

@@ -1,4 +1,4 @@
-const memory = @import("../memory.zig");
+const memory = @import("../kernel/memory.zig");
 const font = @import("font.zig");
 const bga = @import("bga.zig");
 const vga = @import("vga.zig");

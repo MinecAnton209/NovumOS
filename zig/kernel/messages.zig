@@ -1,6 +1,6 @@
 // System Messages Module
-const common = @import("commands/common.zig");
-const vga = @import("drivers/vga.zig");
+const common = @import("../commands/common.zig");
+const vga = @import("../drivers/vga.zig");
 const versioning = @import("versioning.zig");
 
 pub export fn print_welcome() void {

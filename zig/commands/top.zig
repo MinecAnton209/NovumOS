@@ -1,7 +1,7 @@
 const common = @import("common.zig");
-const smp = @import("../smp.zig");
+const smp = @import("../arch/x86/smp.zig");
 const vga = @import("../drivers/vga.zig");
-const keyboard = @import("../keyboard_isr.zig");
+const keyboard = @import("../arch/x86/keyboard_isr.zig");
 const timer = @import("../drivers/timer.zig");
 
 pub fn cmd_top() void {

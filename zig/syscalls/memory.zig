@@ -2,9 +2,9 @@
 // Memory-related syscalls: malloc, free, MemoryMapRange, GetFreeMemory.
 
 const common = @import("../commands/common.zig");
-const memory = @import("../memory.zig");
-const user = @import("../user.zig");
-const logger = @import("../logger.zig");
+const memory = @import("../kernel/memory.zig");
+const user = @import("../arch/x86/user.zig");
+const logger = @import("../kernel/logger.zig");
 const syscalls = @import("mod.zig");
 const process_mod = @import("process.zig");
 

@@ -2,9 +2,9 @@
 // Nova-language syscalls: shell execution, VGA color control.
 
 const common = @import("../commands/common.zig");
-const user = @import("../user.zig");
+const user = @import("../arch/x86/user.zig");
 const syscalls = @import("mod.zig");
-const shell = @import("../shell.zig");
+const shell = @import("../shell/shell.zig");
 const vga = @import("../drivers/vga.zig");
 
 /// Syscall 53: ShellExec(EBX = cmd_ptr, ECX = cmd_len) — execute a shell command string

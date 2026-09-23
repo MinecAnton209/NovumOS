@@ -1,11 +1,11 @@
 const ata = @import("../drivers/ata.zig");
 const fat = @import("../drivers/fat/fat.zig");
-const user = @import("../user.zig");
-const logger = @import("../logger.zig");
-const memory = @import("../memory.zig");
-const path_policy = @import("../path_policy.zig");
+const user = @import("../arch/x86/user.zig");
+const logger = @import("../kernel/logger.zig");
+const memory = @import("../kernel/memory.zig");
+const path_policy = @import("../kernel/path_policy.zig");
 const syscalls = @import("mod.zig");
-const scheduler = @import("../scheduler.zig");
+const scheduler = @import("../kernel/scheduler.zig");
 const common = @import("../commands/common.zig");
 
 const MAX_GLOBAL_HANDLES = 128;

@@ -1,4 +1,4 @@
-const common = @import("commands/common.zig");
+const common = @import("../commands/common.zig");
 
 var has_rdrand_feature: bool = false;
 var entropy_pool: u32 = 0;

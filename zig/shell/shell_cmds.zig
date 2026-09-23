@@ -1,40 +1,40 @@
 // Shell Commands Module
 // Bridges high-level command logic with individual command implementations.
 
-const ls = @import("commands/ls.zig");
-const cat = @import("commands/cat.zig");
-const touch = @import("commands/touch.zig");
-const rm = @import("commands/rm.zig");
-const echo = @import("commands/echo.zig");
-const common = @import("commands/common.zig");
-const timer = @import("drivers/timer.zig");
-const disk_cmds = @import("commands/disk_cmds.zig");
-const fat = @import("drivers/fat.zig");
-const ata = @import("drivers/ata.zig");
+const ls = @import("../commands/ls.zig");
+const cat = @import("../commands/cat.zig");
+const touch = @import("../commands/touch.zig");
+const rm = @import("../commands/rm.zig");
+const echo = @import("../commands/echo.zig");
+const common = @import("../commands/common.zig");
+const timer = @import("../drivers/timer.zig");
+const disk_cmds = @import("../commands/disk_cmds.zig");
+const fat = @import("../drivers/fat.zig");
+const ata = @import("../drivers/ata.zig");
 
 /// Drive implied by the current disk selection.
 pub fn current_drive() ata.Drive {
     return if (common.selected_disk == 0) .Master else .Slave;
 }
-const edit = @import("commands/edit.zig");
-const rtc = @import("drivers/time/time.zig");
-const sysinfo = @import("commands/sysinfo.zig");
-const keyboard_isr = @import("keyboard_isr.zig");
-const file_utils = @import("commands/file_utils.zig");
-const docs = @import("commands/docs.zig");
-const config = @import("config.zig");
-const exceptions = @import("exceptions.zig");
-const memory = @import("memory.zig");
-const cpuinfo = @import("commands/cpuinfo.zig");
-const smp = @import("smp.zig");
-const vga = @import("drivers/vga.zig");
-const user = @import("user.zig");
-const elf = @import("elf.zig");
-const pci_cmds = @import("commands/pci_cmds.zig");
-const lfb = @import("drivers/lfb.zig");
-const calc = @import("commands/calc.zig");
-const logger = @import("logger.zig");
-const scheduler = @import("scheduler.zig");
+const edit = @import("../commands/edit.zig");
+const rtc = @import("../drivers/time/time.zig");
+const sysinfo = @import("../commands/sysinfo.zig");
+const keyboard_isr = @import("../arch/x86/keyboard_isr.zig");
+const file_utils = @import("../commands/file_utils.zig");
+const docs = @import("../commands/docs.zig");
+const config = @import("../config.zig");
+const exceptions = @import("../arch/x86/exceptions.zig");
+const memory = @import("../kernel/memory.zig");
+const cpuinfo = @import("../commands/cpuinfo.zig");
+const smp = @import("../arch/x86/smp.zig");
+const vga = @import("../drivers/vga.zig");
+const user = @import("../arch/x86/user.zig");
+const elf = @import("../kernel/elf.zig");
+const pci_cmds = @import("../commands/pci_cmds.zig");
+const lfb = @import("../drivers/lfb.zig");
+const calc = @import("../commands/calc.zig");
+const logger = @import("../kernel/logger.zig");
+const scheduler = @import("../kernel/scheduler.zig");
 
 pub export fn cmd_ps() void {
     scheduler.list_processes();
@@ -55,7 +55,7 @@ pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
 
     if (config.ENABLE_EMBEDDED_ELFS) {
         if (common.std_mem_eql(name, "hello.elf") or common.std_mem_eql(name, "hello")) {
-            const data = @embedFile("embedded/hello.elf");
+            const data = @embedFile("../embedded/hello.elf");
             logger.info("Running embedded ELF...");
             elf.load_and_run(data) catch |err| {
                 logger.err("Error loading embedded ELF");
@@ -66,7 +66,7 @@ pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
     }
 
     if (common.selected_disk < 0) {
-        const fs_mod = @import("fs.zig");
+        const fs_mod = @import("../kernel/fs.zig");
         const file_id = fs_mod.fs_find(name.ptr, @intCast(@min(name.len, 12)));
         if (file_id < 0) {
             common.printError("Error: File not found in RAM FS\n");
@@ -819,7 +819,7 @@ pub export fn cmd_lsdsk() void {
 
 /// Unified mkfs handler: dispatches to mkfs(drive_num, comptime ft).
 const MkfsHandler = struct {
-    const FatType = @import("commands/disk_cmds.zig").FatType;
+    const FatType = @import("../commands/disk_cmds.zig").FatType;
 
     fn mkfs(drive_num_ptr: [*]const u8, drive_num_len: u32, comptime ft: FatType) void {
         const ft_name = comptime switch (ft) {
@@ -837,15 +837,15 @@ const MkfsHandler = struct {
 };
 
 pub export fn cmd_mkfs_fat12(drive_num_ptr: [*]const u8, drive_num_len: u32) void {
-    const FatType = @import("commands/disk_cmds.zig").FatType;
+    const FatType = @import("../commands/disk_cmds.zig").FatType;
     MkfsHandler.mkfs(drive_num_ptr, drive_num_len, FatType.Fat12);
 }
 pub export fn cmd_mkfs_fat16(drive_num_ptr: [*]const u8, drive_num_len: u32) void {
-    const FatType = @import("commands/disk_cmds.zig").FatType;
+    const FatType = @import("../commands/disk_cmds.zig").FatType;
     MkfsHandler.mkfs(drive_num_ptr, drive_num_len, FatType.Fat16);
 }
 pub export fn cmd_mkfs_fat32(drive_num_ptr: [*]const u8, drive_num_len: u32) void {
-    const FatType = @import("commands/disk_cmds.zig").FatType;
+    const FatType = @import("../commands/disk_cmds.zig").FatType;
     MkfsHandler.mkfs(drive_num_ptr, drive_num_len, FatType.Fat32);
 }
 

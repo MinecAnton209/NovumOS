@@ -3,9 +3,9 @@
 // When NOVA_PATH_POLICY_ENABLED, blocks access to sensitive paths.
 // Gated by config.NOVA_PATH_POLICY_ENABLED kill-switch.
 
-const config = @import("config.zig");
+const config = @import("../config.zig");
 const logger = @import("logger.zig");
-const common = @import("commands/common.zig");
+const common = @import("../commands/common.zig");
 
 /// Prefixes that are always blocked for untrusted processes
 const BLOCKED_PREFIXES = [_][]const u8{

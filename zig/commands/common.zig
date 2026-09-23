@@ -1,16 +1,16 @@
 // Common Utilities Module
 // Provides shared logic for printing, system control, and file system access.
 
-const fs = @import("../fs.zig");
+const fs = @import("../kernel/fs.zig");
 const config = @import("../config.zig");
 pub const vga = @import("../drivers/vga.zig");
 const timer = @import("../drivers/timer.zig");
 const acpi = @import("../drivers/acpi.zig");
 
 const serial = @import("../drivers/serial.zig");
-const logger = @import("../logger.zig");
+const logger = @import("../kernel/logger.zig");
 
-const str_util = @import("../str.zig");
+const str_util = @import("../kernel/str.zig");
 pub const std_mem_eql = str_util.std_mem_eql;
 pub const startsWith = str_util.startsWith;
 pub const endsWith = str_util.endsWith;
@@ -103,7 +103,7 @@ pub fn get_char() u8 {
     if (in_ring3()) {
         return @intCast(syscall_proxy(2, 0, 0, 0, 0));
     }
-    const keyboard = @import("../keyboard_isr.zig");
+    const keyboard = @import("../arch/x86/keyboard_isr.zig");
     return keyboard.keyboard_wait_char();
 }
 
@@ -349,7 +349,7 @@ pub fn idt_check() bool {
         );
         return result == 1;
     }
-    const idt_watchdog = @import("../idt_watchdog.zig");
+    const idt_watchdog = @import("../arch/x86/idt_watchdog.zig");
     return idt_watchdog.check_idt();
 }
 
@@ -367,7 +367,7 @@ pub fn idt_move() void {
         );
         return;
     }
-    const idt_watchdog = @import("../idt_watchdog.zig");
+    const idt_watchdog = @import("../arch/x86/idt_watchdog.zig");
     idt_watchdog.trigger_panic();
 }
 

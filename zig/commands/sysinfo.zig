@@ -1,10 +1,10 @@
 // Sysinfo command with ASCII art
 const common = @import("common.zig");
 const vga = @import("../drivers/vga.zig");
-const versioning = @import("../versioning.zig");
+const versioning = @import("../kernel/versioning.zig");
 const config = @import("../config.zig");
 const build_config = @import("build_config");
-const memory = @import("../memory.zig");
+const memory = @import("../kernel/memory.zig");
 const lfb = @import("../drivers/lfb.zig");
 
 const ata = @import("../drivers/ata.zig");

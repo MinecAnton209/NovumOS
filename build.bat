@@ -36,7 +36,7 @@ if %errorlevel% equ 0 set EARLY_LFB_DEBUG=1
 
 :: Assemble kernel
 echo Assembling kernel...
-nasm -f elf32 kernel32.asm -o build\kernel32.o -DENABLE_SERIAL_DEBUG=%SERIAL_DEBUG% -DENABLE_EARLY_LFB_DEBUG=%EARLY_LFB_DEBUG%
+nasm -f elf32 -iarch\x86\ arch\x86\kernel32.asm -o build\kernel32.o -DENABLE_SERIAL_DEBUG=%SERIAL_DEBUG% -DENABLE_EARLY_LFB_DEBUG=%EARLY_LFB_DEBUG%
 if %errorlevel% neq 0 (
     echo Error assembling kernel!
     pause
@@ -45,7 +45,7 @@ if %errorlevel% neq 0 (
 
 :: Assemble SMP Trampoline
 echo Assembling SMP Trampoline...
-nasm -f bin zig\smp_trampoline.asm -o build\trampoline.bin
+nasm -f bin zig\arch\x86\smp_trampoline.asm -o build\trampoline.bin
 if %errorlevel% neq 0 (
     echo Error assembling SMP trampoline!
     pause
@@ -66,7 +66,7 @@ popd
 
 :: Assemble User Mode
 echo Assembling User Mode...
-nasm -f elf32 user_mode.asm -o build\user_mode.o
+nasm -f elf32 arch\x86\user_mode.asm -o build\user_mode.o
 if %errorlevel% neq 0 (
     echo Error assembling user_mode!
     pause
@@ -75,7 +75,7 @@ if %errorlevel% neq 0 (
 
 :: Link kernel
 echo Linking...
-zig ld.lld -m elf_i386 -T linker.ld --strip-all -o build\kernel32.elf build\kernel32.o build\user_mode.o zig\build\kernel.o
+zig ld.lld -m elf_i386 -T arch\x86\linker.ld --strip-all -o build\kernel32.elf build\kernel32.o build\user_mode.o zig\build\kernel.o
 if %errorlevel% neq 0 (
     echo Error linking!
     pause

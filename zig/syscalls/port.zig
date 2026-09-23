@@ -5,8 +5,8 @@
 // would use a bitmap or per-process capability bitmap.
 
 const common = @import("../commands/common.zig");
-const user = @import("../user.zig");
-const logger = @import("../logger.zig");
+const user = @import("../arch/x86/user.zig");
+const logger = @import("../kernel/logger.zig");
 
 /// Whitelist of I/O ports accessible from Ring 3.
 fn is_io_port_allowed(port: u16) bool {

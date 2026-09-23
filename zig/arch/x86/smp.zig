@@ -1,8 +1,8 @@
-const acpi = @import("drivers/acpi.zig");
-const memory = @import("memory.zig");
-const common = @import("commands/common.zig");
-const logger = @import("logger.zig");
-const config = @import("config.zig");
+const acpi = @import("../../drivers/acpi.zig");
+const memory = @import("../../kernel/memory.zig");
+const common = @import("../../commands/common.zig");
+const logger = @import("../../kernel/logger.zig");
+const config = @import("../../config.zig");
 
 const TRAMPOLINE_ADDR = 0x8000;
 const FLAG_ADDR = 0x9000;
@@ -243,7 +243,7 @@ fn steal_task(my_idx: u32) ?Task {
 }
 
 pub export fn ap_kernel_entry() noreturn {
-    const serial = @import("drivers/serial.zig");
+    const serial = @import("../../drivers/serial.zig");
     serial.serial_print_str("[ Kernel ] AP core starting...\n");
 
     // 0. Load the REAL kernel GDT (trampoline had a tiny one)

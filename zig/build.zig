@@ -55,7 +55,7 @@ pub fn build(b: *std.Build) void {
         .optimize = .ReleaseSmall,
     });
     // Shared string/math helpers used by both kernel and nova_user.
-    nova_mod.addAnonymousImport("str", .{ .root_source_file = b.path("str.zig") });
+    nova_mod.addAnonymousImport("str", .{ .root_source_file = b.path("kernel/str.zig") });
     const nova_exe = b.addExecutable(.{
         .name = "nova",
         .root_module = nova_mod,
