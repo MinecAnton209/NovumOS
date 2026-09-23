@@ -52,7 +52,7 @@ pub fn lsdsk() void {
     }
 }
 
-const FatType = enum { Fat12, Fat16, Fat32 };
+pub const FatType = enum { Fat12, Fat16, Fat32 };
 
 /// Unified mkfs for FAT12/16/32. Comptime dispatch on `ft` keeps all
 /// FAT-specific logic inline while eliminating the three-way copy-paste.
@@ -196,8 +196,8 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
             boot_sector[23] = 0x00;
         },
         .Fat16 => {
-            boot_sector[17] = 0x00;
-            boot_sector[18] = @intCast(root_entry_count & 0xFF);
+            boot_sector[17] = @intCast(root_entry_count & 0xFF);
+            boot_sector[18] = @intCast((root_entry_count >> 8) & 0xFF);
             boot_sector[22] = @intCast(fat_size & 0xFF);
             boot_sector[23] = @intCast((fat_size >> 8) & 0xFF);
         },

@@ -1,4 +1,5 @@
 const common = @import("../../commands/common.zig");
+const config = @import("../../config.zig");
 const ata = @import("../ata.zig");
 const dir = @import("dir.zig");
 
@@ -540,6 +541,21 @@ fn write_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []cons
     var entry_attr: u8 = 0x20;
     const exists = find_entry_literal(drive, bpb, dir_cluster, name);
 
+    if (config.ENABLE_FAT_DEBUG) {
+        common.printZ("DBG wfl: exists=");
+        if (exists) |_| { common.printZ("Y"); } else { common.printZ("N"); }
+        common.printZ(" dir_cluster="); common.printNum(@intCast(dir_cluster));
+        common.printZ(" name=\""); common.printZ(name); common.printZ("\"");
+        common.printZ(" root_ent="); common.printNum(@intCast(bpb.root_entries));
+        common.printZ(" root_sec="); common.printNum(@intCast(bpb.root_dir_sectors));
+        common.printZ(" frs="); common.printNum(@intCast(bpb.first_root_dir_sector));
+        common.printZ(" fds="); common.printNum(@intCast(bpb.first_data_sector));
+        common.printZ(" nfat="); common.printNum(@intCast(bpb.num_fats));
+        common.printZ(" spf="); common.printNum(@intCast(bpb.sectors_per_fat));
+        common.printZ(" spc="); common.printNum(@intCast(bpb.sectors_per_cluster));
+        common.printZ("\n");
+
+    }
     if (exists) |entry| {
         if ((entry.attr & 0x04) != 0) {
             return false;

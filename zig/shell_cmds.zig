@@ -275,6 +275,40 @@ pub export fn cmd_touch(name_ptr: [*]const u8, name_len: u32) void {
     }
 }
 
+/// Helper: open a file handle on the selected disk, checking disk state,
+/// BPB validity, entry existence, and read-only/system attribute.
+/// Returns the handle (mutable copy) if the file can be safely modified.
+fn with_file_handle(filename: []const u8, check_write_attrs: bool, out: *fat.FileHandle) bool {
+    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    const bpb = fat.read_bpb(drive) orelse {
+        common.printError("Error: Disk not formatted\n");
+        return false;
+    };
+
+    const entry = fat.find_entry_literal(drive, bpb, common.current_dir_cluster, filename) orelse {
+        common.printError("Error: File not found\n");
+        return false;
+    };
+
+    if (check_write_attrs) {
+        if ((entry.attr & 0x01) != 0) {
+            common.printError("Error: Cannot modify read-only file\n");
+            return false;
+        }
+        if ((entry.attr & 0x04) != 0) {
+            common.printError("Error: Cannot modify system file\n");
+            return false;
+        }
+    }
+
+    const handle = fat.fat_open(drive, bpb, common.current_dir_cluster, filename) orelse {
+        common.printError("Error: Could not open file\n");
+        return false;
+    };
+    out.* = handle;
+    return true;
+}
+
 /// Execute 'lseek' command to change file position
 pub export fn cmd_lseek(args_ptr: [*]const u8, args_len: u32) void {
     if (common.selected_disk < 0) {
@@ -320,30 +354,15 @@ pub export fn cmd_lseek(args_ptr: [*]const u8, args_len: u32) void {
         }
     }
 
-    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-    if (fat.read_bpb(drive)) |bpb| {
-        const entry = fat.find_entry_literal(drive, bpb, common.current_dir_cluster, filename);
-        if (entry == null) {
-            common.printError("Error: File not found\n");
-            return;
-        }
-
-        const handle = fat.fat_open(drive, bpb, common.current_dir_cluster, filename);
-        if (handle) |h| {
-            var mut_handle = h;
-            const result = fat.fat_lseek(&mut_handle, offset, whence);
-            if (result >= 0) {
-                common.printZ("Position: ");
-                common.printNum(@intCast(result));
-                common.printZ("\n");
-            } else {
-                common.printError("Error: Invalid offset\n");
-            }
-        } else {
-            common.printError("Error: Could not open file\n");
-        }
+    var handle: fat.FileHandle = undefined;
+    if (!with_file_handle(filename, false, &handle)) return;
+    const result = fat.fat_lseek(&handle, offset, whence);
+    if (result >= 0) {
+        common.printZ("Position: ");
+        common.printNum(@intCast(result));
+        common.printZ("\n");
     } else {
-        common.printError("Error: Disk not formatted\n");
+        common.printError("Error: Invalid offset\n");
     }
 }
 
@@ -375,39 +394,15 @@ pub export fn cmd_truncate(args_ptr: [*]const u8, args_len: u32) void {
         i += 1;
     }
 
-    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-    if (fat.read_bpb(drive)) |bpb| {
-        const entry = fat.find_entry_literal(drive, bpb, common.current_dir_cluster, filename);
-        if (entry) |e| {
-            if ((e.attr & 0x01) != 0) {
-                common.printError("Error: Cannot truncate read-only file\n");
-                return;
-            }
-            if ((e.attr & 0x04) != 0) {
-                common.printError("Error: Cannot truncate system file\n");
-                return;
-            }
-        } else {
-            common.printError("Error: File not found\n");
-            return;
-        }
-
-        const handle = fat.fat_open(drive, bpb, common.current_dir_cluster, filename);
-        if (handle) |h| {
-            var mut_handle = h;
-            const result = fat.fat_truncate(&mut_handle, size);
-            if (result == 0) {
-                common.printZ("File truncated to ");
-                common.printNum(@intCast(size));
-                common.printZ(" bytes\n");
-            } else {
-                common.printError("Error: Could not truncate\n");
-            }
-        } else {
-            common.printError("Error: Could not open file\n");
-        }
+    var handle: fat.FileHandle = undefined;
+    if (!with_file_handle(filename, true, &handle)) return;
+    const result = fat.fat_truncate(&handle, size);
+    if (result == 0) {
+        common.printZ("File truncated to ");
+        common.printNum(@intCast(size));
+        common.printZ(" bytes\n");
     } else {
-        common.printError("Error: Disk not formatted\n");
+        common.printError("Error: Could not truncate\n");
     }
 }
 
@@ -459,39 +454,15 @@ pub export fn cmd_expand(args_ptr: [*]const u8, args_len: u32) void {
         i += 1;
     }
 
-    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-    if (fat.read_bpb(drive)) |bpb| {
-        const entry = fat.find_entry_literal(drive, bpb, common.current_dir_cluster, filename);
-        if (entry) |e| {
-            if ((e.attr & 0x01) != 0) {
-                common.printError("Error: Cannot expand read-only file\n");
-                return;
-            }
-            if ((e.attr & 0x04) != 0) {
-                common.printError("Error: Cannot expand system file\n");
-                return;
-            }
-        } else {
-            common.printError("Error: File not found\n");
-            return;
-        }
-
-        const handle = fat.fat_open(drive, bpb, common.current_dir_cluster, filename);
-        if (handle) |h| {
-            var mut_handle = h;
-            const result = fat.fat_expand(&mut_handle, size);
-            if (result == 0) {
-                common.printZ("File expanded to ");
-                common.printNum(@intCast(size));
-                common.printZ(" bytes\n");
-            } else {
-                common.printError("Error: Could not expand\n");
-            }
-        } else {
-            common.printError("Error: Could not open file\n");
-        }
+    var handle: fat.FileHandle = undefined;
+    if (!with_file_handle(filename, true, &handle)) return;
+    const result = fat.fat_expand(&handle, size);
+    if (result == 0) {
+        common.printZ("File expanded to ");
+        common.printNum(@intCast(size));
+        common.printZ(" bytes\n");
     } else {
-        common.printError("Error: Disk not formatted\n");
+        common.printError("Error: Could not expand\n");
     }
 }
 
@@ -523,39 +494,15 @@ pub export fn cmd_forward(args_ptr: [*]const u8, args_len: u32) void {
         i += 1;
     }
 
-    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-    if (fat.read_bpb(drive)) |bpb| {
-        const entry = fat.find_entry_literal(drive, bpb, common.current_dir_cluster, filename);
-        if (entry) |e| {
-            if ((e.attr & 0x01) != 0) {
-                common.printError("Error: Cannot modify read-only file\n");
-                return;
-            }
-            if ((e.attr & 0x04) != 0) {
-                common.printError("Error: Cannot modify system file\n");
-                return;
-            }
-        } else {
-            common.printError("Error: File not found\n");
-            return;
-        }
-
-        const handle = fat.fat_open(drive, bpb, common.current_dir_cluster, filename);
-        if (handle) |h| {
-            var mut_handle = h;
-            const result = fat.fat_forward(&mut_handle, count);
-            if (result >= 0) {
-                common.printZ("Position: ");
-                common.printNum(result);
-                common.printZ("\n");
-            } else {
-                common.printError("Error: Cannot forward past end of file\n");
-            }
-        } else {
-            common.printError("Error: Could not open file\n");
-        }
+    var handle: fat.FileHandle = undefined;
+    if (!with_file_handle(filename, true, &handle)) return;
+    const result = fat.fat_forward(&handle, count);
+    if (result >= 0) {
+        common.printZ("Position: ");
+        common.printNum(result);
+        common.printZ("\n");
     } else {
-        common.printError("Error: Disk not formatted\n");
+        common.printError("Error: Cannot forward past end of file\n");
     }
 }
 
@@ -865,34 +812,36 @@ pub export fn cmd_lsdsk() void {
     disk_cmds.lsdsk();
 }
 
-/// Execute 'mkfs-fat12' command
+/// Unified mkfs handler: dispatches to mkfs(drive_num, comptime ft).
+const MkfsHandler = struct {
+    const FatType = @import("commands/disk_cmds.zig").FatType;
+
+    fn mkfs(drive_num_ptr: [*]const u8, drive_num_len: u32, comptime ft: FatType) void {
+        const ft_name = comptime switch (ft) {
+            .Fat12 => "fat12",
+            .Fat16 => "fat16",
+            .Fat32 => "fat32",
+        };
+        if (drive_num_len == 0) {
+            common.printZ("Usage: mkfs-" ++ ft_name ++ " <drive_num>\n");
+            return;
+        }
+        const drive_num = drive_num_ptr[0] - '0';
+        disk_cmds.mkfs(@intCast(drive_num), ft);
+    }
+};
+
 pub export fn cmd_mkfs_fat12(drive_num_ptr: [*]const u8, drive_num_len: u32) void {
-    if (drive_num_len == 0) {
-        common.printZ("Usage: mkfs-fat12 <drive_num>\n");
-        return;
-    }
-    const drive_num = drive_num_ptr[0] - '0';
-    disk_cmds.mkfs_fat12(@intCast(drive_num));
+    const FatType = @import("commands/disk_cmds.zig").FatType;
+    MkfsHandler.mkfs(drive_num_ptr, drive_num_len, FatType.Fat12);
 }
-
-/// Execute 'mkfs-fat16' command
 pub export fn cmd_mkfs_fat16(drive_num_ptr: [*]const u8, drive_num_len: u32) void {
-    if (drive_num_len == 0) {
-        common.printZ("Usage: mkfs-fat16 <drive_num>\n");
-        return;
-    }
-    const drive_num = drive_num_ptr[0] - '0';
-    disk_cmds.mkfs_fat16(@intCast(drive_num));
+    const FatType = @import("commands/disk_cmds.zig").FatType;
+    MkfsHandler.mkfs(drive_num_ptr, drive_num_len, FatType.Fat16);
 }
-
-/// Execute 'mkfs-fat32' command
 pub export fn cmd_mkfs_fat32(drive_num_ptr: [*]const u8, drive_num_len: u32) void {
-    if (drive_num_len == 0) {
-        common.printZ("Usage: mkfs-fat32 <drive_num>\n");
-        return;
-    }
-    const drive_num = drive_num_ptr[0] - '0';
-    disk_cmds.mkfs_fat32(@intCast(drive_num));
+    const FatType = @import("commands/disk_cmds.zig").FatType;
+    MkfsHandler.mkfs(drive_num_ptr, drive_num_len, FatType.Fat32);
 }
 
 /// Global initialization for Zig-based modules (FS, etc.)

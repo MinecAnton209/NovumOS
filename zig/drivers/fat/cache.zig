@@ -14,6 +14,12 @@ fn fat_cache_init_internal(drive: ata.Drive) void {
     fat_cache_init = true;
 }
 
+/// Invalidate the FAT sector cache entirely (call after mkfs/reformat).
+pub fn invalidate_fat_cache() void {
+    fat_cache_count = 0;
+    fat_cache_init = false;
+}
+
 pub fn fat_read_cached_sector(drive: ata.Drive, sector: u32) [*]u8 {
     if (!fat_cache_init or fat_cache_drive != drive) {
         fat_cache_init_internal(drive);

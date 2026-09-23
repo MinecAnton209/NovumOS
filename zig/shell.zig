@@ -44,34 +44,28 @@ const BUILTIN_SCRIPTS = [_]EmbeddedScript{
 const build_config = @import("build_config");
 const HISTORY_SIZE = if (build_config.history_size) |h| h else config.HISTORY_SIZE;
 
-// Command Structure for automated handling and autocomplete
+// Command dispatcher kinds — eliminates 50+ thin wrapper functions
+const CmdKind = enum {
+    direct_args,   // handler(args.ptr, args.len)
+    no_args,       // handler()
+    guarded_args,  // handler(args.ptr, len) if args.len > 0, else print usage
+    custom,        // handler(args) with custom logic
+};
+
 const Command = struct {
     name: []const u8,
     help: []const u8,
     handler: *const fn ([]const u8) void,
+    kind: CmdKind = .custom,
+    usage: ?[]const u8 = null,
 };
 
 fn cmd_handler_kill(args: []const u8) void {
     shell_cmds.cmd_kill(args.ptr, @intCast(args.len));
 }
 
-fn cmd_handler_ps(args: []const u8) void {
-    _ = args;
-    shell_cmds.cmd_ps();
-}
-
-fn cmd_handler_idt_check(args: []const u8) void {
-    _ = args;
-    idt_watchdog.cmd_idt_check();
-}
-
 fn cmd_handler_idt_modify(args: []const u8) void {
     idt_watchdog.cmd_idt_modify(args);
-}
-
-fn cmd_handler_idt_move(args: []const u8) void {
-    _ = args;
-    common.idt_move();
 }
 
 fn cmd_handler_mouse(_: []const u8) void {
@@ -91,87 +85,101 @@ fn cmd_handler_mouse(_: []const u8) void {
     }
 }
 
+// Generic handlers that eliminate per-command wrapper functions
+// via comptime dispatch on the underlying shell_cmds function.
+fn direct_handler(comptime f: anytype) fn ([]const u8) void {
+    return struct { fn h(args: []const u8) void { f(args.ptr, @intCast(args.len)); } }.h;
+}
+fn no_args_handler(comptime f: anytype) fn ([]const u8) void {
+    return struct { fn h(_: []const u8) void { f(); } }.h;
+}
+fn guarded_handler(comptime f: anytype, comptime usage: []const u8) fn ([]const u8) void {
+    return struct { fn h(args: []const u8) void {
+        if (args.len > 0) f(args.ptr, @intCast(args.len)) else common.printZ(usage);
+    } }.h;
+}
+
 const SHELL_COMMANDS = [_]Command{
-    .{ .name = "help", .help = "Show this help message (Tip: help 2)", .handler = cmd_handler_help },
-    .{ .name = "?", .help = "Alias for help", .handler = cmd_handler_help },
-    .{ .name = "clear", .help = "Clear screen and reset console state", .handler = cmd_handler_clear },
-    .{ .name = "cls", .help = "Alias for clear", .handler = cmd_handler_clear },
-    .{ .name = "about", .help = "Show legal information & credits", .handler = cmd_handler_about },
-    .{ .name = "nova", .help = "Start Nova Scripting Interpreter", .handler = cmd_handler_nova_legacy },
-    .{ .name = "nova_legacy", .help = "Alias for nova", .handler = cmd_handler_nova_legacy },
-    .{ .name = "top", .help = "Real-time CPU and Task Monitor", .handler = cmd_handler_top },
-    .{ .name = "ps", .help = "List active system processes", .handler = cmd_handler_ps },
-    .{ .name = "mouse", .help = "Show PS/2 mouse status and statistics", .handler = cmd_handler_mouse },
-    .{ .name = "kill", .help = "kill <pid> - Terminate a running process", .handler = cmd_handler_kill },
-    .{ .name = "uptime", .help = "Show system runtime and RTC time", .handler = cmd_handler_uptime },
-    .{ .name = "reboot", .help = "Safely restart the system", .handler = cmd_handler_reboot },
-    .{ .name = "shutdown", .help = "Safely turn off the system (ACPI)", .handler = cmd_handler_shutdown },
-    .{ .name = "ls", .help = "List files/folders in current directory", .handler = cmd_handler_ls },
-    .{ .name = "hexdump", .help = "hexdump <f> - Display file content in hex/ASCII", .handler = cmd_handler_hexdump },
-    .{ .name = "more", .help = "more <f> - Display file content with paging", .handler = cmd_handler_more },
-    .{ .name = "la", .help = "List all files (including hidden)", .handler = cmd_handler_la },
-    .{ .name = "lsdsk", .help = "List storage devices and partitions", .handler = cmd_handler_lsdsk },
-    .{ .name = "lspci", .help = "List PCI devices and hardware bridges", .handler = cmd_handler_lspci },
-    .{ .name = "mount", .help = "mount <0|1> - Select active drive", .handler = cmd_handler_mount },
-    .{ .name = "mkdir", .help = "mkdir <name> - Create a new directory", .handler = cmd_handler_mkdir },
-    .{ .name = "md", .help = "Alias for mkdir", .handler = cmd_handler_mkdir },
-    .{ .name = "cd", .help = "cd <dir|..|/> - Change directory", .handler = cmd_handler_cd },
-    .{ .name = "pwd", .help = "Print current working directory", .handler = cmd_handler_pwd },
-    .{ .name = "tree", .help = "Display recursive directory structure", .handler = cmd_handler_tree },
-    .{ .name = "mkfs-fat12", .help = "Format drive as FAT12 (legacy)", .handler = cmd_handler_mkfs12 },
-    .{ .name = "mkfs-fat16", .help = "Format drive as FAT16 (standard)", .handler = cmd_handler_mkfs16 },
-    .{ .name = "mkfs-fat32", .help = "Format drive as FAT32 (advanced)", .handler = cmd_handler_mkfs32 },
-    .{ .name = "touch", .help = "Create an empty file", .handler = cmd_handler_touch },
-    .{ .name = "lseek", .help = "lseek <f> <off> [SET|CUR|END]", .handler = cmd_handler_lseek },
-    .{ .name = "truncate", .help = "truncate <f> <size> - Truncate file", .handler = cmd_handler_truncate },
-    .{ .name = "sync", .help = "Sync filesystem to disk", .handler = cmd_handler_sync },
-    .{ .name = "expand", .help = "expand <f> <size> - Expand file", .handler = cmd_handler_expand },
-    .{ .name = "forward", .help = "forward <f> <count> - Move forward", .handler = cmd_handler_forward },
-    .{ .name = "attrib", .help = "Set file attributes [+R|+H|+S|+A]", .handler = cmd_handler_attrib },
-    .{ .name = "write", .help = "write [-a] <f> <t> - Write string to file (-a to append)", .handler = cmd_handler_write },
-    .{ .name = "rm", .help = "rm [-d] [-r] <f|*> - Delete file/dir", .handler = cmd_handler_rm },
-    .{ .name = "cat", .help = "Display text file contents", .handler = cmd_handler_cat },
-    .{ .name = "edit", .help = "Open primitive text editor", .handler = cmd_handler_edit },
-    .{ .name = "history", .help = "Show command history list", .handler = cmd_handler_history },
-    .{ .name = "echo", .help = "Print text to standard output", .handler = cmd_handler_echo },
-    .{ .name = "time", .help = "Show full current RTC date and time", .handler = cmd_handler_time },
-    .{ .name = "mem", .help = "Show memory & test demand paging (mem --test [MB])", .handler = cmd_handler_mem },
-    .{ .name = "sysinfo", .help = "Display system hardware info", .handler = cmd_handler_sysinfo },
-    .{ .name = "cpuinfo", .help = "Show detailed CPU vendor, brand and features", .handler = cmd_handler_cpuinfo },
-    .{ .name = "docs", .help = "Show internal documentation topics", .handler = cmd_handler_docs },
-    .{ .name = "cp", .help = "cp <src> <dest> - Copy file/folder recursively", .handler = cmd_handler_cp },
-    .{ .name = "codename", .help = "Show current release codename", .handler = cmd_handler_codename },
-    .{ .name = "fetch", .help = "Show stylish system info summary", .handler = cmd_handler_fetch },
-    .{ .name = "matrix", .help = "Enter the NovumOS Matrix (fun!)", .handler = cmd_handler_matrix },
-    .{ .name = "doomfire", .help = "Quantum-ignited DOOM fire on the framebuffer", .handler = cmd_handler_doomfire },
-    .{ .name = "mv", .help = "mv <src> <dest> - Move or rename file/folder", .handler = cmd_handler_mv },
-    .{ .name = "ren", .help = "Alias for mv (rename file/folder)", .handler = cmd_handler_rename },
-    .{ .name = "format", .help = "Low-level drive formatting tool", .handler = cmd_handler_format },
-    .{ .name = "mkfs", .help = "Create filesystem on current drive", .handler = cmd_handler_mkfs },
-    .{ .name = "install", .help = "install <src> [name] - Install Nova script", .handler = cmd_handler_install },
-    .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall },
-    .{ .name = "ring3", .help = "Switch to Ring 3 (User Mode) test", .handler = cmd_handler_ring3 },
-    .{ .name = "run", .help = "run <elf> - Execute an ELF (RAM FS or disk)", .handler = cmd_handler_run },
-    .{ .name = "exec", .help = "Alias for run", .handler = cmd_handler_run },
-    .{ .name = "calc", .help = "Evaluate math & bitwise expressions (e.g. 1 << 8)", .handler = cmd_handler_calc },
-    .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = cmd_handler_res },
-    .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep },
-    .{ .name = "qrand", .help = "qrand [N | --hex N | --entangle N | --info] - Quantum random numbers", .handler = cmd_handler_qrand },
+    .{ .name = "help", .help = "Show this help message (Tip: help 2)", .handler = cmd_handler_help, .kind = .custom },
+    .{ .name = "?", .help = "Alias for help", .handler = cmd_handler_help, .kind = .custom },
+    .{ .name = "clear", .help = "Clear screen and reset console state", .handler = cmd_handler_clear, .kind = .custom },
+    .{ .name = "cls", .help = "Alias for clear", .handler = cmd_handler_clear, .kind = .custom },
+    .{ .name = "about", .help = "Show legal information & credits", .handler = cmd_handler_about, .kind = .custom },
+    .{ .name = "nova", .help = "Start Nova Scripting Interpreter", .handler = cmd_handler_nova_legacy, .kind = .custom },
+    .{ .name = "nova_legacy", .help = "Alias for nova", .handler = cmd_handler_nova_legacy, .kind = .custom },
+    .{ .name = "top", .help = "Real-time CPU and Task Monitor", .handler = no_args_handler(&top_cmd.cmd_top), .kind = .no_args },
+    .{ .name = "ps", .help = "List active system processes", .handler = no_args_handler(&shell_cmds.cmd_ps), .kind = .no_args },
+    .{ .name = "mouse", .help = "Show PS/2 mouse status and statistics", .handler = cmd_handler_mouse, .kind = .custom },
+    .{ .name = "kill", .help = "kill <pid> - Terminate a running process", .handler = cmd_handler_kill, .kind = .custom },
+    .{ .name = "uptime", .help = "Show system runtime and RTC time", .handler = no_args_handler(&shell_cmds.cmd_uptime), .kind = .no_args },
+    .{ .name = "reboot", .help = "Safely restart the system", .handler = no_args_handler(&shell_cmds.cmd_reboot), .kind = .no_args },
+    .{ .name = "shutdown", .help = "Safely turn off the system (ACPI)", .handler = no_args_handler(&shell_cmds.cmd_shutdown), .kind = .no_args },
+    .{ .name = "ls", .help = "List files/folders in current directory", .handler = direct_handler(&shell_cmds.cmd_ls), .kind = .direct_args },
+    .{ .name = "hexdump", .help = "hexdump <f> - Display file content in hex/ASCII", .handler = guarded_handler(&shell_cmds.cmd_hexdump, "Usage: hexdump <file>\n"), .kind = .guarded_args, .usage = "Usage: hexdump <file>\n" },
+    .{ .name = "more", .help = "more <f> - Display file content with paging", .handler = guarded_handler(&shell_cmds.cmd_more, "Usage: more <file>\n"), .kind = .guarded_args, .usage = "Usage: more <file>\n" },
+    .{ .name = "la", .help = "List all files (including hidden)", .handler = cmd_handler_la, .kind = .custom },
+    .{ .name = "lsdsk", .help = "List storage devices and partitions", .handler = no_args_handler(&shell_cmds.cmd_lsdsk), .kind = .no_args },
+    .{ .name = "lspci", .help = "List PCI devices and hardware bridges", .handler = no_args_handler(&shell_cmds.cmd_lspci), .kind = .no_args },
+    .{ .name = "mount", .help = "mount <0|1> - Select active drive", .handler = guarded_handler(&shell_cmds.cmd_mount, "Usage: mount <drive>\n"), .kind = .guarded_args, .usage = "Usage: mount <drive>\n" },
+    .{ .name = "mkdir", .help = "mkdir <name> - Create a new directory", .handler = guarded_handler(&shell_cmds.cmd_mkdir, "Usage: mkdir <name>\n"), .kind = .guarded_args, .usage = "Usage: mkdir <name>\n" },
+    .{ .name = "md", .help = "Alias for mkdir", .handler = guarded_handler(&shell_cmds.cmd_mkdir, "Usage: mkdir <name>\n"), .kind = .guarded_args, .usage = "Usage: mkdir <name>\n" },
+    .{ .name = "cd", .help = "cd <dir|..|/> - Change directory", .handler = cmd_handler_cd, .kind = .custom, .usage = "Usage: cd <directory>\n" },
+    .{ .name = "pwd", .help = "Print current working directory", .handler = no_args_handler(&shell_cmds.cmd_pwd), .kind = .no_args },
+    .{ .name = "tree", .help = "Display recursive directory structure", .handler = no_args_handler(&shell_cmds.cmd_tree), .kind = .no_args },
+    .{ .name = "mkfs-fat12", .help = "Format drive as FAT12 (legacy)", .handler = guarded_handler(&shell_cmds.cmd_mkfs_fat12, "Usage: mkfs-fat12 <drive>\n"), .kind = .guarded_args, .usage = "Usage: mkfs-fat12 <drive>\n" },
+    .{ .name = "mkfs-fat16", .help = "Format drive as FAT16 (standard)", .handler = guarded_handler(&shell_cmds.cmd_mkfs_fat16, "Usage: mkfs-fat16 <drive>\n"), .kind = .guarded_args, .usage = "Usage: mkfs-fat16 <drive>\n" },
+    .{ .name = "mkfs-fat32", .help = "Format drive as FAT32 (advanced)", .handler = guarded_handler(&shell_cmds.cmd_mkfs_fat32, "Usage: mkfs-fat32 <drive>\n"), .kind = .guarded_args, .usage = "Usage: mkfs-fat32 <drive>\n" },
+    .{ .name = "touch", .help = "Create an empty file", .handler = guarded_handler(&shell_cmds.cmd_touch, "Usage: touch <file>\n"), .kind = .guarded_args, .usage = "Usage: touch <file>\n" },
+    .{ .name = "lseek", .help = "lseek <f> <off> [SET|CUR|END]", .handler = guarded_handler(&shell_cmds.cmd_lseek, "Usage: lseek <file> <offset> [SEEK_SET|SEEK_CUR|SEEK_END]\n"), .kind = .guarded_args, .usage = "Usage: lseek <file> <offset> [SEEK_SET|SEEK_CUR|SEEK_END]\n" },
+    .{ .name = "truncate", .help = "truncate <f> <size> - Truncate file", .handler = guarded_handler(&shell_cmds.cmd_truncate, "Usage: truncate <file> <size>\n"), .kind = .guarded_args, .usage = "Usage: truncate <file> <size>\n" },
+    .{ .name = "sync", .help = "Sync filesystem to disk", .handler = no_args_handler(&shell_cmds.cmd_sync), .kind = .no_args },
+    .{ .name = "expand", .help = "expand <f> <size> - Expand file", .handler = guarded_handler(&shell_cmds.cmd_expand, "Usage: expand <file> <size>\n"), .kind = .guarded_args, .usage = "Usage: expand <file> <size>\n" },
+    .{ .name = "forward", .help = "forward <f> <count> - Move forward", .handler = guarded_handler(&shell_cmds.cmd_forward, "Usage: forward <file> <count>\n"), .kind = .guarded_args, .usage = "Usage: forward <file> <count>\n" },
+    .{ .name = "attrib", .help = "Set file attributes [+R|+H|+S|+A]", .handler = guarded_handler(&shell_cmds.cmd_attrib, "Usage: attrib [+R|-R] [+H|-H] [+S|-S] [+A|-A] <file>\n"), .kind = .guarded_args, .usage = "Usage: attrib [+R|-R] [+H|-H] [+S|-S] [+A|-A] <file>\n" },
+    .{ .name = "write", .help = "write [-a] <f> <t> - Write string to file (-a to append)", .handler = cmd_handler_write, .kind = .custom },
+    .{ .name = "rm", .help = "rm [-d] [-r] <f|*> - Delete file/dir", .handler = guarded_handler(&shell_cmds.cmd_rm, "Usage: rm <file>\n"), .kind = .guarded_args, .usage = "Usage: rm <file>\n" },
+    .{ .name = "cat", .help = "Display text file contents", .handler = guarded_handler(&shell_cmds.cmd_cat, "Usage: cat <file>\n"), .kind = .guarded_args, .usage = "Usage: cat <file>\n" },
+    .{ .name = "edit", .help = "Open primitive text editor", .handler = guarded_handler(&shell_cmds.cmd_edit, "Usage: edit <file>\n"), .kind = .guarded_args, .usage = "Usage: edit <file>\n" },
+    .{ .name = "history", .help = "Show command history list", .handler = cmd_handler_history, .kind = .custom },
+    .{ .name = "echo", .help = "Print text to standard output", .handler = direct_handler(&shell_cmds.cmd_echo), .kind = .direct_args },
+    .{ .name = "time", .help = "Show full current RTC date and time", .handler = no_args_handler(&shell_cmds.cmd_time), .kind = .no_args },
+    .{ .name = "mem", .help = "Show memory & test demand paging (mem --test [MB])", .handler = direct_handler(&shell_cmds.cmd_mem), .kind = .direct_args },
+    .{ .name = "sysinfo", .help = "Display system hardware info", .handler = no_args_handler(&shell_cmds.cmd_sysinfo), .kind = .no_args },
+    .{ .name = "cpuinfo", .help = "Show detailed CPU vendor, brand and features", .handler = no_args_handler(&shell_cmds.cmd_cpuinfo), .kind = .no_args },
+    .{ .name = "docs", .help = "Show internal documentation topics", .handler = direct_handler(&shell_cmds.cmd_docs), .kind = .direct_args },
+    .{ .name = "cp", .help = "cp <src> <dest> - Copy file/folder recursively", .handler = direct_handler(&shell_cmds.cmd_cp), .kind = .direct_args },
+    .{ .name = "codename", .help = "Show current release codename", .handler = cmd_handler_codename, .kind = .custom },
+    .{ .name = "fetch", .help = "Show stylish system info summary", .handler = no_args_handler(&shell_cmds.cmd_fetch), .kind = .no_args },
+    .{ .name = "matrix", .help = "Enter the NovumOS Matrix (fun!)", .handler = cmd_handler_matrix, .kind = .custom },
+    .{ .name = "doomfire", .help = "Quantum-ignited DOOM fire on the framebuffer", .handler = no_args_handler(&doomfire_cmd.cmd_doomfire), .kind = .no_args },
+    .{ .name = "mv", .help = "mv <src> <dest> - Move or rename file/folder", .handler = direct_handler(&shell_cmds.cmd_mv), .kind = .direct_args },
+    .{ .name = "ren", .help = "Alias for mv (rename file/folder)", .handler = direct_handler(&shell_cmds.cmd_rename), .kind = .direct_args },
+    .{ .name = "format", .help = "Low-level drive formatting tool", .handler = direct_handler(&shell_cmds.cmd_format), .kind = .direct_args },
+    .{ .name = "mkfs", .help = "Create filesystem on current drive", .handler = direct_handler(&shell_cmds.cmd_mkfs), .kind = .direct_args },
+    .{ .name = "install", .help = "install <src> [name] - Install Nova script", .handler = cmd_handler_install, .kind = .custom },
+    .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall, .kind = .custom },
+    .{ .name = "ring3", .help = "Switch to Ring 3 (User Mode) test", .handler = no_args_handler(&shell_cmds.cmd_ring3), .kind = .no_args },
+    .{ .name = "run", .help = "run <elf> - Execute an ELF (RAM FS or disk)", .handler = guarded_handler(&shell_cmds.cmd_run, "Usage: run <elf>\n"), .kind = .guarded_args, .usage = "Usage: run <elf>\n" },
+    .{ .name = "exec", .help = "Alias for run", .handler = guarded_handler(&shell_cmds.cmd_run, "Usage: run <elf>\n"), .kind = .guarded_args, .usage = "Usage: run <elf>\n" },
+    .{ .name = "calc", .help = "Evaluate math & bitwise expressions (e.g. 1 << 8)", .handler = direct_handler(&shell_cmds.cmd_calc), .kind = .direct_args },
+    .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = direct_handler(&shell_cmds.cmd_res), .kind = .direct_args },
+    .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep, .kind = .custom },
+    .{ .name = "qrand", .help = "qrand [N | --hex N | --entangle N | --info] - Quantum random numbers", .handler = cmd_handler_qrand, .kind = .custom },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
-    .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = cmd_handler_panic },
-    .{ .name = "abort", .help = "Trigger a manual kernel panic", .handler = cmd_handler_abort },
-    .{ .name = "invalid_op", .help = "Trigger an Invalid Opcode exception", .handler = cmd_handler_invalid_op },
-    .{ .name = "stack_overflow", .help = "Trigger a Double Fault via stack overflow", .handler = cmd_handler_stack_overflow },
-    .{ .name = "page_fault", .help = "Trigger a Page Fault exception", .handler = cmd_handler_page_fault },
-    .{ .name = "gpf", .help = "Trigger a General Protection Fault", .handler = cmd_handler_gpf },
+    .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = no_args_handler(&shell_cmds.cmd_panic), .kind = .no_args },
+    .{ .name = "abort", .help = "Trigger a manual kernel panic", .handler = no_args_handler(&shell_cmds.cmd_abort), .kind = .no_args },
+    .{ .name = "invalid_op", .help = "Trigger an Invalid Opcode exception", .handler = no_args_handler(&shell_cmds.cmd_invalid_op), .kind = .no_args },
+    .{ .name = "stack_overflow", .help = "Trigger a Double Fault via stack overflow", .handler = no_args_handler(&shell_cmds.cmd_stack_overflow), .kind = .no_args },
+    .{ .name = "page_fault", .help = "Trigger a Page Fault exception", .handler = no_args_handler(&shell_cmds.cmd_page_fault), .kind = .no_args },
+    .{ .name = "gpf", .help = "Trigger a General Protection Fault", .handler = no_args_handler(&shell_cmds.cmd_gpf), .kind = .no_args },
 } else [_]Command{}) ++ (if (config.ENABLE_DEBUG_COMMANDS) [_]Command{
-    .{ .name = "smp-test", .help = "Test global task queue across cores", .handler = cmd_handler_smp_test },
-    .{ .name = "stress-test", .help = "Run heavy math on AP cores while BSP stays free", .handler = cmd_handler_stress_test },
-    .{ .name = "idt-check", .help = "Verify IDT integrity against saved snapshot", .handler = cmd_handler_idt_check },
-    .{ .name = "idt-modify", .help = "Test IDT modification (for watchdog testing)", .handler = cmd_handler_idt_modify },
-    .{ .name = "idt-move", .help = "Test IDTR relocation (detected by watchdog)", .handler = cmd_handler_idt_move },
-    .{ .name = "fbinfo", .help = "Display framebuffer info", .handler = cmd_handler_fbinfo },
-    .{ .name = "fbtest", .help = "Draw test pattern to framebuffer", .handler = cmd_handler_fbtest },
+    .{ .name = "smp-test", .help = "Test global task queue across cores", .handler = no_args_handler(&shell_cmds.cmd_smp_test), .kind = .no_args },
+    .{ .name = "stress-test", .help = "Run heavy math on AP cores while BSP stays free", .handler = no_args_handler(&shell_cmds.cmd_stress_test), .kind = .no_args },
+    .{ .name = "idt-check", .help = "Verify IDT integrity against saved snapshot", .handler = no_args_handler(&idt_watchdog.cmd_idt_check), .kind = .no_args },
+    .{ .name = "idt-modify", .help = "Test IDT modification (for watchdog testing)", .handler = cmd_handler_idt_modify, .kind = .custom },
+    .{ .name = "idt-move", .help = "Test IDTR relocation (detected by watchdog)", .handler = no_args_handler(&common.idt_move), .kind = .no_args },
+    .{ .name = "fbinfo", .help = "Display framebuffer info", .handler = cmd_handler_fbinfo, .kind = .custom },
+    .{ .name = "fbtest", .help = "Draw test pattern to framebuffer", .handler = cmd_handler_fbtest, .kind = .custom },
 } else [_]Command{});
 
 // Local command buffer
@@ -1189,35 +1197,6 @@ fn cmd_handler_nova_legacy(_: []const u8) void {
     };
 }
 
-fn cmd_handler_uptime(_: []const u8) void {
-    shell_cmds.cmd_uptime();
-}
-
-fn cmd_handler_reboot(_: []const u8) void {
-    shell_cmds.cmd_reboot();
-}
-
-fn cmd_handler_shutdown(_: []const u8) void {
-    shell_cmds.cmd_shutdown();
-}
-
-fn cmd_handler_ring3(args: []const u8) void {
-    _ = args;
-    shell_cmds.cmd_ring3();
-}
-
-fn cmd_handler_run(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_run(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: run <elf>\n");
-    }
-}
-
-fn cmd_handler_ls(args: []const u8) void {
-    shell_cmds.cmd_ls(args.ptr, @intCast(args.len));
-}
-
 fn cmd_handler_la(args: []const u8) void {
     var buf: [128]u8 = [_]u8{0} ** 128;
     buf[0] = '-';
@@ -1229,104 +1208,6 @@ fn cmd_handler_la(args: []const u8) void {
         shell_cmds.cmd_ls(buf[0..].ptr, @intCast(3 + args.len));
     } else {
         shell_cmds.cmd_ls(buf[0..].ptr, 2);
-    }
-}
-
-fn cmd_handler_lsdsk(_: []const u8) void {
-    shell_cmds.cmd_lsdsk();
-}
-
-fn cmd_handler_lspci(_: []const u8) void {
-    shell_cmds.cmd_lspci();
-}
-
-fn cmd_handler_mount(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_mount(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: mount <drive>\n");
-    }
-}
-
-fn cmd_handler_mkfs12(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_mkfs_fat12(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: mkfs-fat12 <drive>\n");
-    }
-}
-
-fn cmd_handler_mkfs16(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_mkfs_fat16(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: mkfs-fat16 <drive>\n");
-    }
-}
-
-fn cmd_handler_mkfs32(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_mkfs_fat32(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: mkfs-fat32 <drive>\n");
-    }
-}
-
-fn cmd_handler_touch(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_touch(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: touch <file>\n");
-    }
-}
-
-fn cmd_handler_lseek(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_lseek(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: lseek <file> <offset> [SEEK_SET|SEEK_CUR|SEEK_END]\n");
-        common.printZ("  SEEK_SET = 0 (from start)\n");
-        common.printZ("  SEEK_CUR = 1 (from current)\n");
-        common.printZ("  SEEK_END = 2 (from end)\n");
-    }
-}
-
-fn cmd_handler_truncate(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_truncate(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: truncate <file> <size>\n");
-        common.printZ("  Truncate file to specified size in bytes\n");
-    }
-}
-
-fn cmd_handler_sync(_: []const u8) void {
-    shell_cmds.cmd_sync();
-}
-
-fn cmd_handler_expand(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_expand(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: expand <file> <size>\n");
-        common.printZ("  Expand file to specified size in bytes\n");
-    }
-}
-
-fn cmd_handler_forward(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_forward(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: forward <file> <count>\n");
-        common.printZ("  Forward file position by count bytes\n");
-    }
-}
-
-fn cmd_handler_attrib(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_attrib(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: attrib [+R|-R] [+H|-H] [+S|-S] [+A|-A] <file>\n");
     }
 }
 
@@ -1388,30 +1269,6 @@ fn cmd_handler_write(args: []const u8) void {
     shell_cmds.cmd_write(name.ptr, @intCast(name.len), data.ptr, @intCast(data.len), append);
 }
 
-fn cmd_handler_rm(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_rm(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: rm <file>\n");
-    }
-}
-
-fn cmd_handler_cat(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_cat(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: cat <file>\n");
-    }
-}
-
-fn cmd_handler_edit(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_edit(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: edit <file>\n");
-    }
-}
-
 fn cmd_handler_history(_: []const u8) void {
     var j: u8 = 0;
     while (j < history_count) : (j += 1) {
@@ -1420,26 +1277,6 @@ fn cmd_handler_history(_: []const u8) void {
         common.printZ(history[j][0..history_lens[j]]);
         common.printZ("\n");
     }
-}
-
-fn cmd_handler_echo(args: []const u8) void {
-    shell_cmds.cmd_echo(args.ptr, @intCast(args.len));
-}
-
-fn cmd_handler_mem(args: []const u8) void {
-    shell_cmds.cmd_mem(args.ptr, @intCast(args.len));
-}
-
-fn cmd_handler_time(_: []const u8) void {
-    shell_cmds.cmd_time();
-}
-
-fn cmd_handler_top(_: []const u8) void {
-    top_cmd.cmd_top();
-}
-
-fn cmd_handler_sysinfo(_: []const u8) void {
-    shell_cmds.cmd_sysinfo();
 }
 
 fn cmd_handler_hexdump(args: []const u8) void {
@@ -1464,61 +1301,9 @@ fn cmd_handler_codename(_: []const u8) void {
     common.printZ("\"\n");
 }
 
-fn cmd_handler_fetch(_: []const u8) void {
-    shell_cmds.cmd_fetch();
-}
-
 fn cmd_handler_matrix(_: []const u8) void {
     shell_cmds.cmd_matrix();
 }
-
-fn cmd_handler_doomfire(_: []const u8) void {
-    doomfire_cmd.cmd_doomfire();
-}
-
-fn cmd_handler_cpuinfo(_: []const u8) void {
-    shell_cmds.cmd_cpuinfo();
-}
-
-fn cmd_handler_smp_test(_: []const u8) void {
-    shell_cmds.cmd_smp_test();
-}
-
-fn cmd_handler_stress_test(_: []const u8) void {
-    shell_cmds.cmd_stress_test();
-}
-
-fn cmd_handler_panic(_: []const u8) void {
-    if (config.ENABLE_DEBUG_CRASH_COMMANDS) shell_cmds.cmd_panic();
-}
-
-const crash_suite = struct {
-    fn cmd_handler_abort(_: []const u8) void {
-        if (config.ENABLE_DEBUG_CRASH_COMMANDS) shell_cmds.cmd_abort();
-    }
-
-    fn cmd_handler_invalid_op(_: []const u8) void {
-        if (config.ENABLE_DEBUG_CRASH_COMMANDS) shell_cmds.cmd_invalid_op();
-    }
-
-    fn cmd_handler_stack_overflow(_: []const u8) void {
-        if (config.ENABLE_DEBUG_CRASH_COMMANDS) shell_cmds.cmd_stack_overflow();
-    }
-
-    fn cmd_handler_page_fault(_: []const u8) void {
-        if (config.ENABLE_DEBUG_CRASH_COMMANDS) shell_cmds.cmd_page_fault();
-    }
-
-    fn cmd_handler_gpf(_: []const u8) void {
-        if (config.ENABLE_DEBUG_CRASH_COMMANDS) shell_cmds.cmd_gpf();
-    }
-};
-
-const cmd_handler_abort = crash_suite.cmd_handler_abort;
-const cmd_handler_invalid_op = crash_suite.cmd_handler_invalid_op;
-const cmd_handler_stack_overflow = crash_suite.cmd_handler_stack_overflow;
-const cmd_handler_page_fault = crash_suite.cmd_handler_page_fault;
-const cmd_handler_gpf = crash_suite.cmd_handler_gpf;
 
 fn cmd_handler_docs(args: []const u8) void {
     shell_cmds.cmd_docs(args.ptr, @intCast(args.len));

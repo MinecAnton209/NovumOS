@@ -1,4 +1,5 @@
 const common = @import("../../commands/common.zig");
+const config = @import("../../config.zig");
 const ata = @import("../ata.zig");
 const vga = @import("../vga.zig");
 const bpb_mod = @import("bpb.zig");
@@ -1159,6 +1160,16 @@ pub fn add_directory_entry(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: [
     }
 
     const slots_needed = if (needs_alias) (name.len + 12) / 13 + 1 else 1;
+
+    if (config.ENABLE_FAT_DEBUG) {
+        common.printZ("DBG add_dir: dir_cluster="); common.printNum(@intCast(dir_cluster));
+        common.printZ(" ft="); common.printNum(@intCast(@intFromEnum(bpb.fat_type)));
+        common.printZ(" rfs="); common.printNum(@intCast(bpb.first_root_dir_sector));
+        common.printZ(" fds="); common.printNum(@intCast(bpb.first_data_sector));
+        common.printZ(" slots="); common.printNum(@intCast(slots_needed));
+        common.printZ(" lfn="); common.printZ(if (needs_alias) "Y" else "N");
+        common.printZ("\n");
+    }
 
     if (dir_cluster == 0) {
         if (bpb.fat_type == .FAT32) {
