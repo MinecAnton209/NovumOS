@@ -570,6 +570,22 @@ fn write_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []cons
             return false;
         }
         entry_attr = entry.attr | 0x20;
+        // Overwrites must target the file's OWN chain. With cluster left
+        // at 0 the write below computes lba = first_data_sector - 2*spc,
+        // inside the FAT/root region: directory metadata gets trashed
+        // while the real clusters never change (stale reads, empty ls).
+        cluster = @as(u32, entry.first_cluster_low) | (@as(u32, entry.first_cluster_high) << 16);
+        if (cluster < 2) {
+            cluster = find_free_cluster(drive, bpb) orelse return false;
+            const eof0: u32 = switch (bpb.fat_type) {
+                .FAT12 => 0xFFF,
+                .FAT16 => 0xFFFF,
+                .FAT32 => 0x0FFFFFFF,
+                else => 0xFFFF,
+            };
+            set_fat_entry(drive, bpb, cluster, eof0);
+            if (!update_entry_cluster_literal(drive, bpb, dir_cluster, name, cluster)) return false;
+        }
     } else {
         cluster = find_free_cluster(drive, bpb) orelse return false;
         const eof_val: u32 = switch (bpb.fat_type) {
@@ -624,6 +640,21 @@ fn write_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []cons
 
     const final_size: u32 = @intCast(data.len);
     return update_entry_size_literal(drive, bpb, dir_cluster, name, final_size);
+}
+
+fn update_entry_cluster_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []const u8, cluster: u32) bool {
+    const loc = find_entry_location_literal(drive, bpb, dir_cluster, name) orelse return false;
+    var buffer: [512]u8 = undefined;
+    ata.read_sector(drive, loc.sector, &buffer);
+
+    const i = loc.offset;
+    buffer[i + 20] = @intCast((cluster >> 16) & 0xFF);
+    buffer[i + 21] = @intCast((cluster >> 24) & 0xFF);
+    buffer[i + 26] = @intCast(cluster & 0xFF);
+    buffer[i + 27] = @intCast((cluster >> 8) & 0xFF);
+
+    ata.write_sector(drive, loc.sector, &buffer);
+    return true;
 }
 
 fn update_entry_size_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []const u8, size: u32) bool {
