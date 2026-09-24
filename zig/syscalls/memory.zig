@@ -111,14 +111,27 @@ const MmapRegion = struct {
 };
 var mmap_regions: [MAX_MMAP_REGIONS]?MmapRegion = [_]?MmapRegion{null} ** MAX_MMAP_REGIONS;
 var mmap_next: u32 = 0x40000000;
+/// mmap grows a fixed VA window [0x40000000, MMAP_WINDOW_END): everything
+/// below the backbuffer window at 0xD0000000 (see drivers/lfb.zig).
+const MMAP_WINDOW_END: u32 = 0xD0000000;
 
 /// Syscall 107: mmap(EBX=addr_hint, ECX=length, EDX=prot, ESI=flags, EDI=fd) -> EAX=addr or -1
 pub fn mmap(regs: *user.Registers) void {
     _ = regs.ebx; // addr_hint — ignored for now
+    // ecx + 0xFFF must not wrap, and the whole region must fit the
+    // window — mmap_next previously grew with no bound and could wrap
+    // into low memory or the backbuffer.
+    if (regs.ecx == 0 or regs.ecx > 0xFFFFF000) {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    }
     const length = (regs.ecx + 0xFFF) & ~@as(u32, 0xFFF);
-    if (length == 0) { regs.eax = 0xFFFFFFFF; return; }
     const addr = mmap_next;
-    mmap_next += length;
+    if (addr >= MMAP_WINDOW_END or length > MMAP_WINDOW_END - addr) {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    }
+    mmap_next = addr + length;
     var page = addr;
     while (page < addr + length) : (page += 0x1000) {
         const paddr = memory.pmm.alloc_page() orelse {
