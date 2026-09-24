@@ -312,8 +312,42 @@ pub fn fat_puts(handle: *FileHandle, str: [*]const u8, len: u32) i32 {
     const cluster_size = @as(u32, handle.bpb.sectors_per_cluster) * 512;
     var sector_buf: [512]u8 = undefined;
     var written: u32 = 0;
+    const eof_val: u32 = switch (handle.bpb.fat_type) {
+        .FAT12 => 0xFF8,
+        .FAT16 => 0xFFF8,
+        .FAT32 => 0x0FFFFFF8,
+        else => 0xFFF8,
+    };
 
     while (written < len) {
+        // A positive multiple of cluster_size means the next byte starts
+        // a fresh cluster: walk node offset/cluster_size from the chain
+        // head before the sector geometry runs. The old ceil() compare
+        // read handle.size after it was committed, so it never fired and
+        // long writes wrapped onto the file start; lseek can also park
+        // handle.cluster on an EOF sentinel at exact EOF.
+        if (handle.offset > 0 and handle.offset % cluster_size == 0) {
+            const ent = find_entry_literal(handle.drive, handle.bpb, handle.dir_cluster, handle.name) orelse return -1;
+            var cur = @as(u32, ent.first_cluster_low) | (@as(u32, ent.first_cluster_high) << 16);
+            const want = handle.offset / cluster_size;
+            var i: u32 = 0;
+            while (i < want) {
+                if (cur < 2) return -1;
+                const nx = get_fat_entry(handle.drive, handle.bpb, cur);
+                if (nx >= 2 and nx < eof_val) {
+                    cur = nx;
+                    i += 1;
+                    continue;
+                }
+                // Chain ends short of `want`: grow it from the tail; a
+                // longer chain (overwrite) is reused by the walk above.
+                handle.cluster = cur;
+                if (!allocate_next_cluster(handle)) return -1;
+                cur = handle.cluster;
+                i += 1;
+            }
+            handle.cluster = cur;
+        }
         const win = sector_window(handle);
         const to_write = @min(win.capacity, len - written);
 
@@ -329,13 +363,6 @@ pub fn fat_puts(handle: *FileHandle, str: [*]const u8, len: u32) i32 {
 
         if (handle.offset > handle.size) {
             handle.size = handle.offset;
-        }
-
-        const new_cluster_needed = (handle.offset + cluster_size - 1) / cluster_size;
-        const current_cluster = (handle.size + cluster_size - 1) / cluster_size;
-
-        if (new_cluster_needed > current_cluster) {
-            if (!allocate_next_cluster(handle)) return -1;
         }
     }
 
