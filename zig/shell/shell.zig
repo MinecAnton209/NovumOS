@@ -165,7 +165,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = direct_handler(&shell_cmds.cmd_res), .kind = .direct_args },
     .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep, .kind = .custom },
     .{ .name = "qrand", .help = "qrand [N | --hex N | --entangle N | --info] - Quantum random numbers", .handler = cmd_handler_qrand, .kind = .custom },
-    .{ .name = "qinit", .help = "qinit [N] - Init quantum register (1-3 qubits)", .handler = cmd_handler_qinit, .kind = .custom },
+    .{ .name = "qinit", .help = "qinit [N] - Init quantum register (RAM-checked, 32 MB reserved)", .handler = cmd_handler_qinit, .kind = .custom },
     .{ .name = "qh", .help = "qh <qubit> - Hadamard gate", .handler = cmd_handler_qh, .kind = .custom },
     .{ .name = "qcnot", .help = "qcnot <control> <target> - CNOT gate", .handler = cmd_handler_qcnot, .kind = .custom },
     .{ .name = "qmeasure", .help = "qmeasure <qubit> - Measure qubit (collapses state)", .handler = cmd_handler_qmeasure, .kind = .custom },
@@ -1715,7 +1715,7 @@ fn cmd_handler_qinit(args: []const u8) void {
     var n: i32 = 2;
     if (argc >= 1) {
         const parsed = common.parse_int(argv[0]) orelse {
-            common.printZ("Usage: qinit [1-3]\n");
+            common.printZ("Usage: qinit [N]\n");
             return;
         };
         n = parsed;
@@ -1726,16 +1726,49 @@ fn cmd_handler_qinit(args: []const u8) void {
         common.printZ("\n");
         return;
     }
-    if (!quantum.simInit(@intCast(n))) {
-        common.printZ("qinit: init failed\n");
-        return;
+
+    const ram = struct {
+        fn show(bytes: usize) void {
+            if (bytes >= 1024 * 1024) {
+                common.printNum(@intCast(bytes / (1024 * 1024)));
+                common.printZ(" MB");
+            } else if (bytes >= 1024) {
+                common.printNum(@intCast(bytes / 1024));
+                common.printZ(" KB");
+            } else {
+                common.printNum(@intCast(bytes));
+                common.printZ(" B");
+            }
+        }
+    };
+
+    switch (quantum.simInit(@intCast(n))) {
+        .ok => |need| {
+            common.printZ("qinit: ");
+            common.printNum(n);
+            common.printZ(" qubit(s), state |0");
+            var i: i32 = 1;
+            while (i < n) : (i += 1) common.printZ("0");
+            common.printZ(">, needs ");
+            ram.show(need);
+            common.printZ("\n");
+        },
+        .bad_qubits => {
+            common.printZ("qinit: qubit count out of range\n");
+        },
+        .insufficient => |r| {
+            common.printZ("qinit: needs ");
+            ram.show(r.need);
+            common.printZ(", only ");
+            ram.show(r.avail);
+            common.printZ(" usable with 32 MB reserved for the OS\n");
+        },
+        .oom => |need| {
+            common.printZ("qinit: needs ");
+            ram.show(need);
+            common.printZ(", heap could not serve it\n");
+        },
     }
-    common.printZ("qinit: ");
-    common.printNum(n);
-    common.printZ(" qubit(s), state |0");
-    var i: i32 = 1;
-    while (i < n) : (i += 1) common.printZ("0");
-    common.printZ(">\n");
 }
 
 fn cmd_handler_qh(args: []const u8) void {

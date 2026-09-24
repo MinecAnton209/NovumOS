@@ -1,4 +1,5 @@
 const common = @import("../commands/common.zig");
+const memory = @import("memory.zig");
 
 var has_rdrand_feature: bool = false;
 var has_rdseed_feature: bool = false;
@@ -10,7 +11,10 @@ pub fn init() void {
     detect_rdrand();
     seed_entropy();
     // Warm reboot preserves RAM: drop any register from a previous session.
+    sim_amps = null;
     sim_n = 0;
+    sim_dim = 0;
+    sim_cap = 0;
 }
 
 fn detect_rdrand() void {
@@ -148,24 +152,68 @@ pub fn hasRdrand() bool {
 
 pub const Complex = struct { re: f64, im: f64 };
 
-pub const MAX_QUBITS = 3;
-const SIM_DIMS: [MAX_QUBITS + 1]usize = .{ 0, 2, 4, 8 };
-const QBIT_MASK: [MAX_QUBITS]usize = .{ 1, 2, 4 };
+/// Heap-backed register; the heap caps a single alloc at 16 MB, which
+/// bounds n before the OS reserve ever could.
+pub const MAX_QUBITS = 19;
+const OS_RESERVE: usize = 32 * 1024 * 1024;
 
-var sim_amps: [8]Complex = undefined;
+var sim_amps: ?[*]Complex = null;
 var sim_n: usize = 0;
+var sim_dim: usize = 0;
+var sim_cap: usize = 0;
+var sim_bits: [MAX_QUBITS]usize = undefined;
 
-/// Reset the register to |0…0⟩ with n qubits. Fixed 8-amplitude buffer
-/// covers 3 qubits — no allocator; raise MAX_QUBITS once a heap exists.
-pub fn simInit(n: usize) bool {
-    if (n == 0 or n > MAX_QUBITS) return false;
-    sim_n = n;
+pub const InitResult = union(enum) {
+    ok: usize,
+    bad_qubits: void,
+    insufficient: struct { need: usize, avail: usize },
+    oom: usize,
+};
+
+/// Reset the register to |0…0⟩ with n qubits. The buffer comes from the
+/// kernel heap; sizes that would eat into the 32 MB OS reserve are
+/// refused with the actual numbers so qinit can print them.
+pub fn simInit(n: usize) InitResult {
+    if (n == 0 or n > MAX_QUBITS) return .{ .bad_qubits = {} };
+
+    var dim: usize = 1;
     var i: usize = 0;
-    while (i < sim_amps.len) : (i += 1) {
-        sim_amps[i] = .{ .re = 0, .im = 0 };
+    while (i < n) : (i += 1) dim *= 2;
+    const need = dim * @sizeOf(Complex);
+
+    const free = memory.get_free_memory();
+    const avail = if (free > OS_RESERVE) free - OS_RESERVE else 0;
+    if (need > avail) return .{ .insufficient = .{ .need = need, .avail = avail } };
+
+    if (sim_amps == null or sim_cap < dim) {
+        const buf = memory.heap.alloc(need) orelse return .{ .oom = need };
+        if (sim_amps) |old| memory.heap.free(@ptrCast(old));
+        const p: [*]Complex = @ptrCast(@alignCast(buf));
+        sim_amps = p;
+        sim_cap = dim;
     }
-    sim_amps[0] = .{ .re = 1, .im = 0 };
-    return true;
+
+    const amps = sim_amps.?;
+    i = 0;
+    while (i < dim) : (i += 1) amps[i] = .{ .re = 0, .im = 0 };
+    amps[0] = .{ .re = 1, .im = 0 };
+    sim_n = n;
+    sim_dim = dim;
+
+    var bit: usize = 1;
+    i = 0;
+    while (i < n) : (i += 1) {
+        sim_bits[i] = bit;
+        bit *= 2;
+    }
+    return .{ .ok = need };
+}
+
+fn initOk(n: usize) bool {
+    return switch (simInit(n)) {
+        .ok => true,
+        else => false,
+    };
 }
 
 fn qubitOk(q: usize) bool {
@@ -174,15 +222,16 @@ fn qubitOk(q: usize) bool {
 
 pub fn applyX(target: usize) bool {
     if (!qubitOk(target)) return false;
-    const bit = QBIT_MASK[target];
-    const dim = SIM_DIMS[sim_n];
+    const amps = sim_amps.?;
+    const bit = sim_bits[target];
+    const dim = sim_dim;
     var i: usize = 0;
     while (i < dim) : (i += 1) {
         if ((i & bit) == 0) {
             const j = i | bit;
-            const t = sim_amps[i];
-            sim_amps[i] = sim_amps[j];
-            sim_amps[j] = t;
+            const t = amps[i];
+            amps[i] = amps[j];
+            amps[j] = t;
         }
     }
     return true;
@@ -190,17 +239,18 @@ pub fn applyX(target: usize) bool {
 
 pub fn applyH(target: usize) bool {
     if (!qubitOk(target)) return false;
-    const bit = QBIT_MASK[target];
-    const dim = SIM_DIMS[sim_n];
+    const amps = sim_amps.?;
+    const bit = sim_bits[target];
+    const dim = sim_dim;
     const s = 1.0 / @sqrt(2.0);
     var i: usize = 0;
     while (i < dim) : (i += 1) {
         if ((i & bit) == 0) {
             const j = i | bit;
-            const a = sim_amps[i];
-            const b = sim_amps[j];
-            sim_amps[i] = .{ .re = (a.re + b.re) * s, .im = (a.im + b.im) * s };
-            sim_amps[j] = .{ .re = (a.re - b.re) * s, .im = (a.im - b.im) * s };
+            const a = amps[i];
+            const b = amps[j];
+            amps[i] = .{ .re = (a.re + b.re) * s, .im = (a.im + b.im) * s };
+            amps[j] = .{ .re = (a.re - b.re) * s, .im = (a.im - b.im) * s };
         }
     }
     return true;
@@ -208,16 +258,17 @@ pub fn applyH(target: usize) bool {
 
 pub fn applyCNOT(control: usize, target: usize) bool {
     if (!qubitOk(control) or !qubitOk(target) or control == target) return false;
-    const cbit = QBIT_MASK[control];
-    const tbit = QBIT_MASK[target];
-    const dim = SIM_DIMS[sim_n];
+    const amps = sim_amps.?;
+    const cbit = sim_bits[control];
+    const tbit = sim_bits[target];
+    const dim = sim_dim;
     var i: usize = 0;
     while (i < dim) : (i += 1) {
         if ((i & cbit) != 0 and (i & tbit) == 0) {
             const j = i | tbit;
-            const t = sim_amps[i];
-            sim_amps[i] = sim_amps[j];
-            sim_amps[j] = t;
+            const t = amps[i];
+            amps[i] = amps[j];
+            amps[j] = t;
         }
     }
     return true;
@@ -241,13 +292,14 @@ fn randFloat() f64 {
 /// amplitudes are zeroed and the survivors renormalized.
 pub fn measure(target: usize) ?bool {
     if (!qubitOk(target)) return null;
-    const bit = QBIT_MASK[target];
-    const dim = SIM_DIMS[sim_n];
+    const amps = sim_amps.?;
+    const bit = sim_bits[target];
+    const dim = sim_dim;
 
     var p_one: f64 = 0;
     var i: usize = 0;
     while (i < dim) : (i += 1) {
-        if ((i & bit) != 0) p_one += ampProb(sim_amps[i]);
+        if ((i & bit) != 0) p_one += ampProb(amps[i]);
     }
     const got_one = randFloat() < p_one;
 
@@ -255,17 +307,17 @@ pub fn measure(target: usize) ?bool {
     i = 0;
     while (i < dim) : (i += 1) {
         if (((i & bit) != 0) != got_one) {
-            sim_amps[i] = .{ .re = 0, .im = 0 };
+            amps[i] = .{ .re = 0, .im = 0 };
         } else {
-            norm2 += ampProb(sim_amps[i]);
+            norm2 += ampProb(amps[i]);
         }
     }
     if (norm2 > 0) {
         const inv = 1.0 / @sqrt(norm2);
         i = 0;
         while (i < dim) : (i += 1) {
-            sim_amps[i].re *= inv;
-            sim_amps[i].im *= inv;
+            amps[i].re *= inv;
+            amps[i].im *= inv;
         }
     }
     return got_one;
@@ -290,7 +342,7 @@ pub fn selfTest(trials: usize) TestResult {
         .mixed = 0,
     };
 
-    if (simInit(2) and applyX(1)) {
+    if (initOk(2) and applyX(1)) {
         const m0 = measure(0);
         const m1 = measure(1);
         if (m0 != null and m1 != null) {
@@ -300,7 +352,7 @@ pub fn selfTest(trials: usize) TestResult {
 
     var t: usize = 0;
     while (t < trials) : (t += 1) {
-        if (!simInit(2) or !applyH(0) or !applyCNOT(0, 1)) break;
+        if (!initOk(2) or !applyH(0) or !applyCNOT(0, 1)) break;
         const m0 = measure(0) orelse break;
         const m1 = measure(1) orelse break;
         if (!m0 and !m1) {
