@@ -34,6 +34,7 @@ pub var cores: [16]CoreData = [_]CoreData{.{}} ** 16;
 var print_lock: u32 = 0;
 pub var detected_map: [256]u8 = [_]u8{255} ** 256; // Maps LAPIC_ID -> Core Index
 pub var detected_cores: u32 = 1;
+var online_cores: u8 = 1;
 
 const trampoline_bin = @embedFile("trampoline.bin");
 pub var ap_stacks: [16][8192]u8 align(4096) = undefined;
@@ -300,9 +301,11 @@ pub export fn ap_kernel_entry() noreturn {
     }
 }
 
+/// Snapshotted in init(): the trampoline page at FLAG_ADDR is
+/// supervisor-only while both callers run in the ring-3 shell — a
+/// live deref there is a #PF (it took down cpuinfo: ERR=0x5, CR2=0x9000).
 pub fn get_online_cores() u8 {
-    const flag_ptr = @as(*volatile u32, @ptrFromInt(FLAG_ADDR));
-    return @intCast(flag_ptr.* + 1);
+    return online_cores;
 }
 
 pub fn get_cpu_info() CpuInfo {
@@ -481,5 +484,6 @@ pub fn init() void {
         }
     }
 
+    online_cores = @intCast(ap_count + 1);
     logger.success("SMP: All cores integrated.");
 }
