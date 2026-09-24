@@ -357,9 +357,11 @@ pub fn schedule(current_esp: u32) u32 {
     // shell holding the lock): skip this tick instead of deadlocking.
     if ((@atomicLoad(u16, &sched_held, .monotonic) & myMask()) != 0) return current_esp;
 
-    while (@atomicRmw(u32, &sched_lock, .Xchg, 1, .acquire) == 1) {
-        asm volatile ("pause");
-    }
+    // Try-once, never spin: an ISR spinning here while a ring-3 heap
+    // section behind heap_lock waits on this core wedges both cores
+    // (cross-core ABBA). One skipped 1 ms tick is free; the next
+    // timer retries the reschedule.
+    if (@atomicRmw(u32, &sched_lock, .Xchg, 1, .acquire) == 1) return current_esp;
     defer @atomicStore(u32, &sched_lock, 0, .release);
 
     const old = current_procs[cpu];
