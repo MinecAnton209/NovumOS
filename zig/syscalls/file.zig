@@ -118,22 +118,14 @@ pub fn deleteFile(regs: *user.Registers) void {
 
 /// Syscall 48: Rename(EBX=old_path, ECX=new_path) -> EAX (0=success, -1=error)
 pub fn renameFile(regs: *user.Registers) void {
-    const old_path = syscalls.safe_str_from_user(regs.ebx, syscalls.MAX_SYSCALL_PATH_LEN) orelse {
+    const old_path = validated_path(regs.ebx) orelse {
         regs.eax = 0xFFFFFFFF;
         return;
     };
-    const new_path = syscalls.safe_str_from_user(regs.ecx, syscalls.MAX_SYSCALL_PATH_LEN) orelse {
+    const new_path = validated_path(regs.ecx) orelse {
         regs.eax = 0xFFFFFFFF;
         return;
     };
-    if (old_path.len == 0 or new_path.len == 0) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
-    if (!path_policy.is_path_allowed(old_path) or !path_policy.is_path_allowed(new_path)) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
     const state = get_fat_state() orelse {
         regs.eax = 0xFFFFFFFF;
         return;
@@ -214,22 +206,14 @@ pub fn existsFile(regs: *user.Registers) void {
 
 /// Syscall 52: Copy(EBX=src_path, ECX=dst_path) -> EAX (0=success, -1=error)
 pub fn copyFile(regs: *user.Registers) void {
-    const src = syscalls.safe_str_from_user(regs.ebx, syscalls.MAX_SYSCALL_PATH_LEN) orelse {
+    const src = validated_path(regs.ebx) orelse {
         regs.eax = 0xFFFFFFFF;
         return;
     };
-    const dst = syscalls.safe_str_from_user(regs.ecx, syscalls.MAX_SYSCALL_PATH_LEN) orelse {
+    const dst = validated_path(regs.ecx) orelse {
         regs.eax = 0xFFFFFFFF;
         return;
     };
-    if (src.len == 0 or dst.len == 0) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
-    if (!path_policy.is_path_allowed(src) or !path_policy.is_path_allowed(dst)) {
-        regs.eax = 0xFFFFFFFF;
-        return;
-    }
     const state = get_fat_state() orelse {
         regs.eax = 0xFFFFFFFF;
         return;
