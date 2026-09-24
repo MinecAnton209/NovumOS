@@ -310,7 +310,7 @@ fn maybe_watchdog(current_esp: u32) void {
 /// own idle thread takes over (created on first use). null means
 /// nothing is runnable and no idle could be created — the caller keeps
 /// the interrupted context as a last resort.
-fn pick_next_esp_locked(cpu: u8) ?u32 {
+fn pick_next_esp_locked(cpu: u8, allow_idle_create: bool) ?u32 {
     var i: u32 = 0;
     while (i < NUM_SLOTS) : (i += 1) {
         current_process_idx = (current_process_idx + 1) % NUM_SLOTS;
@@ -329,12 +329,14 @@ fn pick_next_esp_locked(cpu: u8) ?u32 {
             current_procs[cpu] = idle;
             return idle.esp;
         }
-    } else if (create_process_locked("idle", @intFromPtr(&idle_entry), false, true)) |idle| {
-        idle.state = .Running;
-        idle_procs[cpu] = idle;
-        current_procs[cpu] = idle;
-        return idle.esp;
-    } else |_| {}
+    } else if (allow_idle_create) {
+        if (create_process_locked("idle", @intFromPtr(&idle_entry), false, true)) |idle| {
+            idle.state = .Running;
+            idle_procs[cpu] = idle;
+            current_procs[cpu] = idle;
+            return idle.esp;
+        } else |_| {}
+    }
 
     return null;
 }
@@ -367,9 +369,14 @@ pub fn schedule(current_esp: u32) u32 {
     }
 
     maybe_watchdog(current_esp);
-    reap_zombies(old);
+    // This core may be inside its own ring-3 heap section (unmasked
+    // there): touching the heap from the ISR would spin on a lock whose
+    // owner is our own frozen context. Skip the heap work this tick —
+    // reap and idle creation simply happen on the next one.
+    const heap_mine = memory.heap.owned_by(cpu);
+    if (!heap_mine) reap_zombies(old);
 
-    if (pick_next_esp_locked(cpu)) |next_esp| return next_esp;
+    if (pick_next_esp_locked(cpu, !heap_mine)) |next_esp| return next_esp;
 
     // Nothing runnable and no idle: resume the interrupted context.
     if (old) |o| {

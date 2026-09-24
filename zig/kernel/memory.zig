@@ -26,6 +26,7 @@ var free_page_count: u32 = 0;
 var pmm_lock: u32 = 0;
 var paging_lock: u32 = 0;
 const smp = @import("../arch/mod.zig").smp;
+const exceptions = @import("../arch/mod.zig").exceptions;
 
 /// Public alias to the kernel's BSS end symbol (used by user.zig for kernel_end)
 pub const ebss_sym: *const anyopaque = &ebss;
@@ -694,6 +695,23 @@ pub const heap = struct {
     var bins: [BIN_COUNT]?*BlockHeader = .{null} ** BIN_COUNT;
     var heap_base: usize = 0;
     var heap_lock: u32 = 0;
+    // Per-core owner bit: ring-3 heap sections run with interrupts
+    // unmasked (cli is #GP at IOPL 0), so a timer tick can land inside
+    // one. schedule() consults owned_by() and skips its own heap work
+    // instead of spinning on a lock whose owner is the frozen context
+    // on this very core. Set before acquire, cleared after release —
+    // same discipline as sched_held in scheduler.zig.
+    var held_bits: u16 = 0;
+
+    fn coreBit() u16 {
+        return @as(u16, 1) << @as(u4, @intCast(exceptions.get_core_index()));
+    }
+
+    /// True when core_idx owns (or is entering) a heap critical section.
+    pub fn owned_by(core_idx: u8) bool {
+        const bit = @as(u16, 1) << @as(u4, @intCast(core_idx));
+        return (@atomicLoad(u16, &held_bits, .monotonic) & bit) != 0;
+    }
 
     /// Contiguous physical chunks backing the heap. pmm.alloc_page never
     /// guarantees physical adjacency, so every neighbor-header dereference
@@ -870,9 +888,11 @@ pub const heap = struct {
         }
 
         const eflags = interrupts_save();
+        _ = @atomicRmw(u16, &held_bits, .Or, coreBit(), .monotonic);
         smp.spin_lock(&heap_lock);
         defer {
             smp.spin_unlock(&heap_lock);
+            _ = @atomicRmw(u16, &held_bits, .And, ~coreBit(), .release);
             interrupts_restore(eflags);
         }
 
@@ -925,9 +945,11 @@ pub const heap = struct {
         }
 
         const eflags = interrupts_save();
+        _ = @atomicRmw(u16, &held_bits, .Or, coreBit(), .monotonic);
         smp.spin_lock(&heap_lock);
         defer {
             smp.spin_unlock(&heap_lock);
+            _ = @atomicRmw(u16, &held_bits, .And, ~coreBit(), .release);
             interrupts_restore(eflags);
         }
 
@@ -999,9 +1021,11 @@ pub const heap = struct {
 
     pub fn garbage_collect() void {
         const eflags = interrupts_save();
+        _ = @atomicRmw(u16, &held_bits, .Or, coreBit(), .monotonic);
         smp.spin_lock(&heap_lock);
         defer {
             smp.spin_unlock(&heap_lock);
+            _ = @atomicRmw(u16, &held_bits, .And, ~coreBit(), .release);
             interrupts_restore(eflags);
         }
         if (!config.USE_GARBAGE_COLLECTOR) return;
