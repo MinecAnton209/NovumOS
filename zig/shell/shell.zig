@@ -165,6 +165,11 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = direct_handler(&shell_cmds.cmd_res), .kind = .direct_args },
     .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep, .kind = .custom },
     .{ .name = "qrand", .help = "qrand [N | --hex N | --entangle N | --info] - Quantum random numbers", .handler = cmd_handler_qrand, .kind = .custom },
+    .{ .name = "qinit", .help = "qinit [N] - Init quantum register (1-3 qubits)", .handler = cmd_handler_qinit, .kind = .custom },
+    .{ .name = "qh", .help = "qh <qubit> - Hadamard gate", .handler = cmd_handler_qh, .kind = .custom },
+    .{ .name = "qcnot", .help = "qcnot <control> <target> - CNOT gate", .handler = cmd_handler_qcnot, .kind = .custom },
+    .{ .name = "qmeasure", .help = "qmeasure <qubit> - Measure qubit (collapses state)", .handler = cmd_handler_qmeasure, .kind = .custom },
+    .{ .name = "qtest", .help = "qtest - Bell state and Pauli-X self test", .handler = cmd_handler_qtest, .kind = .custom },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
     .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = no_args_handler(&shell_cmds.cmd_panic), .kind = .no_args },
     .{ .name = "abort", .help = "Trigger a manual kernel panic", .handler = no_args_handler(&shell_cmds.cmd_abort), .kind = .no_args },
@@ -1702,6 +1707,103 @@ fn cmd_handler_qrand(args: []const u8) void {
         }
         common.printZ("\n");
     }
+}
+
+fn cmd_handler_qinit(args: []const u8) void {
+    var argv: [2][]const u8 = undefined;
+    const argc = common.parseArgs(args, &argv);
+    var n: i32 = 2;
+    if (argc >= 1) {
+        const parsed = common.parse_int(argv[0]) orelse {
+            common.printZ("Usage: qinit [1-3]\n");
+            return;
+        };
+        n = parsed;
+    }
+    if (n < 1 or n > quantum.MAX_QUBITS) {
+        common.printZ("qinit: qubit count must be 1..");
+        common.printNum(quantum.MAX_QUBITS);
+        common.printZ("\n");
+        return;
+    }
+    if (!quantum.simInit(@intCast(n))) {
+        common.printZ("qinit: init failed\n");
+        return;
+    }
+    common.printZ("qinit: ");
+    common.printNum(n);
+    common.printZ(" qubit(s), state |0");
+    var i: i32 = 1;
+    while (i < n) : (i += 1) common.printZ("0");
+    common.printZ(">\n");
+}
+
+fn cmd_handler_qh(args: []const u8) void {
+    var argv: [2][]const u8 = undefined;
+    const argc = common.parseArgs(args, &argv);
+    if (argc < 1) {
+        common.printZ("Usage: qh <qubit>\n");
+        return;
+    }
+    const q = common.parse_int(argv[0]) orelse -1;
+    if (q < 0 or !quantum.applyH(@intCast(q))) {
+        common.printZ("qh: invalid qubit (qinit first)\n");
+        return;
+    }
+    common.printZ("H applied\n");
+}
+
+fn cmd_handler_qcnot(args: []const u8) void {
+    var argv: [3][]const u8 = undefined;
+    const argc = common.parseArgs(args, &argv);
+    if (argc < 2) {
+        common.printZ("Usage: qcnot <control> <target>\n");
+        return;
+    }
+    const c = common.parse_int(argv[0]) orelse -1;
+    const t = common.parse_int(argv[1]) orelse -1;
+    if (c < 0 or t < 0 or !quantum.applyCNOT(@intCast(c), @intCast(t))) {
+        common.printZ("qcnot: invalid qubits (qinit first)\n");
+        return;
+    }
+    common.printZ("CNOT applied\n");
+}
+
+fn cmd_handler_qmeasure(args: []const u8) void {
+    var argv: [2][]const u8 = undefined;
+    const argc = common.parseArgs(args, &argv);
+    if (argc < 1) {
+        common.printZ("Usage: qmeasure <qubit>\n");
+        return;
+    }
+    const q = common.parse_int(argv[0]) orelse -1;
+    const outcome = if (q < 0) null else quantum.measure(@intCast(q));
+    if (outcome) |bit| {
+        common.printZ("qmeasure: qubit ");
+        common.printNum(q);
+        common.printZ(" -> ");
+        common.print_char(if (bit) '1' else '0');
+        common.printZ("\n");
+    } else {
+        common.printZ("qmeasure: invalid qubit (qinit first)\n");
+    }
+}
+
+fn cmd_handler_qtest(args: []const u8) void {
+    _ = args;
+    const r = quantum.selfTest(100);
+    const pass = r.x_ok and r.mixed == 0 and r.zero_zero + r.one_one == r.trials;
+    common.printZ("qtest: X gate ");
+    common.printZ(if (r.x_ok) "ok" else "FAIL");
+    common.printZ(", Bell ");
+    common.printNum(@intCast(r.zero_zero));
+    common.printZ("x 00, ");
+    common.printNum(@intCast(r.one_one));
+    common.printZ("x 11, ");
+    common.printNum(@intCast(r.mixed));
+    common.printZ(" mixed -> ");
+    common.printZ(if (pass) "PASS" else "FAIL");
+    common.printZ("\n");
 }
 
 fn cmd_handler_beep(args: []const u8) void {
