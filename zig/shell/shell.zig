@@ -445,6 +445,9 @@ fn save_history_to_disk() void {
         var i: u8 = 0;
         while (i < history_count) : (i += 1) {
             const h_len = history_lens[i];
+            // HISTORY_SIZE x (1024 + newline) can exceed the 50 KB join
+            // buffer by up to HISTORY_SIZE bytes: drop the tail instead.
+            if (offset + @as(usize, h_len) + 1 > join_buf.len) break;
             for (0..h_len) |j| {
                 join_buf[offset] = history[i][j];
                 offset += 1;
@@ -465,7 +468,7 @@ fn load_history_from_disk() void {
         const load_ptr = memory.heap.alloc(HISTORY_SIZE * 1024) orelse return;
         defer memory.heap.free(load_ptr);
         const load_buf = load_ptr[0 .. HISTORY_SIZE * 1024];
-        const read = fat.read_file(drive, bpb, 0, ".HISTORY", load_ptr);
+        const read = fat.read_file_bounded(drive, bpb, 0, ".HISTORY", load_ptr, @as(u32, @intCast(load_buf.len)));
         if (read <= 0) return;
 
         history_count = 0;
