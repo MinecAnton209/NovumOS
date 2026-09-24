@@ -338,6 +338,14 @@ fn pick_next_esp_locked(cpu: u8) ?u32 {
     return null;
 }
 
+/// Timer ISR reschedule point. ASSUMPTION: the timer vector is an
+/// interrupt gate (idt.asm installs every gate as 0x8E — hardware
+/// clears IF on entry). Unlike sched_enter, this path never sets the
+/// sched_held bit: that is safe only because nothing inside
+/// schedule()/maybe_watchdog()/reap_zombies() re-enables interrupts
+/// (heap alloc/free restore the ISR's saved IF=0) or calls back into
+/// schedule() on this core. A trap gate (IF stays set) or an accidental
+/// sti on this path would self-deadlock on sched_lock.
 pub fn schedule(current_esp: u32) u32 {
     if (@atomicLoad(u8, &bootstrapped, .acquire) == 0) return current_esp;
 
