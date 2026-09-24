@@ -72,6 +72,25 @@ pub const pmm = struct {
         return null; // OOM
     }
 
+    /// Return the page directly after `last_page` if it is free. Lets the
+    /// heap grow contiguously instead of hoping the linear scan lands next.
+    pub fn alloc_page_after(last_page: usize) ?usize {
+        const next_idx = (last_page / PAGE_SIZE) + 1;
+        if (next_idx >= TOTAL_PAGES) return null;
+        const idx = @as(u32, @intCast(next_idx));
+
+        const eflags = interrupts_save();
+        smp.spin_lock(&pmm_lock);
+        defer {
+            smp.spin_unlock(&pmm_lock);
+            interrupts_restore(eflags);
+        }
+        if (is_page_busy(idx)) return null;
+        _ = set_page_busy(idx);
+        free_page_count -= 1;
+        return idx * PAGE_SIZE;
+    }
+
     pub fn free_page(addr: usize) void {
         const eflags = interrupts_save();
         smp.spin_lock(&pmm_lock);
@@ -663,9 +682,74 @@ pub const heap = struct {
     var heap_base: usize = 0;
     var heap_lock: u32 = 0;
 
+    /// Contiguous physical chunks backing the heap. pmm.alloc_page never
+    /// guarantees physical adjacency, so every neighbor-header dereference
+    /// (coalesce, free) must land fully inside ONE of these regions —
+    /// a foreign page may coincidentally contain HEAP_MAGIC.
+    const MAX_HEAP_REGIONS = 16;
+    const Region = struct { base: usize, end: usize };
+    var regions: [MAX_HEAP_REGIONS]Region = undefined;
+    var region_count: usize = 0;
+    var heap_high_water: usize = 0;
+
+    /// True when [addr, addr+len) lies inside a single tracked region.
+    fn regionContains(addr: usize, len: usize) bool {
+        var i: usize = 0;
+        while (i < region_count) : (i += 1) {
+            const r = regions[i];
+            const end = @addWithOverflow(addr, len);
+            if (end[1] != 0) return false;
+            if (addr >= r.base and end[0] <= r.end) return true;
+        }
+        return false;
+    }
+
+    fn regionIndexOfBase(addr: usize) ?usize {
+        var i: usize = 0;
+        while (i < region_count) : (i += 1) {
+            if (regions[i].base == addr) return i;
+        }
+        return null;
+    }
+
+    fn regionIndexOfEnd(addr: usize) ?usize {
+        var i: usize = 0;
+        while (i < region_count) : (i += 1) {
+            if (regions[i].end == addr) return i;
+        }
+        return null;
+    }
+
+    fn removeRegion(idx: usize) void {
+        var k = idx;
+        while (k + 1 < region_count) : (k += 1) regions[k] = regions[k + 1];
+        region_count -= 1;
+    }
+
+    /// Keep heap_high_water as the max end across all regions — the
+    /// target for the next contiguous-growth attempt.
+    fn updateHighWater() void {
+        var hw: usize = 0;
+        var i: usize = 0;
+        while (i < region_count) : (i += 1) {
+            if (regions[i].end > hw) hw = regions[i].end;
+        }
+        heap_high_water = hw;
+    }
+
     pub fn init() void {
+        // Full state reset: a warm boot preserves RAM, stale bin pointers
+        // must never survive into a fresh heap.
+        bins = .{null} ** BIN_COUNT;
+        region_count = 0;
+        heap_high_water = 0;
+
         const addr = pmm.alloc_page() orelse return;
         heap_base = addr;
+        regions[0] = .{ .base = addr, .end = addr + PAGE_SIZE };
+        region_count = 1;
+        heap_high_water = addr + PAGE_SIZE;
+
         const block = @as(*BlockHeader, @ptrFromInt(addr));
         block.magic = HEAP_MAGIC;
         block.size = @as(u32, @intCast(PAGE_SIZE));
@@ -707,16 +791,62 @@ pub const heap = struct {
         }
     }
 
-    /// Grow the heap by one page, publish it as a free (coalesced) block.
+    /// Grow the heap by one page, publish it as a free block. Prefers
+    /// physically contiguous growth (coalesce then provably stays inside
+    /// one region); a non-adjacent page becomes a tracked island pushed
+    /// WITHOUT coalesce — pointer arithmetic must never reach a foreign
+    /// page across a physical gap.
     fn allocate_new_page() ?*BlockHeader {
-        const page_addr = pmm.alloc_page() orelse return null;
+        const page_addr = blk: {
+            if (heap_high_water >= PAGE_SIZE) {
+                if (pmm.alloc_page_after(heap_high_water - PAGE_SIZE)) |a| break :blk a;
+            }
+            break :blk pmm.alloc_page() orelse return null;
+        };
+        const page_end = page_addr + PAGE_SIZE;
+
         const new_block = @as(*BlockHeader, @ptrFromInt(page_addr));
         new_block.magic = HEAP_MAGIC;
         new_block.size = @as(u32, @intCast(PAGE_SIZE));
         new_block.is_free = true;
         new_block.requested = 0;
         writeFooter(new_block);
-        binPush(tryCoalesce(new_block));
+
+        // Extends an existing region forward or backward? Merge any region
+        // touched on the other side too, so regions stay maximal and
+        // never physically adjacent to each other.
+        var i: usize = 0;
+        while (i < region_count) : (i += 1) {
+            if (page_addr == regions[i].end) {
+                regions[i].end = page_end;
+                if (regionIndexOfBase(page_end)) |j| {
+                    regions[i].end = regions[j].end;
+                    removeRegion(j);
+                }
+                updateHighWater();
+                binPush(tryCoalesce(new_block));
+                return new_block;
+            }
+            if (page_end == regions[i].base) {
+                if (regionIndexOfEnd(page_addr)) |j| {
+                    regions[i].base = regions[j].base;
+                    removeRegion(j);
+                }
+                updateHighWater();
+                binPush(tryCoalesce(new_block));
+                return new_block;
+            }
+        }
+
+        // Island: standalone contiguous chunk, no cross-gap coalesce.
+        if (region_count >= MAX_HEAP_REGIONS) {
+            pmm.free_page(page_addr);
+            return null;
+        }
+        regions[region_count] = .{ .base = page_addr, .end = page_end };
+        region_count += 1;
+        updateHighWater();
+        binPush(new_block);
         return new_block;
     }
 
@@ -788,7 +918,12 @@ pub const heap = struct {
             interrupts_restore(eflags);
         }
 
-        const header = @as(*BlockHeader, @ptrFromInt(addr - HEADER_SIZE));
+        const header_addr = addr - HEADER_SIZE;
+        if (!regionContains(header_addr, HEADER_SIZE)) {
+            if (safe) logger.security("Free: pointer outside heap regions");
+            return false;
+        }
+        const header = @as(*BlockHeader, @ptrFromInt(header_addr));
         if (header.magic != HEAP_MAGIC) {
             if (safe) logger.security("Free: corruption (invalid magic)");
             return false;
@@ -817,8 +952,12 @@ pub const heap = struct {
             }
         }
 
-        if (block_size > 128 * 1024 * 1024) {
+        if (block_size < MIN_BLOCK_SIZE or block_size > 128 * 1024 * 1024) {
             if (safe) logger.security("Free: implausible block size");
+            return false;
+        }
+        if (!regionContains(header_addr, block_size)) {
+            if (safe) logger.security("Free: block spans outside heap regions");
             return false;
         }
 
@@ -901,12 +1040,14 @@ fn tryCoalesce(block: *BlockHeader) *BlockHeader {
     var cur = block;
     const block_addr = @intFromPtr(block);
 
-    if (block_addr > heap.heap_base) {
+    // Backward: footer and the whole candidate must live inside ONE
+    // tracked region — heap_base alone can't vouch for islands.
+    if (heap.regionContains(block_addr - FOOTER_SIZE, FOOTER_SIZE)) {
         const prev_footer = @as(*BlockFooter, @ptrFromInt(block_addr - FOOTER_SIZE));
         const prev_size = prev_footer.size;
         if (prev_size >= MIN_BLOCK_SIZE and prev_size <= MAX_ALLOC_SIZE) {
             const prev_addr = block_addr - prev_size;
-            if (prev_addr >= heap.heap_base and prev_addr + prev_size == block_addr) {
+            if (heap.regionContains(prev_addr, prev_size)) {
                 const prev_block = @as(*BlockHeader, @ptrFromInt(prev_addr));
                 if (prev_block.magic == HEAP_MAGIC and prev_block.is_free) {
                     binRemove(prev_block);
@@ -918,13 +1059,19 @@ fn tryCoalesce(block: *BlockHeader) *BlockHeader {
         }
     }
 
+    // Forward: read the header only once its bytes are region-owned,
+    // absorb only if the full claimed extent is region-owned too.
+    // The old "< heap_base + 32MB" bound checked nothing about ownership.
     const next_addr = @intFromPtr(cur) + cur.size;
-    if (next_addr < @intFromPtr(cur) + MAX_ALLOC_SIZE * 2) {
+    if (heap.regionContains(next_addr, HEADER_SIZE)) {
         const next_block = @as(*BlockHeader, @ptrFromInt(next_addr));
-        if (next_block.magic == HEAP_MAGIC and next_block.is_free) {
-            binRemove(next_block);
-            cur.size += next_block.size;
-            writeFooter(cur);
+        const nsize = next_block.size;
+        if (nsize >= MIN_BLOCK_SIZE and nsize <= MAX_ALLOC_SIZE and heap.regionContains(next_addr, nsize)) {
+            if (next_block.magic == HEAP_MAGIC and next_block.is_free) {
+                binRemove(next_block);
+                cur.size += nsize;
+                writeFooter(cur);
+            }
         }
     }
 
