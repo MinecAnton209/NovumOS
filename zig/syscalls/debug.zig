@@ -25,6 +25,12 @@ pub fn idtCheck(regs: *user.Registers) void {
 
 /// Syscall 34: SYS_IDT_MOVE (debug) — corrupt IDT to test watchdog detection
 pub fn idtMove(regs: *user.Registers) void {
+    // Writing the IDT is a privileged operation: the debug flag alone
+    // must not let an untrusted Ring-3 ELF corrupt vector 0x90.
+    if (!user.checkPrivilege(regs, "IDT modify")) {
+        regs.eax = 0;
+        return;
+    }
     if (!config.ENABLE_DEBUG_COMMANDS) {
         regs.eax = 0;
         return;
