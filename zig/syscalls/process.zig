@@ -139,7 +139,7 @@ const Utsname = extern struct {
 
 /// Syscall 112: getpid() -> EAX=pid
 pub fn getpid(regs: *user.Registers) void {
-    const p = scheduler.current_process orelse { regs.eax = 0; return; };
+    const p = scheduler.current_process() orelse { regs.eax = 0; return; };
     regs.eax = p.id;
 }
 
