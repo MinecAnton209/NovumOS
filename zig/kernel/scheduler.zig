@@ -291,6 +291,7 @@ fn reap_zombies(protect: ?*Process) void {
         if (p.name_owned and p.name.len > 0) {
             memory.heap.free(@ptrCast(@constCast(p.name.ptr)));
         }
+        memory.heap.free(@ptrCast(@constCast(p)));
         processes[idx] = null;
     }
 }
