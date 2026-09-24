@@ -1,7 +1,7 @@
-const user = @import("../user.zig");
+const user = @import("../arch/mod.zig").user;
 const lfb = @import("../drivers/lfb.zig");
-const memory = @import("../memory.zig");
-const events = @import("../events.zig");
+const memory = @import("../kernel/memory.zig");
+const events = @import("../kernel/events.zig");
 
 const VideoMode = extern struct {
     width: u32,

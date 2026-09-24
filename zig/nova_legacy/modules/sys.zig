@@ -1,10 +1,10 @@
 const common = @import("../common.zig");
 const global_common = @import("../../commands/common.zig");
 const hash_table = @import("../hash_table.zig");
-const memory = @import("../../memory.zig");
-const keyboard = @import("../../keyboard_isr.zig");
+const memory = @import("../../kernel/memory.zig");
+const keyboard = @import("../../arch/mod.zig").keyboard_isr;
 const vga = @import("../../drivers/vga.zig");
-const shell = @import("../../shell.zig");
+const shell = @import("../../shell/shell.zig");
 const lfb = @import("../../drivers/lfb.zig");
 const timer = @import("../../drivers/timer.zig");
 

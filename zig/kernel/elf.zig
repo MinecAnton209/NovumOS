@@ -1,9 +1,9 @@
 // ELF Loader for NovumOS
-const common = @import("commands/common.zig");
+const common = @import("../commands/common.zig");
 const memory = @import("memory.zig");
-const user = @import("user.zig");
+const user = @import("../arch/mod.zig").user;
 const logger = @import("logger.zig");
-const config = @import("config.zig");
+const config = @import("../config.zig");
 
 pub const Elf32_Addr = u32;
 pub const Elf32_Off = u32;
@@ -124,7 +124,7 @@ pub fn load_and_run_nova_legacy() !noreturn {
 /// Load and run the embedded nova.elf (Ring 3 Nova VM).
 /// Debug output controlled by NOVA_DEBUG in config.zig.
 pub fn load_and_run_nova() !noreturn {
-    const data = @embedFile("build/nova");
+    const data = @embedFile("../build/nova");
     if (config.NOVA_DEBUG) {
         common.printZ("[nova] Loading embedded nova.elf (");
         common.printNum(@as(i32, @intCast(data.len)));

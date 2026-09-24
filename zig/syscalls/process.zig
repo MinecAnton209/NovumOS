@@ -2,11 +2,11 @@
 // Process control syscalls: Exit, Execve, JumpToUser, Yield.
 // Also hosts per-process alloc tracking for Nova Ring 3 protection.
 
-const user = @import("../user.zig");
-const memory = @import("../memory.zig");
-const logger = @import("../logger.zig");
+const user = @import("../arch/mod.zig").user;
+const memory = @import("../kernel/memory.zig");
+const logger = @import("../kernel/logger.zig");
 const syscalls = @import("mod.zig");
-const scheduler = @import("../scheduler.zig");
+const scheduler = @import("../kernel/scheduler.zig");
 
 extern fn kernel_loop() noreturn;
 extern fn jump_to_ring3_entry(entry: usize, stack: usize, eflags: u32) noreturn;
@@ -94,8 +94,8 @@ pub fn jumpToUser(regs: *user.Registers) void {
 
 /// Syscall 40: Execve(EBX = filename_ptr) — execute ELF from simplefs
 pub fn execve(regs: *user.Registers) void {
-    const fs_mod = @import("../fs.zig");
-    const elf_mod = @import("../elf.zig");
+    const fs_mod = @import("../kernel/fs.zig");
+    const elf_mod = @import("../kernel/elf.zig");
 
     if (syscalls.safe_str_from_user(regs.ebx, 32)) |filename| {
         // Reset tracking and detect Nova
@@ -139,7 +139,7 @@ const Utsname = extern struct {
 
 /// Syscall 112: getpid() -> EAX=pid
 pub fn getpid(regs: *user.Registers) void {
-    const p = scheduler.current_process orelse { regs.eax = 0; return; };
+    const p = scheduler.current_process() orelse { regs.eax = 0; return; };
     regs.eax = p.id;
 }
 

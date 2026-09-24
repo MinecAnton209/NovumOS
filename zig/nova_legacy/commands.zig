@@ -2,7 +2,7 @@
 const common = @import("common.zig");
 const parser = @import("parser.zig");
 const interpreter = @import("interpreter.zig");
-const shell = @import("../shell.zig");
+const shell = @import("../shell/shell.zig");
 
 // --- Variable Storage ---
 const MAX_VARS = 16;

@@ -1,5 +1,5 @@
 const events = @import("events.zig");
-const config = @import("config.zig");
+const config = @import("../config.zig");
 
 pub var initialized: bool = false;
 pub var last_buttons: u8 = 0;
@@ -60,7 +60,7 @@ fn pic_mask_irq12(mask: bool) void {
 }
 
 pub fn init() void {
-    const common = @import("commands/common.zig");
+    const common = @import("../commands/common.zig");
 
     // Mask IRQ12 during init so the ISR doesn't steal ACK bytes
     pic_mask_irq12(true);

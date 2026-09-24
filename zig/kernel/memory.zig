@@ -1,5 +1,5 @@
-const common = @import("commands/common.zig");
-const config = @import("config.zig");
+const common = @import("../commands/common.zig");
+const config = @import("../config.zig");
 const logger = @import("logger.zig");
 
 pub const PAGE_SIZE = 4096;
@@ -22,9 +22,11 @@ pub extern const idt_start: anyopaque;
 // We'll allocate a fixed-size bitmap for up to 4GB (128KB bitmap)
 var bitmap: [131072]u8 align(4096) linksection(".system") = [_]u8{0} ** 131072;
 var last_free_page: u32 = 0;
+var free_page_count: u32 = 0;
 var pmm_lock: u32 = 0;
 var paging_lock: u32 = 0;
-const smp = @import("smp.zig");
+const smp = @import("../arch/mod.zig").smp;
+const exceptions = @import("../arch/mod.zig").exceptions;
 
 /// Public alias to the kernel's BSS end symbol (used by user.zig for kernel_end)
 pub const ebss_sym: *const anyopaque = &ebss;
@@ -37,6 +39,9 @@ pub const pmm = struct {
         BITMAP_SIZE = TOTAL_PAGES / 8;
 
         const kernel_end = @intFromPtr(&ebss);
+        // NOTE: runs single-threaded in early boot, before SMP and timer
+        // interrupts exist — bitmap zeroing and page reservation are
+        // lock-free by that assumption. Never call pmm.init after smp.init().
         for (&bitmap) |*b| b.* = 0;
         // Reserve memory for kernel, BIOS, and stack (up to 8MB)
         // Our stack is at 0x500000 (5MB), so 8MB is a safe bound.
@@ -44,6 +49,8 @@ pub const pmm = struct {
         const reserved_pages = (reserved_up_to / PAGE_SIZE) + 1;
         var i: u32 = 0;
         while (i < reserved_pages) : (i += 1) _ = set_page_busy(i);
+
+        free_page_count = @intCast(TOTAL_PAGES - reserved_pages);
     }
 
     pub fn alloc_page() ?usize {
@@ -59,10 +66,30 @@ pub const pmm = struct {
             if (!is_page_busy(i)) {
                 _ = set_page_busy(i);
                 last_free_page = i;
+                free_page_count -= 1;
                 return i * PAGE_SIZE;
             }
         }
         return null; // OOM
+    }
+
+    /// Return the page directly after `last_page` if it is free. Lets the
+    /// heap grow contiguously instead of hoping the linear scan lands next.
+    pub fn alloc_page_after(last_page: usize) ?usize {
+        const next_idx = (last_page / PAGE_SIZE) + 1;
+        if (next_idx >= TOTAL_PAGES) return null;
+        const idx = @as(u32, @intCast(next_idx));
+
+        const eflags = interrupts_save();
+        smp.spin_lock(&pmm_lock);
+        defer {
+            smp.spin_unlock(&pmm_lock);
+            interrupts_restore(eflags);
+        }
+        if (is_page_busy(idx)) return null;
+        _ = set_page_busy(idx);
+        free_page_count -= 1;
+        return idx * PAGE_SIZE;
     }
 
     pub fn free_page(addr: usize) void {
@@ -76,6 +103,7 @@ pub const pmm = struct {
         const idx = @as(u32, @intCast(addr / PAGE_SIZE));
         _ = clear_page_busy(idx);
         if (idx < last_free_page) last_free_page = idx;
+        free_page_count += 1;
     }
 };
 
@@ -355,8 +383,7 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
         page_tables[pd_idx] = pt;
         // The first 16MB (indices 0-3) MUST have USER bit set in PDE to allow user access to kernel binary (Nova/Shell).
         // For higher indices, we keep them as Supervisor-only; map_page will upgrade if needed.
-        const attr: u32 = if (pd_idx < 4) 0x7 else 0x3;
-        page_directory[pd_idx] = @as(u32, @intCast(@intFromPtr(pt))) | attr;
+        page_directory[pd_idx] = @as(u32, @intCast(@intFromPtr(pt))) | 0x7;
         return pt;
     }
 
@@ -373,6 +400,32 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
     return null;
 }
 
+/// User Mode can only map RAM within [kernel_end, MAX_MEMORY), whitelisted
+/// MMIO (like LFB), the legacy VGA text buffer, or the kernel image itself.
+fn check_user_permissions(vaddr: usize) bool {
+    const kernel_end = @intFromPtr(&ebss);
+
+    const is_vga = (vaddr >= 0xB8000 and vaddr < 0xC0000);
+    const is_kernel_code = (vaddr >= @intFromPtr(&_code_start) and vaddr < @intFromPtr(&_code_end));
+    const is_rodata = (vaddr >= @intFromPtr(&_rodata_start) and vaddr < @intFromPtr(&_rodata_end));
+    const is_data = (vaddr >= @intFromPtr(&_data_start) and vaddr < @intFromPtr(&ebss));
+    const is_system_area = (vaddr >= @intFromPtr(&_system_start) and vaddr < @intFromPtr(&_system_end));
+
+    const is_allowed_mmio = (user_mmio_start != 0 and vaddr >= user_mmio_start and vaddr < user_mmio_end);
+
+    // For general demand paging (identity mapping), we check boundaries.
+    const is_kernel_image = is_kernel_code or is_rodata or is_data or is_system_area;
+    if (!is_vga and !is_allowed_mmio and !is_kernel_image) {
+        if (vaddr < kernel_end or vaddr >= MAX_MEMORY) {
+            logger.security("User-mode unauthorized memory map attempt");
+            var buf: [16]u8 = undefined;
+            logger.debug(common.intToHex(@intCast(vaddr), &buf));
+            return false;
+        }
+    }
+    return true;
+}
+
 /// map_page handles demand paging and discovery of high-memory tables (ACPI, BIOS, MMIO).
 /// If is_user is true, it verifies that the address is within allowed user-mode memory boundaries.
 pub fn map_page(vaddr: usize, is_user: bool) bool {
@@ -380,11 +433,24 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
     if (vaddr < 4096) return false;
     if (vaddr >= 0xDEAD0000 and vaddr <= 0xDEADFFFF) return false;
 
+    // Single gate for user-mode requests: must run before the huge-page
+    // fast path, which also writes page_directory entries and would
+    // otherwise grant USER bits without ever asking.
+    if (is_user and !check_user_permissions(vaddr)) return false;
+
     const pd_idx = vaddr >> 22;
 
     // --- Restore Huge Page (4MB) Activation ---
     const pde = &page_directory[pd_idx];
     if ((pde.* & 0x80) != 0) {
+        // PDE read-modify-write races with other cores demand-paging the
+        // same region — same lock discipline as the small-page path.
+        const eflags = interrupts_save();
+        smp.spin_lock(&paging_lock);
+        defer {
+            smp.spin_unlock(&paging_lock);
+            interrupts_restore(eflags);
+        }
         // If not present or (if user request) user bit missing
         if ((pde.* & 1) == 0 or (is_user and (pde.* & 4) == 0)) {
             pde.* |= 0x1; // Mark Present
@@ -400,34 +466,6 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
         return true; // Already present
     }
 
-    // Security check for User Mode requests
-    if (is_user) {
-        // User Mode can only map:
-        // 1. RAM within [kernel_end, MAX_MEMORY)
-        // 2. Whitelisted MMIO (like LFB)
-        // 3. Legacy VGA text buffer (0xB8000)
-        const kernel_end = @intFromPtr(&ebss);
-
-        const is_vga = (vaddr >= 0xB8000 and vaddr < 0xC0000);
-        const is_kernel_code = (vaddr >= @intFromPtr(&_code_start) and vaddr < @intFromPtr(&_code_end));
-        const is_rodata = (vaddr >= @intFromPtr(&_rodata_start) and vaddr < @intFromPtr(&_rodata_end));
-        const is_data = (vaddr >= @intFromPtr(&_data_start) and vaddr < @intFromPtr(&ebss));
-        const is_system_area = (vaddr >= @intFromPtr(&_system_start) and vaddr < @intFromPtr(&_system_end));
-
-        const is_allowed_mmio = (user_mmio_start != 0 and vaddr >= user_mmio_start and vaddr < user_mmio_end);
-
-        // For general demand paging (identity mapping), we check boundaries.
-        const is_kernel_image = is_kernel_code or is_rodata or is_data or is_system_area;
-        if (!is_vga and !is_allowed_mmio and !is_kernel_image) {
-            if (vaddr < kernel_end or vaddr >= MAX_MEMORY) {
-                logger.security("User-mode unauthorized memory map attempt");
-                var buf: [16]u8 = undefined;
-                logger.debug(common.intToHex(@intCast(vaddr), &buf));
-                return false;
-            }
-        }
-    }
-
     const eflags = interrupts_save();
     smp.spin_lock(&paging_lock);
     defer {
@@ -435,11 +473,24 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
         interrupts_restore(eflags);
     }
 
-    return map_page_at(vaddr, vaddr & 0xFFFFF000, is_user);
+    return map_page_at_locked(vaddr, vaddr & 0xFFFFF000, is_user);
 }
 
-/// map_page_at maps a specific virtual address to a specific physical address with requested permissions.
+/// map_page_at maps a specific virtual address to a specific physical
+/// address with requested permissions. Locking wrapper — callers that
+/// already hold paging_lock must use map_page_at_locked instead.
 pub fn map_page_at(vaddr: usize, paddr_in: usize, is_user: bool) bool {
+    const eflags = interrupts_save();
+    smp.spin_lock(&paging_lock);
+    defer {
+        smp.spin_unlock(&paging_lock);
+        interrupts_restore(eflags);
+    }
+    return map_page_at_locked(vaddr, paddr_in, is_user);
+}
+
+/// Caller must hold paging_lock with interrupts saved.
+fn map_page_at_locked(vaddr: usize, paddr_in: usize, is_user: bool) bool {
     const pd_idx = vaddr >> 22;
     const pt_idx = (vaddr >> 12) & 0x3FF;
 
@@ -597,12 +648,12 @@ pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
         const pd_idx = addr >> 22;
         if ((page_directory[pd_idx] & 0x80) != 0) {
             // Huge page: map it and jump to next 4MB
-            _ = map_page_at(addr, addr & 0xFFC00000, is_user);
+            _ = map_page_at_locked(addr, addr & 0xFFC00000, is_user);
             const res = @addWithOverflow(addr & 0xFFC00000, @as(usize, 0x400000));
             if (res[1] != 0 or res[0] > end_aligned) break;
             addr = res[0];
         } else {
-            _ = map_page_at(addr, addr & 0xFFFFF000, is_user);
+            _ = map_page_at_locked(addr, addr & 0xFFFFF000, is_user);
             if (addr >= end_aligned) break;
             const res = @addWithOverflow(addr, @as(usize, PAGE_SIZE));
             if (res[1] != 0) break;
@@ -644,10 +695,92 @@ pub const heap = struct {
     var bins: [BIN_COUNT]?*BlockHeader = .{null} ** BIN_COUNT;
     var heap_base: usize = 0;
     var heap_lock: u32 = 0;
+    // Per-core owner bit: ring-3 heap sections run with interrupts
+    // unmasked (cli is #GP at IOPL 0), so a timer tick can land inside
+    // one. schedule() consults owned_by() and skips its own heap work
+    // instead of spinning on a lock whose owner is the frozen context
+    // on this very core. Set before acquire, cleared after release —
+    // same discipline as sched_held in scheduler.zig.
+    var held_bits: u16 = 0;
+
+    fn coreBit() u16 {
+        return @as(u16, 1) << @as(u4, @intCast(exceptions.get_core_index()));
+    }
+
+    /// True when core_idx owns (or is entering) a heap critical section.
+    pub fn owned_by(core_idx: u8) bool {
+        const bit = @as(u16, 1) << @as(u4, @intCast(core_idx));
+        return (@atomicLoad(u16, &held_bits, .monotonic) & bit) != 0;
+    }
+
+    /// Contiguous physical chunks backing the heap. pmm.alloc_page never
+    /// guarantees physical adjacency, so every neighbor-header dereference
+    /// (coalesce, free) must land fully inside ONE of these regions —
+    /// a foreign page may coincidentally contain HEAP_MAGIC.
+    const MAX_HEAP_REGIONS = 16;
+    const Region = struct { base: usize, end: usize };
+    var regions: [MAX_HEAP_REGIONS]Region = undefined;
+    var region_count: usize = 0;
+    var heap_high_water: usize = 0;
+
+    /// True when [addr, addr+len) lies inside a single tracked region.
+    fn regionContains(addr: usize, len: usize) bool {
+        var i: usize = 0;
+        while (i < region_count) : (i += 1) {
+            const r = regions[i];
+            const end = @addWithOverflow(addr, len);
+            if (end[1] != 0) return false;
+            if (addr >= r.base and end[0] <= r.end) return true;
+        }
+        return false;
+    }
+
+    fn regionIndexOfBase(addr: usize) ?usize {
+        var i: usize = 0;
+        while (i < region_count) : (i += 1) {
+            if (regions[i].base == addr) return i;
+        }
+        return null;
+    }
+
+    fn regionIndexOfEnd(addr: usize) ?usize {
+        var i: usize = 0;
+        while (i < region_count) : (i += 1) {
+            if (regions[i].end == addr) return i;
+        }
+        return null;
+    }
+
+    fn removeRegion(idx: usize) void {
+        var k = idx;
+        while (k + 1 < region_count) : (k += 1) regions[k] = regions[k + 1];
+        region_count -= 1;
+    }
+
+    /// Keep heap_high_water as the max end across all regions — the
+    /// target for the next contiguous-growth attempt.
+    fn updateHighWater() void {
+        var hw: usize = 0;
+        var i: usize = 0;
+        while (i < region_count) : (i += 1) {
+            if (regions[i].end > hw) hw = regions[i].end;
+        }
+        heap_high_water = hw;
+    }
 
     pub fn init() void {
+        // Full state reset: a warm boot preserves RAM, stale bin pointers
+        // must never survive into a fresh heap.
+        bins = .{null} ** BIN_COUNT;
+        region_count = 0;
+        heap_high_water = 0;
+
         const addr = pmm.alloc_page() orelse return;
         heap_base = addr;
+        regions[0] = .{ .base = addr, .end = addr + PAGE_SIZE };
+        region_count = 1;
+        heap_high_water = addr + PAGE_SIZE;
+
         const block = @as(*BlockHeader, @ptrFromInt(addr));
         block.magic = HEAP_MAGIC;
         block.size = @as(u32, @intCast(PAGE_SIZE));
@@ -657,6 +790,97 @@ pub const heap = struct {
         binPush(block);
     }
 
+    /// Remove and return the first free block big enough for need_block.
+    fn find_fit(need_block: u32) ?*BlockHeader {
+        var bin_idx = binIndex(need_block);
+        while (bin_idx < BIN_COUNT) : (bin_idx += 1) {
+            var block = bins[bin_idx];
+            while (block) |blk| : (block = nextFree(blk)) {
+                if (blk.size >= need_block) {
+                    binRemove(blk);
+                    return blk;
+                }
+            }
+        }
+        return null;
+    }
+
+    /// Shrink blk to need_block when the leftover can stand alone as a
+    /// separate free block; bin the remainder.
+    fn split_block(blk: *BlockHeader, need_block: u32) void {
+        const remaining = blk.size - need_block;
+        if (remaining >= MIN_BLOCK_SIZE) {
+            const next_addr = @intFromPtr(blk) + need_block;
+            const new_block = @as(*BlockHeader, @ptrFromInt(next_addr));
+            new_block.magic = HEAP_MAGIC;
+            new_block.size = remaining;
+            new_block.is_free = true;
+            new_block.requested = 0;
+            writeFooter(new_block);
+            binPush(new_block);
+            blk.size = need_block;
+        }
+    }
+
+    /// Grow the heap by one page, publish it as a free block. Prefers
+    /// physically contiguous growth (coalesce then provably stays inside
+    /// one region); a non-adjacent page becomes a tracked island pushed
+    /// WITHOUT coalesce — pointer arithmetic must never reach a foreign
+    /// page across a physical gap.
+    fn allocate_new_page() ?*BlockHeader {
+        const page_addr = blk: {
+            if (heap_high_water >= PAGE_SIZE) {
+                if (pmm.alloc_page_after(heap_high_water - PAGE_SIZE)) |a| break :blk a;
+            }
+            break :blk pmm.alloc_page() orelse return null;
+        };
+        const page_end = page_addr + PAGE_SIZE;
+
+        const new_block = @as(*BlockHeader, @ptrFromInt(page_addr));
+        new_block.magic = HEAP_MAGIC;
+        new_block.size = @as(u32, @intCast(PAGE_SIZE));
+        new_block.is_free = true;
+        new_block.requested = 0;
+        writeFooter(new_block);
+
+        // Extends an existing region forward or backward? Merge any region
+        // touched on the other side too, so regions stay maximal and
+        // never physically adjacent to each other.
+        var i: usize = 0;
+        while (i < region_count) : (i += 1) {
+            if (page_addr == regions[i].end) {
+                regions[i].end = page_end;
+                if (regionIndexOfBase(page_end)) |j| {
+                    regions[i].end = regions[j].end;
+                    removeRegion(j);
+                }
+                updateHighWater();
+                binPush(tryCoalesce(new_block));
+                return new_block;
+            }
+            if (page_end == regions[i].base) {
+                if (regionIndexOfEnd(page_addr)) |j| {
+                    regions[i].base = regions[j].base;
+                    removeRegion(j);
+                }
+                updateHighWater();
+                binPush(tryCoalesce(new_block));
+                return new_block;
+            }
+        }
+
+        // Island: standalone contiguous chunk, no cross-gap coalesce.
+        if (region_count >= MAX_HEAP_REGIONS) {
+            pmm.free_page(page_addr);
+            return null;
+        }
+        regions[region_count] = .{ .base = page_addr, .end = page_end };
+        region_count += 1;
+        updateHighWater();
+        binPush(new_block);
+        return new_block;
+    }
+
     pub fn alloc(size: usize) ?[*]u8 {
         if (size > MAX_ALLOC_SIZE) {
             logger.security("Heap alloc: requested size exceeds maximum (16MB)");
@@ -664,9 +888,11 @@ pub const heap = struct {
         }
 
         const eflags = interrupts_save();
+        _ = @atomicRmw(u16, &held_bits, .Or, coreBit(), .monotonic);
         smp.spin_lock(&heap_lock);
         defer {
             smp.spin_unlock(&heap_lock);
+            _ = @atomicRmw(u16, &held_bits, .And, ~coreBit(), .release);
             interrupts_restore(eflags);
         }
 
@@ -678,52 +904,26 @@ pub const heap = struct {
         );
 
         while (true) {
-            var bin_idx = binIndex(need_block);
-            while (bin_idx < BIN_COUNT) : (bin_idx += 1) {
-                var block = bins[bin_idx];
-                while (block) |blk| : (block = nextFree(blk)) {
-                    if (blk.size >= need_block) {
-                        binRemove(blk);
+            if (find_fit(need_block)) |blk| {
+                split_block(blk, need_block);
 
-                        const remaining = blk.size - need_block;
-                        if (remaining >= MIN_BLOCK_SIZE) {
-                            const next_addr = @intFromPtr(blk) + need_block;
-                            const new_block = @as(*BlockHeader, @ptrFromInt(next_addr));
-                            new_block.magic = HEAP_MAGIC;
-                            new_block.size = remaining;
-                            new_block.is_free = true;
-                            new_block.requested = 0;
-                            writeFooter(new_block);
-                            binPush(new_block);
-                            blk.size = need_block;
-                        }
+                writeFooter(blk);
+                blk.is_free = false;
+                blk.requested = @as(u32, @intCast(size));
 
-                        writeFooter(blk);
-                        blk.is_free = false;
-                        blk.requested = @as(u32, @intCast(size));
+                const data_ptr = dataPtr(blk);
+                @memset(data_ptr[0..size], POISON_ALLOC);
 
-                        const data_ptr = dataPtr(blk);
-                        @memset(data_ptr[0..size], POISON_ALLOC);
+                const canary_off = HEADER_SIZE + aligned;
+                @as(*align(1) u32, @ptrFromInt(@intFromPtr(blk) + canary_off)).* = END_CANARY;
 
-                        const canary_off = HEADER_SIZE + aligned;
-                        @as(*align(1) u32, @ptrFromInt(@intFromPtr(blk) + canary_off)).* = END_CANARY;
-
-                        if (aligned > size32) {
-                            @memset(data_ptr[size..@as(usize, aligned)], CANARY_BYTE);
-                        }
-                        return data_ptr;
-                    }
+                if (aligned > size32) {
+                    @memset(data_ptr[size..@as(usize, aligned)], CANARY_BYTE);
                 }
+                return data_ptr;
             }
 
-            const page_addr = pmm.alloc_page() orelse return null;
-            const new_block = @as(*BlockHeader, @ptrFromInt(page_addr));
-            new_block.magic = HEAP_MAGIC;
-            new_block.size = @as(u32, @intCast(PAGE_SIZE));
-            new_block.is_free = true;
-            new_block.requested = 0;
-            writeFooter(new_block);
-            binPush(tryCoalesce(new_block));
+            _ = allocate_new_page() orelse return null;
         }
     }
 
@@ -745,13 +945,20 @@ pub const heap = struct {
         }
 
         const eflags = interrupts_save();
+        _ = @atomicRmw(u16, &held_bits, .Or, coreBit(), .monotonic);
         smp.spin_lock(&heap_lock);
         defer {
             smp.spin_unlock(&heap_lock);
+            _ = @atomicRmw(u16, &held_bits, .And, ~coreBit(), .release);
             interrupts_restore(eflags);
         }
 
-        const header = @as(*BlockHeader, @ptrFromInt(addr - HEADER_SIZE));
+        const header_addr = addr - HEADER_SIZE;
+        if (!regionContains(header_addr, HEADER_SIZE)) {
+            if (safe) logger.security("Free: pointer outside heap regions");
+            return false;
+        }
+        const header = @as(*BlockHeader, @ptrFromInt(header_addr));
         if (header.magic != HEAP_MAGIC) {
             if (safe) logger.security("Free: corruption (invalid magic)");
             return false;
@@ -761,9 +968,30 @@ pub const heap = struct {
             return false;
         }
 
+        // Validate the header's own claims BEFORE using them as offsets:
+        // ring 3 shares this heap (USER RW), so a stray write can set
+        // size/requested to anything and the canary offset computed from
+        // them would otherwise be dereferenced outside the region.
         const block_size = header.size;
+        if (block_size < MIN_BLOCK_SIZE or block_size > 128 * 1024 * 1024) {
+            if (safe) logger.security("Free: implausible block size");
+            return false;
+        }
+        if (!regionContains(header_addr, block_size)) {
+            if (safe) logger.security("Free: block spans outside heap regions");
+            return false;
+        }
+        if (header.requested > block_size) {
+            if (safe) logger.security("Free: requested exceeds block size");
+            return false;
+        }
+
         const aligned: u32 = (header.requested + 7) & ~@as(u32, 7);
         const canary_off: u32 = HEADER_SIZE + aligned;
+        if (@as(u64, canary_off) + CANARY_SIZE + FOOTER_SIZE > block_size) {
+            if (safe) logger.security("Free: requested/size mismatch");
+            return false;
+        }
         const stored = @as(*align(1) const u32, @ptrFromInt(@intFromPtr(header) + canary_off)).*;
         if (stored != END_CANARY) {
             if (safe) logger.security("Free: buffer overflow (END_CANARY corrupted)");
@@ -780,11 +1008,6 @@ pub const heap = struct {
             }
         }
 
-        if (block_size > 128 * 1024 * 1024) {
-            if (safe) logger.security("Free: implausible block size");
-            return false;
-        }
-
         const poison_len = block_size - HEADER_SIZE - FOOTER_SIZE;
         @memset(@as([*]u8, @ptrFromInt(addr))[0..@as(usize, poison_len)], POISON_FREE);
 
@@ -798,9 +1021,11 @@ pub const heap = struct {
 
     pub fn garbage_collect() void {
         const eflags = interrupts_save();
+        _ = @atomicRmw(u16, &held_bits, .Or, coreBit(), .monotonic);
         smp.spin_lock(&heap_lock);
         defer {
             smp.spin_unlock(&heap_lock);
+            _ = @atomicRmw(u16, &held_bits, .And, ~coreBit(), .release);
             interrupts_restore(eflags);
         }
         if (!config.USE_GARBAGE_COLLECTOR) return;
@@ -864,12 +1089,14 @@ fn tryCoalesce(block: *BlockHeader) *BlockHeader {
     var cur = block;
     const block_addr = @intFromPtr(block);
 
-    if (block_addr > heap.heap_base) {
+    // Backward: footer and the whole candidate must live inside ONE
+    // tracked region — heap_base alone can't vouch for islands.
+    if (heap.regionContains(block_addr - FOOTER_SIZE, FOOTER_SIZE)) {
         const prev_footer = @as(*BlockFooter, @ptrFromInt(block_addr - FOOTER_SIZE));
         const prev_size = prev_footer.size;
         if (prev_size >= MIN_BLOCK_SIZE and prev_size <= MAX_ALLOC_SIZE) {
             const prev_addr = block_addr - prev_size;
-            if (prev_addr >= heap.heap_base and prev_addr + prev_size == block_addr) {
+            if (heap.regionContains(prev_addr, prev_size)) {
                 const prev_block = @as(*BlockHeader, @ptrFromInt(prev_addr));
                 if (prev_block.magic == HEAP_MAGIC and prev_block.is_free) {
                     binRemove(prev_block);
@@ -881,13 +1108,19 @@ fn tryCoalesce(block: *BlockHeader) *BlockHeader {
         }
     }
 
+    // Forward: read the header only once its bytes are region-owned,
+    // absorb only if the full claimed extent is region-owned too.
+    // The old "< heap_base + 32MB" bound checked nothing about ownership.
     const next_addr = @intFromPtr(cur) + cur.size;
-    if (next_addr < @intFromPtr(cur) + MAX_ALLOC_SIZE * 2) {
+    if (heap.regionContains(next_addr, HEADER_SIZE)) {
         const next_block = @as(*BlockHeader, @ptrFromInt(next_addr));
-        if (next_block.magic == HEAP_MAGIC and next_block.is_free) {
-            binRemove(next_block);
-            cur.size += next_block.size;
-            writeFooter(cur);
+        const nsize = next_block.size;
+        if (nsize >= MIN_BLOCK_SIZE and nsize <= MAX_ALLOC_SIZE and heap.regionContains(next_addr, nsize)) {
+            if (next_block.magic == HEAP_MAGIC and next_block.is_free) {
+                binRemove(next_block);
+                cur.size += nsize;
+                writeFooter(cur);
+            }
         }
     }
 
@@ -895,16 +1128,11 @@ fn tryCoalesce(block: *BlockHeader) *BlockHeader {
 }
 
 pub fn get_free_memory() usize {
-    var free: usize = 0;
-    var i: u32 = 0;
-    while (i < TOTAL_PAGES) : (i += 1) {
-        if (!is_page_busy(i)) free += PAGE_SIZE;
-    }
-    return free;
+    return @as(usize, free_page_count) * PAGE_SIZE;
 }
 
 pub fn get_used_memory() usize {
-    return MAX_MEMORY - get_free_memory();
+    return @as(usize, TOTAL_PAGES - free_page_count) * PAGE_SIZE;
 }
 
 pub fn get_current_pd() u32 {

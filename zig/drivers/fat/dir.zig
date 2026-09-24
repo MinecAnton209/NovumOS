@@ -1,4 +1,5 @@
 const common = @import("../../commands/common.zig");
+const config = @import("../../config.zig");
 const ata = @import("../ata.zig");
 const vga = @import("../vga.zig");
 const bpb_mod = @import("bpb.zig");
@@ -62,10 +63,6 @@ fn printSizeFmt(size: u32, comptime fmt: Format) void {
     }
     common.printZ(&[_]u8{suffix} ++ comptime (if (fmt == .Padded) " " else ""));
 }
-
-fn printSize(size: u32) void       { printSizeFmt(size, .Compact); }
-fn printSizePad(size: u32) void    { printSizeFmt(size, .Padded);  }
-fn printSizeNice(size: u32) void   { printSizeFmt(size, .Nice);    }
 
 fn printIntToBuf(n: u32, out: []u8) usize {
     var i: usize = 0;
@@ -293,44 +290,12 @@ fn list_sector(drive: ata.Drive, sector: u32, show_hidden: bool, lfn: *LfnState)
             continue;
         }
 
-        if (buffer[i + 11] == 0x0F) {
-            const seq = buffer[i];
-            const chk = buffer[i + 13];
-
-            if ((seq & 0x40) != 0) {
-                lfn.active = true;
-                lfn.checksum = chk;
-                @memset(&lfn.buf, 0);
-            } else if (!lfn.active or lfn.checksum != chk) {
-                lfn.active = false;
-                continue;
-            }
-
-            var index = (seq & 0x1F);
-            if (index < 1) index = 1;
-            const offset = (index - 1) * 13;
-
-            if (offset < 240) {
-                extract_lfn_part(&buffer, i + 1, 5, &lfn.buf, offset);
-                extract_lfn_part(&buffer, i + 14, 6, &lfn.buf, offset + 5);
-                extract_lfn_part(&buffer, i + 28, 2, &lfn.buf, offset + 11);
-            }
-            continue;
-        }
+        if (consume_lfn_entry(&buffer, @intCast(i), lfn)) continue;
 
         const attr = buffer[i + 11];
 
-        var sum: u8 = 0;
-        for (0..11) |k| {
-            const is_odd = (sum & 1) != 0;
-            sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-            sum = sum +% buffer[i + k];
-        }
-
-        var use_lfn = false;
-        if (lfn.active and lfn.checksum == sum) {
-            use_lfn = true;
-        }
+        // consume_lfn_entry already validated checksum → lfn.active means match
+        const use_lfn = lfn.active;
         lfn.active = false;
 
         if (!show_hidden) {
@@ -408,7 +373,7 @@ fn list_sector(drive: ata.Drive, sector: u32, show_hidden: bool, lfn: *LfnState)
         } else {
             const size = @as(u32, buffer[i + 28]) | (@as(u32, buffer[i + 29]) << 8) | (@as(u32, buffer[i + 30]) << 16) | (@as(u32, buffer[i + 31]) << 24);
             vga.set_color(15, 0);
-            printSizeNice(size);
+            printSizeFmt(size, .Nice);
         }
 
         common.printZ(" ");
@@ -448,6 +413,12 @@ fn list_sector(drive: ata.Drive, sector: u32, show_hidden: bool, lfn: *LfnState)
     return true;
 }
 
+/// Full 32-bit start cluster: first_cluster_low alone truncates FAT32
+/// clusters >= 0x10000 and walks or frees the wrong chain.
+fn entry_cluster(entry: DirEntry) u32 {
+    return @as(u32, entry.first_cluster_low) | (@as(u32, entry.first_cluster_high) << 16);
+}
+
 pub fn resolve_full_path(drive: ata.Drive, bpb: BPB, start_cluster: u32, start_path: []const u8, input_path: []const u8) ?ResolvedPath {
     var res: ResolvedPath = undefined;
     res.cluster = start_cluster;
@@ -480,7 +451,7 @@ pub fn resolve_full_path(drive: ata.Drive, bpb: BPB, start_cluster: u32, start_p
         } else if (common.std_mem_eql(component, "..")) {
             if (res.cluster != 0) {
                 const entry = find_entry_literal(drive, bpb, res.cluster, "..") orelse return null;
-                res.cluster = entry.first_cluster_low;
+                res.cluster = entry_cluster(entry);
                 if (res.path_len > 0) {
                     var p = res.path_len - 1;
                     while (p > 0 and res.path[p] != '/') : (p -= 1) {}
@@ -491,7 +462,7 @@ pub fn resolve_full_path(drive: ata.Drive, bpb: BPB, start_cluster: u32, start_p
             if (!res.is_dir) return null;
 
             const entry = find_entry_literal(drive, bpb, res.cluster, component) orelse return null;
-            res.cluster = entry.first_cluster_low;
+            res.cluster = entry_cluster(entry);
             res.is_dir = (entry.attr & 0x10) != 0;
 
             if (res.path_len + 1 + component.len < 256) {
@@ -538,12 +509,12 @@ pub fn resolve_path(drive: ata.Drive, bpb: BPB, start_dir: u32, path: []const u8
             if (common.std_mem_eql(component, ".")) {} else if (common.std_mem_eql(component, "..")) {
                 if (current_dir != 0) {
                     const entry = find_entry_literal(drive, bpb, current_dir, "..") orelse return null;
-                    current_dir = entry.first_cluster_low;
+                    current_dir = entry_cluster(entry);
                 }
             } else {
                 const entry = find_entry_literal(drive, bpb, current_dir, component) orelse return null;
                 if ((entry.attr & 0x10) == 0) return null;
-                current_dir = entry.first_cluster_low;
+                current_dir = entry_cluster(entry);
             }
         }
 
@@ -593,39 +564,9 @@ fn find_entry_in_sectors(drive: ata.Drive, name: []const u8, start_sector: u32, 
                 continue;
             }
 
-            if (buffer[i + 11] == 0x0F) {
-                const seq = buffer[i];
-                const chk = buffer[i + 13];
+            if (consume_lfn_entry(&buffer, @intCast(i), &lfn)) continue;
 
-                if ((seq & 0x40) != 0) {
-                    lfn.active = true;
-                    lfn.checksum = chk;
-                    @memset(&lfn.buf, 0);
-                } else if (!lfn.active or lfn.checksum != chk) {
-                    lfn.active = false;
-                    continue;
-                }
-
-                var index = (seq & 0x1F);
-                if (index < 1) index = 1;
-                const offset = (index - 1) * 13;
-
-                if (offset < 240) {
-                    extract_lfn_part(&buffer, i + 1, 5, &lfn.buf, offset);
-                    extract_lfn_part(&buffer, i + 14, 6, &lfn.buf, offset + 5);
-                    extract_lfn_part(&buffer, i + 28, 2, &lfn.buf, offset + 11);
-                }
-                continue;
-            }
-
-            var sum: u8 = 0;
-            for (0..11) |k| {
-                const is_odd = (sum & 1) != 0;
-                sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-                sum = sum +% buffer[i + k];
-            }
-
-            if (lfn.active and lfn.checksum == sum) {
+            if (lfn.active) {
                 var len: usize = 0;
                 while (len < 256 and lfn.buf[len] != 0) : (len += 1) {}
                 const lfn_str = lfn.buf[0..len];
@@ -753,7 +694,8 @@ fn delete_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []con
 
     if (!mark_entry_deleted(drive, bpb, dir_cluster, name)) return false;
 
-    free_cluster_chain(drive, bpb, entry.first_cluster_low);
+    const start = @as(u32, entry.first_cluster_low) | (@as(u32, entry.first_cluster_high) << 16);
+    free_cluster_chain(drive, bpb, start);
 
     return true;
 }
@@ -769,7 +711,7 @@ fn delete_directory_literal(drive: ata.Drive, bpb: BPB, parent_cluster: u32, nam
     const entry = find_entry_literal(drive, bpb, parent_cluster, name) orelse return false;
     if ((entry.attr & 0x10) == 0) return delete_file_literal(drive, bpb, parent_cluster, name);
 
-    const cluster = entry.first_cluster_low;
+    const cluster = entry_cluster(entry);
     if (cluster == 0) return false;
 
     if (!recursive) {
@@ -786,7 +728,12 @@ pub fn is_directory_empty(drive: ata.Drive, bpb: BPB, dir_cluster: u32) bool {
     if (dir_cluster == 0) return false;
 
     var current = dir_cluster;
-    const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+    const eof_val = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFF8),
+        .FAT16 => @as(u32, 0xFFF8),
+        .FAT32 => @as(u32, 0x0FFFFFF8),
+        else => @as(u32, 0xFFF8),
+    };
     while (current < eof_val) {
         const lba = bpb.first_data_sector + (current - 2) * bpb.sectors_per_cluster;
         var s: u32 = 0;
@@ -825,7 +772,12 @@ pub fn delete_all_in_directory(drive: ata.Drive, bpb: BPB, dir_cluster: u32, rec
         }
     } else {
         var current = dir_cluster;
-        const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+        const eof_val = switch (bpb.fat_type) {
+            .FAT12 => @as(u32, 0xFF8),
+            .FAT16 => @as(u32, 0xFFF8),
+            .FAT32 => @as(u32, 0x0FFFFFF8),
+            else => @as(u32, 0xFFF8),
+        };
         while (current < eof_val) {
             const lba = bpb.first_data_sector + (current - 2) * bpb.sectors_per_cluster;
             var s: u32 = 0;
@@ -850,37 +802,10 @@ fn delete_all_in_sector(drive: ata.Drive, bpb: BPB, sector: u32, buffer: *[512]u
             continue;
         }
 
-        if (buffer[i + 11] == 0x0F) {
-            const seq = buffer[i];
-            const chk = buffer[i + 13];
-            if ((seq & 0x40) != 0) {
-                lfn.active = true;
-                lfn.checksum = chk;
-                @memset(&lfn.buf, 0);
-            } else if (!lfn.active or lfn.checksum != chk) {
-                lfn.active = false;
-                continue;
-            }
-            var index = (seq & 0x1F);
-            if (index < 1) index = 1;
-            const offset = (index - 1) * 13;
-            if (offset < 240) {
-                extract_lfn_part(buffer, i + 1, 5, &lfn.buf, offset);
-                extract_lfn_part(buffer, i + 14, 6, &lfn.buf, offset + 5);
-                extract_lfn_part(buffer, i + 28, 2, &lfn.buf, offset + 11);
-            }
-            continue;
-        }
-
-        var sum: u8 = 0;
-        for (0..11) |k| {
-            const is_odd = (sum & 1) != 0;
-            sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-            sum = sum +% buffer[i + k];
-        }
+        if (consume_lfn_entry(buffer, @intCast(i), &lfn)) continue;
 
         var name_str: []const u8 = undefined;
-        if (lfn.active and lfn.checksum == sum) {
+        if (lfn.active) {
             var len: usize = 0;
             while (len < 256 and lfn.buf[len] != 0) : (len += 1) {}
             name_str = lfn.buf[0..len];
@@ -897,7 +822,7 @@ fn delete_all_in_sector(drive: ata.Drive, bpb: BPB, sector: u32, buffer: *[512]u
         }
 
         const is_dir = (buffer[i + 11] & 0x10) != 0;
-        const cluster = @as(u32, buffer[i + 26]) | (@as(u32, buffer[i + 27]) << 8);
+        const cluster = @as(u32, buffer[i + 26]) | (@as(u32, buffer[i + 27]) << 8) | (@as(u32, buffer[i + 20]) << 16) | (@as(u32, buffer[i + 21]) << 24);
 
         if (is_dir) {
             if (delete_subdirs) {
@@ -980,7 +905,12 @@ pub fn copy_file_literal(drive: ata.Drive, bpb: BPB, src_dir: u32, src_name: []c
     if ((src_entry.attr & 0x10) != 0) return false;
 
     const dest_cluster = find_free_cluster(drive, bpb) orelse return false;
-    const fat_eof = if (bpb.fat_type == .FAT12) @as(u32, 0xFFF) else @as(u32, 0xFFFF);
+    const fat_eof = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFFF),
+        .FAT16 => @as(u32, 0xFFFF),
+        .FAT32 => @as(u32, 0x0FFFFFFF),
+        else => @as(u32, 0xFFFF),
+    };
     set_fat_entry(drive, bpb, dest_cluster, fat_eof);
 
     if (!add_directory_entry(drive, bpb, dest_dir, dest_name, dest_cluster, src_entry.file_size, src_entry.attr)) {
@@ -988,9 +918,14 @@ pub fn copy_file_literal(drive: ata.Drive, bpb: BPB, src_dir: u32, src_name: []c
         return false;
     }
 
-    var current_src = @as(u32, src_entry.first_cluster_low);
+    var current_src = entry_cluster(src_entry);
     var current_dest = dest_cluster;
-    const eof_limit = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+    const eof_limit = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFF8),
+        .FAT16 => @as(u32, 0xFFF8),
+        .FAT32 => @as(u32, 0x0FFFFFF8),
+        else => @as(u32, 0xFFF8),
+    };
 
     var sector_buf: [512]u8 = undefined;
     while (current_src < eof_limit) {
@@ -1033,16 +968,21 @@ pub fn copy_directory_literal(drive: ata.Drive, bpb: BPB, src_parent: u32, src_n
 
     if (!create_directory_literal(drive, bpb, dest_parent, dest_name)) return false;
     const target_entry = find_entry_literal(drive, bpb, dest_parent, dest_name) orelse return false;
-    const target_cluster = target_entry.first_cluster_low;
+    const target_cluster = entry_cluster(target_entry);
 
-    copy_all_entries(drive, bpb, entry.first_cluster_low, target_cluster);
+    copy_all_entries(drive, bpb, entry_cluster(entry), target_cluster);
     return true;
 }
 
 fn copy_all_entries(drive: ata.Drive, bpb: BPB, src_cluster: u32, dest_cluster: u32) void {
     var buffer: [512]u8 = undefined;
     var current = src_cluster;
-    const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+    const eof_val = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFF8),
+        .FAT16 => @as(u32, 0xFFF8),
+        .FAT32 => @as(u32, 0x0FFFFFF8),
+        else => @as(u32, 0xFFF8),
+    };
 
     while (current < eof_val) {
         const lba = bpb.first_data_sector + (current - 2) * bpb.sectors_per_cluster;
@@ -1079,7 +1019,12 @@ fn copy_entry_recursive(drive: ata.Drive, bpb: BPB, src_dir_cluster: u32, name: 
 pub fn free_cluster_chain(drive: ata.Drive, bpb: BPB, start_cluster: u32) void {
     if (start_cluster < 2) return;
     var current = start_cluster;
-    const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+    const eof_val = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFF8),
+        .FAT16 => @as(u32, 0xFFF8),
+        .FAT32 => @as(u32, 0x0FFFFFF8),
+        else => @as(u32, 0xFFF8),
+    };
 
     while (current < eof_val) {
         const next = get_fat_entry(drive, bpb, current);
@@ -1089,9 +1034,12 @@ pub fn free_cluster_chain(drive: ata.Drive, bpb: BPB, start_cluster: u32) void {
     }
 }
 
-pub fn find_free_cluster(drive: ata.Drive, bpb: BPB) ?u32 {
-    var cluster: u32 = 2;
+// ponytail: allocation scan hint (next-fit). Correctness without
+// invalidation: the wrap-up phase re-scans [2, hint), which immediately
+// finds free clusters after mkfs or on a drive switch.
+var free_cluster_hint: u32 = 2;
 
+pub fn find_free_cluster(drive: ata.Drive, bpb: BPB) ?u32 {
     const max_clusters = switch (bpb.fat_type) {
         .FAT12 => @as(u32, 4085),
         .FAT16 => @as(u32, 65525),
@@ -1099,14 +1047,80 @@ pub fn find_free_cluster(drive: ata.Drive, bpb: BPB) ?u32 {
         else => 0,
     };
 
+    const scan_to = if (free_cluster_hint >= 2 and free_cluster_hint < max_clusters)
+        free_cluster_hint
+    else
+        2;
+
+    var cluster: u32 = scan_to;
     while (cluster < max_clusters) : (cluster += 1) {
         const val = get_fat_entry(drive, bpb, cluster);
-        if (val == 0) return cluster;
+        if (val == 0) {
+            free_cluster_hint = cluster + 1;
+            return cluster;
+        }
+    }
+
+    cluster = 2;
+    while (cluster < scan_to) : (cluster += 1) {
+        const val = get_fat_entry(drive, bpb, cluster);
+        if (val == 0) {
+            free_cluster_hint = cluster + 1;
+            return cluster;
+        }
     }
     return null;
 }
 
 const ATTR_LONG_NAME = 0x0F;
+
+/// Compute the FAT short-name checksum used to bind LFN entries to their
+/// 8.3 alias (spec: rotate-right + add each byte of the 11-byte name).
+fn short_name_checksum(name: []const u8) u8 {
+    var sum: u8 = 0;
+    for (name[0..11]) |c| {
+        const is_odd = (sum & 1) != 0;
+        sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
+        sum = sum +% c;
+    }
+    return sum;
+}
+
+/// Consume one directory entry from `buffer` at index `idx`.
+/// If the entry is a long-filename (LFN) entry, updates `lfn` and returns
+/// true (caller should `continue` to the next entry).
+/// Otherwise returns false and resets `lfn.active`.
+pub fn consume_lfn_entry(buffer: []const u8, idx: usize, lfn: *LfnState) bool {
+    if (buffer[idx + 11] != 0x0F) {
+        // Short entry — compute checksum to match pending LFN
+        const sum = short_name_checksum(buffer[idx .. idx + 32]);
+        lfn.active = lfn.active and lfn.checksum == sum;
+        return false;
+    }
+
+    // LFN entry
+    const seq = buffer[idx];
+    const chk = buffer[idx + 13];
+
+    if ((seq & 0x40) != 0) {
+        lfn.active = true;
+        lfn.checksum = chk;
+        @memset(&lfn.buf, 0);
+    } else if (!lfn.active or lfn.checksum != chk) {
+        lfn.active = false;
+        return true; // still an LFN entry, skip
+    }
+
+    const index = if ((seq & 0x1F) < 1) 1 else (seq & 0x1F);
+    const offset = (index - 1) * 13;
+
+    if (offset < 240) {
+        extract_lfn_part(buffer, idx + 1, 5, &lfn.buf, offset);
+        extract_lfn_part(buffer, idx + 14, 6, &lfn.buf, offset + 5);
+        extract_lfn_part(buffer, idx + 28, 2, &lfn.buf, offset + 11);
+    }
+    return true;
+}
 
 /// Characters not permitted in 8.3 short names (FAT spec).
 const FAT_INVALID_CHARS: []const u8 = &[_]u8{
@@ -1200,6 +1214,16 @@ pub fn add_directory_entry(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: [
     }
 
     const slots_needed = if (needs_alias) (name.len + 12) / 13 + 1 else 1;
+
+    if (config.ENABLE_FAT_DEBUG) {
+        common.printZ("DBG add_dir: dir_cluster="); common.printNum(@intCast(dir_cluster));
+        common.printZ(" ft="); common.printNum(@intCast(@intFromEnum(bpb.fat_type)));
+        common.printZ(" rfs="); common.printNum(@intCast(bpb.first_root_dir_sector));
+        common.printZ(" fds="); common.printNum(@intCast(bpb.first_data_sector));
+        common.printZ(" slots="); common.printNum(@intCast(slots_needed));
+        common.printZ(" lfn="); common.printZ(if (needs_alias) "Y" else "N");
+        common.printZ("\n");
+    }
 
     if (dir_cluster == 0) {
         if (bpb.fat_type == .FAT32) {
@@ -1449,19 +1473,21 @@ pub fn rename_file(drive: ata.Drive, bpb: BPB, dir_cluster: u32, old_path: []con
 
     if ((entry.attr & 0x04) != 0) return false;
 
-    if (!add_directory_entry(drive, bpb, new_res.dir_cluster, new_res.file_name, entry.first_cluster_low, entry.file_size, entry.attr)) return false;
+    if (!add_directory_entry(drive, bpb, new_res.dir_cluster, new_res.file_name, entry_cluster(entry), entry.file_size, entry.attr)) return false;
 
     if (!mark_entry_deleted(drive, bpb, old_res.dir_cluster, old_res.file_name)) return false;
 
     if ((entry.attr & 0x10) != 0 and new_res.dir_cluster != old_res.dir_cluster) {
-        const dir_cluster_id = entry.first_cluster_low;
+        const dir_cluster_id = entry_cluster(entry);
         if (dir_cluster_id != 0) {
             const lba = bpb.first_data_sector + (dir_cluster_id - 2) * bpb.sectors_per_cluster;
             var dir_buf: [512]u8 = undefined;
             ata.read_sector(drive, lba, &dir_buf);
             if (dir_buf[32] == '.' and dir_buf[33] == '.') {
+                dir_buf[32 + 20] = @intCast((new_res.dir_cluster >> 16) & 0xFF);
+                dir_buf[32 + 21] = @intCast((new_res.dir_cluster >> 24) & 0xFF);
                 dir_buf[32 + 26] = @intCast(new_res.dir_cluster & 0xFF);
-                dir_buf[32 + 27] = @intCast(new_res.dir_cluster >> 8);
+                dir_buf[32 + 27] = @intCast((new_res.dir_cluster >> 8) & 0xFF);
                 ata.write_sector(drive, lba, &dir_buf);
             }
         }

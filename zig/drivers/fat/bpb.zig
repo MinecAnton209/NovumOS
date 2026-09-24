@@ -1,7 +1,18 @@
 const common = @import("../../commands/common.zig");
+const config = @import("../../config.zig");
 const ata = @import("../ata.zig");
+const cache = @import("cache.zig");
+
+/// BPB cache: drive enum → parsed BPB.
+/// Avoids re-reading sector 0 on every file syscall.
+var bpb_cache: struct {
+    master: ?BPB = null,
+    slave: ?BPB = null,
+    valid: bool = false,
+} = .{};
 
 pub const FatType = enum {
+
     None,
     FAT12,
     FAT16,
@@ -34,10 +45,31 @@ pub const BPB = struct {
 };
 
 pub fn read_bpb(drive: ata.Drive) ?BPB {
+    // Fast path: check cache
+    const cached: ?BPB = switch (drive) {
+        .Master => bpb_cache.master,
+        .Slave  => bpb_cache.slave,
+    };
+    if (cached) |bpb| if (bpb_cache.valid) return bpb else {};
+
+    // Slow path: read sector 0 and parse
     var buffer: [512]u8 = undefined;
     ata.read_sector(drive, 0, &buffer);
 
     if (buffer[510] != 0x55 or buffer[511] != 0xAA) return null;
+
+    if (config.ENABLE_FAT_DEBUG) {
+        common.printZ("DBG read_bpb: bytes_per_sec=");
+        common.printNum(@intCast(@as(u16, buffer[11]) | (@as(u16, buffer[12]) << 8)));
+        common.printZ(" spc="); common.printNum(@intCast(buffer[13]));
+        common.printZ(" reserved="); common.printNum(@intCast(@as(u16, buffer[14]) | (@as(u16, buffer[15]) << 8)));
+        common.printZ(" num_fats="); common.printNum(@intCast(buffer[16]));
+        common.printZ(" root_ent="); common.printNum(@intCast(@as(u16, buffer[17]) | (@as(u16, buffer[18]) << 8)));
+        common.printZ(" tot16="); common.printNum(@intCast(@as(u16, buffer[19]) | (@as(u16, buffer[20]) << 8)));
+        common.printZ(" media="); common.printNum(@intCast(buffer[21]));
+        common.printZ(" spf="); common.printNum(@intCast(@as(u16, buffer[22]) | (@as(u16, buffer[23]) << 8)));
+        common.printZ("\n");
+    }
 
     var bpb: BPB = undefined;
 
@@ -86,7 +118,22 @@ pub fn read_bpb(drive: ata.Drive) ?BPB {
         bpb.fat_type = .FAT16;
     }
 
+    // Store in cache
+    bpb_cache.valid = true;
+    switch (drive) {
+        .Master => bpb_cache.master = bpb,
+        .Slave  => bpb_cache.slave = bpb,
+    }
     return bpb;
+}
+
+/// Invalidate the BPB cache for a drive (call after mkfs/reformat).
+pub fn invalidate_bpb_cache(drive: ata.Drive) void {
+    switch (drive) {
+        .Master => bpb_cache.master = null,
+        .Slave  => bpb_cache.slave = null,
+    }
+    cache.invalidate_fat_cache();
 }
 
 pub const DirEntry = struct {

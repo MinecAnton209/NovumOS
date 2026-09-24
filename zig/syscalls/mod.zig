@@ -7,9 +7,9 @@
 // is_safe_user_range() or safe_str_from_user() before dereferencing.
 
 const common = @import("../commands/common.zig");
-const memory = @import("../memory.zig");
-const user = @import("../user.zig");
-const logger = @import("../logger.zig");
+const memory = @import("../kernel/memory.zig");
+const user = @import("../arch/mod.zig").user;
+const logger = @import("../kernel/logger.zig");
 
 /// All syscall handlers implement this signature
 pub const Handler = fn (regs: *user.Registers) void;

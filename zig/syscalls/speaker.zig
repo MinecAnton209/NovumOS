@@ -2,7 +2,7 @@
 // Speaker syscalls (beep, async beep, patterns).
 
 const common = @import("../commands/common.zig");
-const user = @import("../user.zig");
+const user = @import("../arch/mod.zig").user;
 const speaker = @import("../drivers/speaker.zig");
 
 /// Syscall 42: SpeakerOp(EBX=op, ECX=freq, EDX=dur_ms, ESI=gap_ms)

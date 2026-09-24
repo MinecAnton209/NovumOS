@@ -1,6 +1,6 @@
-const user = @import("../user.zig");
+const user = @import("../arch/mod.zig").user;
 const syscalls = @import("mod.zig");
-const quantum = @import("../quantum.zig");
+const quantum = @import("../kernel/quantum.zig");
 
 /// Syscall 55: return one quantum-random byte in EAX.
 pub fn qrand(regs: *user.Registers) void {

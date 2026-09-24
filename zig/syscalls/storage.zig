@@ -10,9 +10,9 @@
 // for shell-internal disk operations.
 
 const common = @import("../commands/common.zig");
-const user = @import("../user.zig");
+const user = @import("../arch/mod.zig").user;
 const ata = @import("../drivers/ata.zig");
-const logger = @import("../logger.zig");
+const logger = @import("../kernel/logger.zig");
 const syscalls = @import("mod.zig");
 
 /// Syscall 20: ATA_IDENTIFY(EBX = drive) -> EAX

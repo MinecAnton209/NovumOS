@@ -9,6 +9,7 @@ pub const ENABLE_SERIAL_DEBUG = false; // Serial debug output (DKPCG...)
 pub const ENABLE_IDT_WATCHDOG = true; // Watchdog to check IDT integrity periodically
 pub const ENABLE_RSOD_REBOOT = true;
 pub const ENABLE_EMBEDDED_ELFS = false;
+pub const ENABLE_FAT_DEBUG = false; // FAT driver debug prints (read_bpb/wfl/add_dir)
 pub const ENABLE_KERNEL_LOGGING = false; // Toggle for informative kernel logs
 
 // Computetime randomization for watchdog timing (obfuscated)
@@ -22,7 +23,6 @@ pub const WATCHDOG_CHANCE_TIMER = 1 + (BUILD_HASH % 8); // 1-8
 pub const ENABLE_SPEAKER = true;
 pub const ENABLE_BOOT_BEEP = true;
 pub const ENABLE_ERROR_BEEP = true;
-pub const ENABLE_NOTIFICATION_BEEP = true;
 
 // Nova (CVE-2026-40573 mitigation)
 pub const NOVA_PATH_POLICY_ENABLED = true; // Kill-switch for path policy

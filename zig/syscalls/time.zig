@@ -4,8 +4,8 @@
 const common = @import("../commands/common.zig");
 const timer = @import("../drivers/timer.zig");
 const rtc = @import("../drivers/time/time.zig");
-const user = @import("../user.zig");
-const logger = @import("../logger.zig");
+const user = @import("../arch/mod.zig").user;
+const logger = @import("../kernel/logger.zig");
 const syscalls = @import("mod.zig");
 
 /// Syscall 10: Sleep(EBX = ms) — busy-wait sleep

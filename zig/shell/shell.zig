@@ -1,26 +1,27 @@
 // NovumOS Shell - Main command line interface
-const common = @import("commands/common.zig");
-const keyboard = @import("keyboard_isr.zig");
+const common = @import("../commands/common.zig");
+const keyboard = @import("../arch/mod.zig").keyboard_isr;
 const shell_cmds = @import("shell_cmds.zig");
-const elf = @import("elf.zig");
-const messages = @import("messages.zig");
-const vga = @import("drivers/vga.zig");
-const versioning = @import("versioning.zig");
-const serial = @import("drivers/serial.zig");
-const fat = @import("drivers/fat.zig");
-const ata = @import("drivers/ata.zig");
-const config = @import("config.zig");
-const nova_legacy_interpreter = @import("nova_legacy/interpreter.zig");
-const nova_legacy_commands = @import("nova_legacy/commands.zig");
-const top_cmd = @import("commands/top.zig");
-const doomfire_cmd = @import("commands/doomfire.zig");
-const lfb = @import("drivers/lfb.zig");
-const rtc = @import("drivers/time/time.zig");
-const idt_watchdog = @import("idt_watchdog.zig");
-const mouse = @import("mouse.zig");
-const speaker = @import("drivers/speaker.zig");
-const speaker_timer = @import("drivers/timer.zig");
-const quantum = @import("quantum.zig");
+const elf = @import("../kernel/elf.zig");
+const messages = @import("../kernel/messages.zig");
+const vga = @import("../drivers/vga.zig");
+const versioning = @import("../kernel/versioning.zig");
+const serial = @import("../drivers/serial.zig");
+const fat = @import("../drivers/fat.zig");
+const ata = @import("../drivers/ata.zig");
+const config = @import("../config.zig");
+const nova_legacy_interpreter = @import("../nova_legacy/interpreter.zig");
+const nova_legacy_commands = @import("../nova_legacy/commands.zig");
+const top_cmd = @import("../commands/top.zig");
+const doomfire_cmd = @import("../commands/doomfire.zig");
+const lfb = @import("../drivers/lfb.zig");
+const rtc = @import("../drivers/time/time.zig");
+const idt_watchdog = @import("../arch/mod.zig").idt_watchdog;
+const mouse = @import("../kernel/mouse.zig");
+const speaker = @import("../drivers/speaker.zig");
+const speaker_timer = @import("../drivers/timer.zig");
+const quantum = @import("../kernel/quantum.zig");
+const memory = @import("../kernel/memory.zig");
 
 extern const mb2_info: u32;
 extern const fb_addr: u32;
@@ -36,42 +37,36 @@ const EmbeddedScript = struct {
 };
 
 const BUILTIN_SCRIPTS = [_]EmbeddedScript{
-    .{ .name = "hello", .source = @embedFile("nova_legacy/scripts/hello.nv") },
-    .{ .name = "syscheck", .source = @embedFile("nova_legacy/scripts/syscheck.nv") },
+    .{ .name = "hello", .source = @embedFile("../nova_legacy/scripts/hello.nv") },
+    .{ .name = "syscheck", .source = @embedFile("../nova_legacy/scripts/syscheck.nv") },
 };
 
 // Shell configuration
 const build_config = @import("build_config");
 const HISTORY_SIZE = if (build_config.history_size) |h| h else config.HISTORY_SIZE;
 
-// Command Structure for automated handling and autocomplete
+// Command dispatcher kinds — eliminates 50+ thin wrapper functions
+const CmdKind = enum {
+    direct_args,   // handler(args.ptr, args.len)
+    no_args,       // handler()
+    guarded_args,  // handler(args.ptr, len) if args.len > 0, else print usage
+    custom,        // handler(args) with custom logic
+};
+
 const Command = struct {
     name: []const u8,
     help: []const u8,
     handler: *const fn ([]const u8) void,
+    kind: CmdKind = .custom,
+    usage: ?[]const u8 = null,
 };
 
 fn cmd_handler_kill(args: []const u8) void {
     shell_cmds.cmd_kill(args.ptr, @intCast(args.len));
 }
 
-fn cmd_handler_ps(args: []const u8) void {
-    _ = args;
-    shell_cmds.cmd_ps();
-}
-
-fn cmd_handler_idt_check(args: []const u8) void {
-    _ = args;
-    idt_watchdog.cmd_idt_check();
-}
-
 fn cmd_handler_idt_modify(args: []const u8) void {
     idt_watchdog.cmd_idt_modify(args);
-}
-
-fn cmd_handler_idt_move(args: []const u8) void {
-    _ = args;
-    common.idt_move();
 }
 
 fn cmd_handler_mouse(_: []const u8) void {
@@ -91,87 +86,107 @@ fn cmd_handler_mouse(_: []const u8) void {
     }
 }
 
+// Generic handlers that eliminate per-command wrapper functions
+// via comptime dispatch on the underlying shell_cmds function.
+fn direct_handler(comptime f: anytype) fn ([]const u8) void {
+    return struct { fn h(args: []const u8) void { f(args.ptr, @intCast(args.len)); } }.h;
+}
+fn no_args_handler(comptime f: anytype) fn ([]const u8) void {
+    return struct { fn h(_: []const u8) void { f(); } }.h;
+}
+fn guarded_handler(comptime f: anytype, comptime usage: []const u8) fn ([]const u8) void {
+    return struct { fn h(args: []const u8) void {
+        if (args.len > 0) f(args.ptr, @intCast(args.len)) else common.printZ(usage);
+    } }.h;
+}
+
 const SHELL_COMMANDS = [_]Command{
-    .{ .name = "help", .help = "Show this help message (Tip: help 2)", .handler = cmd_handler_help },
-    .{ .name = "?", .help = "Alias for help", .handler = cmd_handler_help },
-    .{ .name = "clear", .help = "Clear screen and reset console state", .handler = cmd_handler_clear },
-    .{ .name = "cls", .help = "Alias for clear", .handler = cmd_handler_clear },
-    .{ .name = "about", .help = "Show legal information & credits", .handler = cmd_handler_about },
-    .{ .name = "nova", .help = "Start Nova Scripting Interpreter", .handler = cmd_handler_nova_legacy },
-    .{ .name = "nova_legacy", .help = "Alias for nova", .handler = cmd_handler_nova_legacy },
-    .{ .name = "top", .help = "Real-time CPU and Task Monitor", .handler = cmd_handler_top },
-    .{ .name = "ps", .help = "List active system processes", .handler = cmd_handler_ps },
-    .{ .name = "mouse", .help = "Show PS/2 mouse status and statistics", .handler = cmd_handler_mouse },
-    .{ .name = "kill", .help = "kill <pid> - Terminate a running process", .handler = cmd_handler_kill },
-    .{ .name = "uptime", .help = "Show system runtime and RTC time", .handler = cmd_handler_uptime },
-    .{ .name = "reboot", .help = "Safely restart the system", .handler = cmd_handler_reboot },
-    .{ .name = "shutdown", .help = "Safely turn off the system (ACPI)", .handler = cmd_handler_shutdown },
-    .{ .name = "ls", .help = "List files/folders in current directory", .handler = cmd_handler_ls },
-    .{ .name = "hexdump", .help = "hexdump <f> - Display file content in hex/ASCII", .handler = cmd_handler_hexdump },
-    .{ .name = "more", .help = "more <f> - Display file content with paging", .handler = cmd_handler_more },
-    .{ .name = "la", .help = "List all files (including hidden)", .handler = cmd_handler_la },
-    .{ .name = "lsdsk", .help = "List storage devices and partitions", .handler = cmd_handler_lsdsk },
-    .{ .name = "lspci", .help = "List PCI devices and hardware bridges", .handler = cmd_handler_lspci },
-    .{ .name = "mount", .help = "mount <0|1> - Select active drive", .handler = cmd_handler_mount },
-    .{ .name = "mkdir", .help = "mkdir <name> - Create a new directory", .handler = cmd_handler_mkdir },
-    .{ .name = "md", .help = "Alias for mkdir", .handler = cmd_handler_mkdir },
-    .{ .name = "cd", .help = "cd <dir|..|/> - Change directory", .handler = cmd_handler_cd },
-    .{ .name = "pwd", .help = "Print current working directory", .handler = cmd_handler_pwd },
-    .{ .name = "tree", .help = "Display recursive directory structure", .handler = cmd_handler_tree },
-    .{ .name = "mkfs-fat12", .help = "Format drive as FAT12 (legacy)", .handler = cmd_handler_mkfs12 },
-    .{ .name = "mkfs-fat16", .help = "Format drive as FAT16 (standard)", .handler = cmd_handler_mkfs16 },
-    .{ .name = "mkfs-fat32", .help = "Format drive as FAT32 (advanced)", .handler = cmd_handler_mkfs32 },
-    .{ .name = "touch", .help = "Create an empty file", .handler = cmd_handler_touch },
-    .{ .name = "lseek", .help = "lseek <f> <off> [SET|CUR|END]", .handler = cmd_handler_lseek },
-    .{ .name = "truncate", .help = "truncate <f> <size> - Truncate file", .handler = cmd_handler_truncate },
-    .{ .name = "sync", .help = "Sync filesystem to disk", .handler = cmd_handler_sync },
-    .{ .name = "expand", .help = "expand <f> <size> - Expand file", .handler = cmd_handler_expand },
-    .{ .name = "forward", .help = "forward <f> <count> - Move forward", .handler = cmd_handler_forward },
-    .{ .name = "attrib", .help = "Set file attributes [+R|+H|+S|+A]", .handler = cmd_handler_attrib },
-    .{ .name = "write", .help = "write [-a] <f> <t> - Write string to file (-a to append)", .handler = cmd_handler_write },
-    .{ .name = "rm", .help = "rm [-d] [-r] <f|*> - Delete file/dir", .handler = cmd_handler_rm },
-    .{ .name = "cat", .help = "Display text file contents", .handler = cmd_handler_cat },
-    .{ .name = "edit", .help = "Open primitive text editor", .handler = cmd_handler_edit },
-    .{ .name = "history", .help = "Show command history list", .handler = cmd_handler_history },
-    .{ .name = "echo", .help = "Print text to standard output", .handler = cmd_handler_echo },
-    .{ .name = "time", .help = "Show full current RTC date and time", .handler = cmd_handler_time },
-    .{ .name = "mem", .help = "Show memory & test demand paging (mem --test [MB])", .handler = cmd_handler_mem },
-    .{ .name = "sysinfo", .help = "Display system hardware info", .handler = cmd_handler_sysinfo },
-    .{ .name = "cpuinfo", .help = "Show detailed CPU vendor, brand and features", .handler = cmd_handler_cpuinfo },
-    .{ .name = "docs", .help = "Show internal documentation topics", .handler = cmd_handler_docs },
-    .{ .name = "cp", .help = "cp <src> <dest> - Copy file/folder recursively", .handler = cmd_handler_cp },
-    .{ .name = "codename", .help = "Show current release codename", .handler = cmd_handler_codename },
-    .{ .name = "fetch", .help = "Show stylish system info summary", .handler = cmd_handler_fetch },
-    .{ .name = "matrix", .help = "Enter the NovumOS Matrix (fun!)", .handler = cmd_handler_matrix },
-    .{ .name = "doomfire", .help = "Quantum-ignited DOOM fire on the framebuffer", .handler = cmd_handler_doomfire },
-    .{ .name = "mv", .help = "mv <src> <dest> - Move or rename file/folder", .handler = cmd_handler_mv },
-    .{ .name = "ren", .help = "Alias for mv (rename file/folder)", .handler = cmd_handler_rename },
-    .{ .name = "format", .help = "Low-level drive formatting tool", .handler = cmd_handler_format },
-    .{ .name = "mkfs", .help = "Create filesystem on current drive", .handler = cmd_handler_mkfs },
-    .{ .name = "install", .help = "install <src> [name] - Install Nova script", .handler = cmd_handler_install },
-    .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall },
-    .{ .name = "ring3", .help = "Switch to Ring 3 (User Mode) test", .handler = cmd_handler_ring3 },
-    .{ .name = "run", .help = "run <elf> - Execute an ELF (RAM FS or disk)", .handler = cmd_handler_run },
-    .{ .name = "exec", .help = "Alias for run", .handler = cmd_handler_run },
-    .{ .name = "calc", .help = "Evaluate math & bitwise expressions (e.g. 1 << 8)", .handler = cmd_handler_calc },
-    .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = cmd_handler_res },
-    .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep },
-    .{ .name = "qrand", .help = "qrand [N | --hex N | --entangle N | --info] - Quantum random numbers", .handler = cmd_handler_qrand },
+    .{ .name = "help", .help = "Show this help message (Tip: help 2)", .handler = cmd_handler_help, .kind = .custom },
+    .{ .name = "?", .help = "Alias for help", .handler = cmd_handler_help, .kind = .custom },
+    .{ .name = "clear", .help = "Clear screen and reset console state", .handler = cmd_handler_clear, .kind = .custom },
+    .{ .name = "cls", .help = "Alias for clear", .handler = cmd_handler_clear, .kind = .custom },
+    .{ .name = "about", .help = "Show legal information & credits", .handler = cmd_handler_about, .kind = .custom },
+    .{ .name = "nova", .help = "Start Nova Scripting Interpreter", .handler = cmd_handler_nova_legacy, .kind = .custom },
+    .{ .name = "nova_legacy", .help = "Alias for nova", .handler = cmd_handler_nova_legacy, .kind = .custom },
+    .{ .name = "top", .help = "Real-time CPU and Task Monitor", .handler = no_args_handler(&top_cmd.cmd_top), .kind = .no_args },
+    .{ .name = "ps", .help = "List active system processes", .handler = no_args_handler(&shell_cmds.cmd_ps), .kind = .no_args },
+    .{ .name = "mouse", .help = "Show PS/2 mouse status and statistics", .handler = cmd_handler_mouse, .kind = .custom },
+    .{ .name = "kill", .help = "kill <pid> - Terminate a running process", .handler = cmd_handler_kill, .kind = .custom },
+    .{ .name = "uptime", .help = "Show system runtime and RTC time", .handler = no_args_handler(&shell_cmds.cmd_uptime), .kind = .no_args },
+    .{ .name = "reboot", .help = "Safely restart the system", .handler = no_args_handler(&shell_cmds.cmd_reboot), .kind = .no_args },
+    .{ .name = "shutdown", .help = "Safely turn off the system (ACPI)", .handler = no_args_handler(&shell_cmds.cmd_shutdown), .kind = .no_args },
+    .{ .name = "ls", .help = "List files/folders in current directory", .handler = direct_handler(&shell_cmds.cmd_ls), .kind = .direct_args },
+    .{ .name = "hexdump", .help = "hexdump <f> - Display file content in hex/ASCII", .handler = guarded_handler(&shell_cmds.cmd_hexdump, "Usage: hexdump <file>\n"), .kind = .guarded_args, .usage = "Usage: hexdump <file>\n" },
+    .{ .name = "more", .help = "more <f> - Display file content with paging", .handler = guarded_handler(&shell_cmds.cmd_more, "Usage: more <file>\n"), .kind = .guarded_args, .usage = "Usage: more <file>\n" },
+    .{ .name = "la", .help = "List all files (including hidden)", .handler = cmd_handler_la, .kind = .custom },
+    .{ .name = "lsdsk", .help = "List storage devices and partitions", .handler = no_args_handler(&shell_cmds.cmd_lsdsk), .kind = .no_args },
+    .{ .name = "lspci", .help = "List PCI devices and hardware bridges", .handler = no_args_handler(&shell_cmds.cmd_lspci), .kind = .no_args },
+    .{ .name = "mount", .help = "mount <0|1> - Select active drive", .handler = guarded_handler(&shell_cmds.cmd_mount, "Usage: mount <drive>\n"), .kind = .guarded_args, .usage = "Usage: mount <drive>\n" },
+    .{ .name = "mkdir", .help = "mkdir <name> - Create a new directory", .handler = guarded_handler(&shell_cmds.cmd_mkdir, "Usage: mkdir <name>\n"), .kind = .guarded_args, .usage = "Usage: mkdir <name>\n" },
+    .{ .name = "md", .help = "Alias for mkdir", .handler = guarded_handler(&shell_cmds.cmd_mkdir, "Usage: mkdir <name>\n"), .kind = .guarded_args, .usage = "Usage: mkdir <name>\n" },
+    .{ .name = "cd", .help = "cd <dir|..|/> - Change directory", .handler = cmd_handler_cd, .kind = .custom, .usage = "Usage: cd <directory>\n" },
+    .{ .name = "pwd", .help = "Print current working directory", .handler = no_args_handler(&shell_cmds.cmd_pwd), .kind = .no_args },
+    .{ .name = "tree", .help = "Display recursive directory structure", .handler = no_args_handler(&shell_cmds.cmd_tree), .kind = .no_args },
+    .{ .name = "mkfs-fat12", .help = "Format drive as FAT12 (legacy)", .handler = guarded_handler(&shell_cmds.cmd_mkfs_fat12, "Usage: mkfs-fat12 <drive>\n"), .kind = .guarded_args, .usage = "Usage: mkfs-fat12 <drive>\n" },
+    .{ .name = "mkfs-fat16", .help = "Format drive as FAT16 (standard)", .handler = guarded_handler(&shell_cmds.cmd_mkfs_fat16, "Usage: mkfs-fat16 <drive>\n"), .kind = .guarded_args, .usage = "Usage: mkfs-fat16 <drive>\n" },
+    .{ .name = "mkfs-fat32", .help = "Format drive as FAT32 (advanced)", .handler = guarded_handler(&shell_cmds.cmd_mkfs_fat32, "Usage: mkfs-fat32 <drive>\n"), .kind = .guarded_args, .usage = "Usage: mkfs-fat32 <drive>\n" },
+    .{ .name = "touch", .help = "Create an empty file", .handler = guarded_handler(&shell_cmds.cmd_touch, "Usage: touch <file>\n"), .kind = .guarded_args, .usage = "Usage: touch <file>\n" },
+    .{ .name = "lseek", .help = "lseek <f> <off> [SET|CUR|END]", .handler = guarded_handler(&shell_cmds.cmd_lseek, "Usage: lseek <file> <offset> [SEEK_SET|SEEK_CUR|SEEK_END]\n"), .kind = .guarded_args, .usage = "Usage: lseek <file> <offset> [SEEK_SET|SEEK_CUR|SEEK_END]\n" },
+    .{ .name = "truncate", .help = "truncate <f> <size> - Truncate file", .handler = guarded_handler(&shell_cmds.cmd_truncate, "Usage: truncate <file> <size>\n"), .kind = .guarded_args, .usage = "Usage: truncate <file> <size>\n" },
+    .{ .name = "sync", .help = "Sync filesystem to disk", .handler = no_args_handler(&shell_cmds.cmd_sync), .kind = .no_args },
+    .{ .name = "expand", .help = "expand <f> <size> - Expand file", .handler = guarded_handler(&shell_cmds.cmd_expand, "Usage: expand <file> <size>\n"), .kind = .guarded_args, .usage = "Usage: expand <file> <size>\n" },
+    .{ .name = "forward", .help = "forward <f> <count> - Move forward", .handler = guarded_handler(&shell_cmds.cmd_forward, "Usage: forward <file> <count>\n"), .kind = .guarded_args, .usage = "Usage: forward <file> <count>\n" },
+    .{ .name = "attrib", .help = "Set file attributes [+R|+H|+S|+A]", .handler = guarded_handler(&shell_cmds.cmd_attrib, "Usage: attrib [+R|-R] [+H|-H] [+S|-S] [+A|-A] <file>\n"), .kind = .guarded_args, .usage = "Usage: attrib [+R|-R] [+H|-H] [+S|-S] [+A|-A] <file>\n" },
+    .{ .name = "write", .help = "write [-a] <f> <t> - Write string to file (-a to append)", .handler = cmd_handler_write, .kind = .custom },
+    .{ .name = "rm", .help = "rm [-d] [-r] <f|*> - Delete file/dir", .handler = guarded_handler(&shell_cmds.cmd_rm, "Usage: rm <file>\n"), .kind = .guarded_args, .usage = "Usage: rm <file>\n" },
+    .{ .name = "cat", .help = "Display text file contents", .handler = guarded_handler(&shell_cmds.cmd_cat, "Usage: cat <file>\n"), .kind = .guarded_args, .usage = "Usage: cat <file>\n" },
+    .{ .name = "edit", .help = "Open primitive text editor", .handler = guarded_handler(&shell_cmds.cmd_edit, "Usage: edit <file>\n"), .kind = .guarded_args, .usage = "Usage: edit <file>\n" },
+    .{ .name = "history", .help = "Show command history list", .handler = cmd_handler_history, .kind = .custom },
+    .{ .name = "echo", .help = "Print text to standard output", .handler = direct_handler(&shell_cmds.cmd_echo), .kind = .direct_args },
+    .{ .name = "time", .help = "Show full current RTC date and time", .handler = no_args_handler(&shell_cmds.cmd_time), .kind = .no_args },
+    .{ .name = "mem", .help = "Show memory & test demand paging (mem --test [MB])", .handler = direct_handler(&shell_cmds.cmd_mem), .kind = .direct_args },
+    .{ .name = "sysinfo", .help = "Display system hardware info", .handler = no_args_handler(&shell_cmds.cmd_sysinfo), .kind = .no_args },
+    .{ .name = "cpuinfo", .help = "Show detailed CPU vendor, brand and features", .handler = no_args_handler(&shell_cmds.cmd_cpuinfo), .kind = .no_args },
+    .{ .name = "docs", .help = "Show internal documentation topics", .handler = direct_handler(&shell_cmds.cmd_docs), .kind = .direct_args },
+    .{ .name = "cp", .help = "cp <src> <dest> - Copy file/folder recursively", .handler = direct_handler(&shell_cmds.cmd_cp), .kind = .direct_args },
+    .{ .name = "codename", .help = "Show current release codename", .handler = cmd_handler_codename, .kind = .custom },
+    .{ .name = "fetch", .help = "Show stylish system info summary", .handler = no_args_handler(&shell_cmds.cmd_fetch), .kind = .no_args },
+    .{ .name = "matrix", .help = "Enter the NovumOS Matrix (fun!)", .handler = cmd_handler_matrix, .kind = .custom },
+    .{ .name = "doomfire", .help = "Quantum-ignited DOOM fire on the framebuffer", .handler = no_args_handler(&doomfire_cmd.cmd_doomfire), .kind = .no_args },
+    .{ .name = "mv", .help = "mv <src> <dest> - Move or rename file/folder", .handler = direct_handler(&shell_cmds.cmd_mv), .kind = .direct_args },
+    .{ .name = "ren", .help = "Alias for mv (rename file/folder)", .handler = direct_handler(&shell_cmds.cmd_rename), .kind = .direct_args },
+    .{ .name = "format", .help = "Low-level drive formatting tool", .handler = direct_handler(&shell_cmds.cmd_format), .kind = .direct_args },
+    .{ .name = "mkfs", .help = "Create filesystem on current drive", .handler = direct_handler(&shell_cmds.cmd_mkfs), .kind = .direct_args },
+    .{ .name = "install", .help = "install <src> [name] - Install Nova script", .handler = cmd_handler_install, .kind = .custom },
+    .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall, .kind = .custom },
+    .{ .name = "ring3", .help = "Switch to Ring 3 (User Mode) test", .handler = no_args_handler(&shell_cmds.cmd_ring3), .kind = .no_args },
+    .{ .name = "run", .help = "run <elf> - Execute an ELF (RAM FS or disk)", .handler = guarded_handler(&shell_cmds.cmd_run, "Usage: run <elf>\n"), .kind = .guarded_args, .usage = "Usage: run <elf>\n" },
+    .{ .name = "exec", .help = "Alias for run", .handler = guarded_handler(&shell_cmds.cmd_run, "Usage: run <elf>\n"), .kind = .guarded_args, .usage = "Usage: run <elf>\n" },
+    .{ .name = "calc", .help = "Evaluate math & bitwise expressions (e.g. 1 << 8)", .handler = direct_handler(&shell_cmds.cmd_calc), .kind = .direct_args },
+    .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = direct_handler(&shell_cmds.cmd_res), .kind = .direct_args },
+    .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep, .kind = .custom },
+    .{ .name = "qrand", .help = "qrand [N | --hex N | --entangle N | --info] - Quantum random numbers", .handler = cmd_handler_qrand, .kind = .custom },
+    .{ .name = "qinit", .help = "qinit [N] - Init quantum register (RAM-checked, 32 MB reserved)", .handler = cmd_handler_qinit, .kind = .custom },
+    .{ .name = "qh", .help = "qh <qubit> - Hadamard gate", .handler = cmd_handler_qh, .kind = .custom },
+    .{ .name = "qcnot", .help = "qcnot <control> <target> - CNOT gate", .handler = cmd_handler_qcnot, .kind = .custom },
+    .{ .name = "qmeasure", .help = "qmeasure <qubit> - Measure qubit (collapses state)", .handler = cmd_handler_qmeasure, .kind = .custom },
+    .{ .name = "qtest", .help = "qtest - Bell state and Pauli-X self test", .handler = cmd_handler_qtest, .kind = .custom },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
-    .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = cmd_handler_panic },
-    .{ .name = "abort", .help = "Trigger a manual kernel panic", .handler = cmd_handler_abort },
-    .{ .name = "invalid_op", .help = "Trigger an Invalid Opcode exception", .handler = cmd_handler_invalid_op },
-    .{ .name = "stack_overflow", .help = "Trigger a Double Fault via stack overflow", .handler = cmd_handler_stack_overflow },
-    .{ .name = "page_fault", .help = "Trigger a Page Fault exception", .handler = cmd_handler_page_fault },
-    .{ .name = "gpf", .help = "Trigger a General Protection Fault", .handler = cmd_handler_gpf },
+    .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = no_args_handler(&shell_cmds.cmd_panic), .kind = .no_args },
+    .{ .name = "crash", .help = "Alias for panic - trigger a CPU exception", .handler = no_args_handler(&shell_cmds.cmd_panic), .kind = .no_args },
+    .{ .name = "abort", .help = "Trigger a manual kernel panic", .handler = no_args_handler(&shell_cmds.cmd_abort), .kind = .no_args },
+    .{ .name = "invalid_op", .help = "Trigger an Invalid Opcode exception", .handler = no_args_handler(&shell_cmds.cmd_invalid_op), .kind = .no_args },
+    .{ .name = "stack_overflow", .help = "Trigger a Double Fault via stack overflow", .handler = no_args_handler(&shell_cmds.cmd_stack_overflow), .kind = .no_args },
+    .{ .name = "page_fault", .help = "Trigger a Page Fault exception", .handler = no_args_handler(&shell_cmds.cmd_page_fault), .kind = .no_args },
+    .{ .name = "gpf", .help = "Trigger a General Protection Fault", .handler = no_args_handler(&shell_cmds.cmd_gpf), .kind = .no_args },
 } else [_]Command{}) ++ (if (config.ENABLE_DEBUG_COMMANDS) [_]Command{
-    .{ .name = "smp-test", .help = "Test global task queue across cores", .handler = cmd_handler_smp_test },
-    .{ .name = "stress-test", .help = "Run heavy math on AP cores while BSP stays free", .handler = cmd_handler_stress_test },
-    .{ .name = "idt-check", .help = "Verify IDT integrity against saved snapshot", .handler = cmd_handler_idt_check },
-    .{ .name = "idt-modify", .help = "Test IDT modification (for watchdog testing)", .handler = cmd_handler_idt_modify },
-    .{ .name = "idt-move", .help = "Test IDTR relocation (detected by watchdog)", .handler = cmd_handler_idt_move },
-    .{ .name = "fbinfo", .help = "Display framebuffer info", .handler = cmd_handler_fbinfo },
-    .{ .name = "fbtest", .help = "Draw test pattern to framebuffer", .handler = cmd_handler_fbtest },
+    .{ .name = "smp-test", .help = "Test global task queue across cores", .handler = no_args_handler(&shell_cmds.cmd_smp_test), .kind = .no_args },
+    .{ .name = "stress-test", .help = "Run heavy math on AP cores while BSP stays free", .handler = no_args_handler(&shell_cmds.cmd_stress_test), .kind = .no_args },
+    .{ .name = "idt-check", .help = "Verify IDT integrity against saved snapshot", .handler = no_args_handler(&idt_watchdog.cmd_idt_check), .kind = .no_args },
+    .{ .name = "idt-modify", .help = "Test IDT modification (for watchdog testing)", .handler = cmd_handler_idt_modify, .kind = .custom },
+    .{ .name = "idt-move", .help = "Test IDTR relocation (detected by watchdog)", .handler = no_args_handler(&common.idt_move), .kind = .no_args },
+    .{ .name = "fbinfo", .help = "Display framebuffer info", .handler = cmd_handler_fbinfo, .kind = .custom },
+    .{ .name = "fbtest", .help = "Draw test pattern to framebuffer", .handler = cmd_handler_fbtest, .kind = .custom },
 } else [_]Command{});
 
 // Local command buffer
@@ -193,6 +208,7 @@ var history_index: u8 = 0;
 var insert_mode: bool = true;
 var prompt_row: u8 = 0;
 var prompt_col: u8 = 0;
+var prompt_start_col: u8 = 0;
 
 var history_loaded: bool = false;
 
@@ -229,7 +245,7 @@ pub export fn read_command() void {
         if (config.ENABLE_SPEAKER) speaker.beep_async_check();
         const char = keyboard.keyboard_wait_char();
 
-        if (char == 3) {
+        if (char == 3) { // Ctrl+C
             common.printZ("^C\n");
             cmd_len = 0;
             cmd_pos = 0;
@@ -242,135 +258,10 @@ pub export fn read_command() void {
 
         if (char != 9) auto_cycling = false;
 
-        if (char == 10) { // Enter
-            shell_cursor_visible = false;
-            refresh_line();
-            break;
-        } else if (char == 8 or char == 127) { // Backspace
-            if (cmd_pos > 0) {
-                // Shift buffer left
-                var i: usize = cmd_pos - 1;
-                while (i < cmd_len - 1) : (i += 1) {
-                    cmd_buffer[i] = cmd_buffer[i + 1];
-                }
-                cmd_buffer[cmd_len - 1] = 0;
-                cmd_pos -= 1;
-                cmd_len -= 1;
-                refresh_line();
-            }
-        } else if (char == keyboard.KEY_LEFT) {
-            if (cmd_pos > 0) {
-                cmd_pos -= 1;
-                move_screen_cursor();
-            }
-        } else if (char == keyboard.KEY_RIGHT) {
-            if (cmd_pos < cmd_len) {
-                cmd_pos += 1;
-                move_screen_cursor();
-            }
-        } else if (char == keyboard.KEY_HOME) {
-            cmd_pos = 0;
-            move_screen_cursor();
-        } else if (char == keyboard.KEY_END) {
-            cmd_pos = cmd_len;
-            move_screen_cursor();
-        } else if (char == keyboard.KEY_DELETE) {
-            if (cmd_pos < cmd_len) {
-                // Shift buffer left starting from pos
-                var i: usize = cmd_pos;
-                while (i < cmd_len - 1) : (i += 1) {
-                    cmd_buffer[i] = cmd_buffer[i + 1];
-                }
-                cmd_buffer[cmd_len - 1] = 0;
-                cmd_len -= 1;
-                refresh_line();
-            }
-        } else if (char == keyboard.KEY_INSERT) {
-            insert_mode = !insert_mode;
-            refresh_line();
-        } else if (char == keyboard.KEY_CAPS or char == keyboard.KEY_NUM) {
-            refresh_line();
-        } else if (char == keyboard.KEY_UP) {
-            if (history_count > 0 and history_index > 0) {
-                history_index -= 1;
-                load_history();
-            }
-        } else if (char == keyboard.KEY_DOWN) {
-            if (history_index < history_count) {
-                history_index += 1;
-                if (history_index == history_count) {
-                    clear_input_line();
-                } else {
-                    load_history();
-                }
-            }
-        } else if (char == 9) { // Tab
-            if (auto_cycling) {
-                auto_match_index += 1;
-            }
-            autocomplete();
-            refresh_line();
-        } else if (char == 12) { // Ctrl+L - clear screen
-            vga.clear_screen();
-            messages.print_welcome();
-            common.printZ("\n");
-            display_prompt();
-            prompt_row = vga.zig_get_cursor_row();
-            prompt_col = vga.zig_get_cursor_col();
-            shell_cursor_visible = true;
-            refresh_line();
-        } else if (char == 1) { // Ctrl+A - jump to beginning
-            cmd_pos = 0;
-            move_screen_cursor();
-        } else if (char == 5) { // Ctrl+E - jump to end
-            cmd_pos = cmd_len;
-            move_screen_cursor();
-        } else if (char == 23) { // Ctrl+W - delete word backwards
-            if (cmd_pos > 0) {
-                // Skip trailing spaces
-                var pos = cmd_pos;
-                while (pos > 0 and cmd_buffer[pos - 1] == ' ') pos -= 1;
-                // Skip the word
-                while (pos > 0 and cmd_buffer[pos - 1] != ' ') pos -= 1;
-                const deleted = cmd_pos - pos;
-                var i: usize = pos;
-                while (i < cmd_len - deleted) : (i += 1) {
-                    cmd_buffer[i] = cmd_buffer[i + deleted];
-                }
-                while (i < cmd_len) : (i += 1) cmd_buffer[i] = 0;
-                cmd_len -= deleted;
-                cmd_pos = pos;
-                refresh_line();
-            }
-        } else if (char == 21) { // Ctrl+U - clear entire line
-            for (&cmd_buffer) |*b| b.* = 0;
-            cmd_len = 0;
-            cmd_pos = 0;
-            refresh_line();
-        } else if (char >= 32 and char <= 126) { // Printable characters
-            if (cmd_len < 1023) {
-                if (insert_mode) {
-                    // Shift buffer right
-                    var i: usize = cmd_len;
-                    while (i > cmd_pos) : (i -= 1) {
-                        cmd_buffer[i] = cmd_buffer[i - 1];
-                    }
-                    cmd_buffer[cmd_pos] = char;
-                    cmd_len += 1;
-                    cmd_pos += 1;
-                } else {
-                    // Overwrite mode
-                    cmd_buffer[cmd_pos] = char;
-                    if (cmd_pos == cmd_len) cmd_len += 1;
-                    cmd_pos += 1;
-                }
-                refresh_line();
-            }
-        }
+        handle_input_char(char);
+        if (char == 10) break; // Enter
         vga.vga_flush();
     }
-
-    // Do not explicitly erase, refresh_line clears prompt directly
 
     if (cmd_len > 0) {
         save_to_history();
@@ -380,17 +271,183 @@ pub export fn read_command() void {
     common.print_char('\n');
 }
 
+/// Dispatch a single keystroke within the read_command loop.
+fn handle_input_char(char: u8) void {
+    if (char == 10) { // Enter
+        shell_cursor_visible = false;
+        refresh_line();
+        return;
+    }
+
+    if (char == 12) { // Ctrl+L — clear screen
+        vga.clear_screen();
+        messages.print_welcome();
+        common.printZ("\n");
+        display_prompt();
+        prompt_row = vga.zig_get_cursor_row();
+        prompt_col = vga.zig_get_cursor_col();
+        shell_cursor_visible = true;
+        refresh_line();
+        return;
+    }
+
+    if (char == 9) { // Tab — autocomplete, may auto-cycle
+        if (auto_cycling) auto_match_index += 1;
+        autocomplete();
+        refresh_line();
+        return;
+    }
+
+    if (char == keyboard.KEY_INSERT) {
+        insert_mode = !insert_mode;
+        refresh_line();
+        return;
+    }
+    if (char == keyboard.KEY_CAPS or char == keyboard.KEY_NUM) {
+        refresh_line();
+        return;
+    }
+
+    if (char == 1) {    // Ctrl+A — jump to beginning
+        cmd_pos = 0;
+        move_screen_cursor();
+        return;
+    }
+    if (char == 5) {    // Ctrl+E — jump to end
+        cmd_pos = cmd_len;
+        move_screen_cursor();
+        return;
+    }
+
+    if (char == 23) {   // Ctrl+W — delete word backwards
+        handle_delete_word();
+        return;
+    }
+    if (char == 21) {   // Ctrl+U — clear line
+        for (&cmd_buffer) |*b| b.* = 0;
+        cmd_len = 0;
+        cmd_pos = 0;
+        refresh_line();
+        return;
+    }
+
+    if (char == 8 or char == 127) { handle_backspace(); return; } // Backspace
+    if (char == keyboard.KEY_DELETE) { handle_delete(); return; }
+
+    if (handle_navigation_key(char)) return;
+    if (handle_history_key(char)) return;
+
+    if (char >= 32 and char <= 126) { handle_printable(char); }
+}
+
+fn handle_printable(char: u8) void {
+    if (cmd_len >= 1023) return;
+
+    if (insert_mode) {
+        var i: usize = cmd_len;
+        while (i > cmd_pos) : (i -= 1) cmd_buffer[i] = cmd_buffer[i - 1];
+        cmd_buffer[cmd_pos] = char;
+        cmd_len += 1;
+        cmd_pos += 1;
+    } else {
+        cmd_buffer[cmd_pos] = char;
+        if (cmd_pos == cmd_len) cmd_len += 1;
+        cmd_pos += 1;
+    }
+    refresh_line();
+}
+
+fn handle_backspace() void {
+    if (cmd_pos == 0) return;
+    var i: usize = cmd_pos - 1;
+    while (i < cmd_len - 1) : (i += 1) cmd_buffer[i] = cmd_buffer[i + 1];
+    cmd_buffer[cmd_len - 1] = 0;
+    cmd_pos -= 1;
+    cmd_len -= 1;
+    refresh_line();
+}
+
+fn handle_delete() void {
+    if (cmd_pos >= cmd_len) return;
+    var i: usize = cmd_pos;
+    while (i < cmd_len - 1) : (i += 1) cmd_buffer[i] = cmd_buffer[i + 1];
+    cmd_buffer[cmd_len - 1] = 0;
+    cmd_len -= 1;
+    refresh_line();
+}
+
+fn handle_delete_word() void {
+    if (cmd_pos == 0) return;
+    var pos: u16 = cmd_pos;
+    while (pos > 0 and cmd_buffer[pos - 1] == ' ') pos -= 1;
+    while (pos > 0 and cmd_buffer[pos - 1] != ' ') pos -= 1;
+
+    const deleted: u16 = cmd_pos - pos;
+    var i: usize = pos;
+    const limit: usize = cmd_len - deleted;
+    while (i < limit) : (i += 1) cmd_buffer[i] = cmd_buffer[i + deleted];
+    while (i < cmd_len) : (i += 1) cmd_buffer[i] = 0;
+    cmd_len -= deleted;
+    cmd_pos = pos;
+    refresh_line();
+}
+
+/// Returns true if char was a recognized arrow-key (navigation handled).
+fn handle_navigation_key(char: u8) bool {
+    if (char == keyboard.KEY_LEFT) {
+        if (cmd_pos > 0) { cmd_pos -= 1; move_screen_cursor(); }
+        return true;
+    }
+    if (char == keyboard.KEY_RIGHT) {
+        if (cmd_pos < cmd_len) { cmd_pos += 1; move_screen_cursor(); }
+        return true;
+    }
+    if (char == keyboard.KEY_HOME) {
+        if (cmd_pos != 0) { cmd_pos = 0; move_screen_cursor(); }
+        return true;
+    }
+    if (char == keyboard.KEY_END) {
+        if (cmd_pos != cmd_len) { cmd_pos = cmd_len; move_screen_cursor(); }
+        return true;
+    }
+    return false;
+}
+
+/// Returns true if char was an Up/Down arrow.
+fn handle_history_key(char: u8) bool {
+    if (char == keyboard.KEY_UP) {
+        if (history_count > 0 and history_index > 0) {
+            history_index -= 1;
+            load_history();
+        }
+        return true;
+    }
+    if (char == keyboard.KEY_DOWN) {
+        if (history_index < history_count) {
+            history_index += 1;
+            if (history_index == history_count) clear_input_line() else load_history();
+        }
+        return true;
+    }
+    return false;
+}
+
 fn save_history_to_disk() void {
     if (common.selected_disk < 0) return;
     const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
 
     if (fat.read_bpb(drive)) |bpb| {
-        var join_buf: [HISTORY_SIZE * 1024]u8 = [_]u8{0} ** (HISTORY_SIZE * 1024);
+        const buf_ptr = memory.heap.alloc(HISTORY_SIZE * 1024) orelse return;
+        defer memory.heap.free(buf_ptr);
+        const join_buf = buf_ptr[0 .. HISTORY_SIZE * 1024];
         var offset: usize = 0;
 
         var i: u8 = 0;
         while (i < history_count) : (i += 1) {
             const h_len = history_lens[i];
+            // HISTORY_SIZE x (1024 + newline) can exceed the 50 KB join
+            // buffer by up to HISTORY_SIZE bytes: drop the tail instead.
+            if (offset + @as(usize, h_len) + 1 > join_buf.len) break;
             for (0..h_len) |j| {
                 join_buf[offset] = history[i][j];
                 offset += 1;
@@ -408,8 +465,10 @@ fn load_history_from_disk() void {
     const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
 
     if (fat.read_bpb(drive)) |bpb| {
-        var load_buf: [HISTORY_SIZE * 1024]u8 = [_]u8{0} ** (HISTORY_SIZE * 1024);
-        const read = fat.read_file(drive, bpb, 0, ".HISTORY", &load_buf);
+        const load_ptr = memory.heap.alloc(HISTORY_SIZE * 1024) orelse return;
+        defer memory.heap.free(load_ptr);
+        const load_buf = load_ptr[0 .. HISTORY_SIZE * 1024];
+        const read = fat.read_file_bounded(drive, bpb, 0, ".HISTORY", load_ptr, @as(u32, @intCast(load_buf.len)));
         if (read <= 0) return;
 
         history_count = 0;
@@ -433,47 +492,76 @@ fn load_history_from_disk() void {
 }
 
 fn refresh_line() void {
-    const saved_pos = cmd_pos;
+    render_vga_line();
+    draw_prompt_clock();
+    render_serial_line();
+    move_screen_cursor();
+    serial.serial_show_cursor();
+    draw_status_indicators();
+}
 
-    // 1. VGA Update (Clear to avoid trailing characters when line length decreases)
+/// Overwrite the prompt's HH:MM:SS digits in place so the clock keeps
+/// ticking while the user types.
+fn draw_prompt_clock() void {
+    const now = rtc.get_datetime();
+    var buf: [8]u8 = undefined;
+    buf[0] = @as(u8, '0') + @as(u8, @intCast(now.hour / 10));
+    buf[1] = @as(u8, '0') + @as(u8, @intCast(now.hour % 10));
+    buf[2] = ':';
+    buf[3] = @as(u8, '0') + @as(u8, @intCast(now.minute / 10));
+    buf[4] = @as(u8, '0') + @as(u8, @intCast(now.minute % 10));
+    buf[5] = ':';
+    buf[6] = @as(u8, '0') + @as(u8, @intCast(now.second / 10));
+    buf[7] = @as(u8, '0') + @as(u8, @intCast(now.second % 10));
+
+    // Raw VGA write: common.print_char would mirror to serial at stream
+    // position instead of the addressed prompt cell.
+    const save_row = vga.cursor_row;
+    const save_col = vga.cursor_col;
+    vga.cursor_row = prompt_row;
+    vga.cursor_col = prompt_start_col + 1;
+    vga.set_color(7, 0);
+    for (buf) |ch| vga.zig_print_char(ch);
+    vga.reset_color();
+    vga.cursor_row = save_row;
+    vga.cursor_col = save_col;
+
+    serial.serial_set_cursor(prompt_row, prompt_start_col + 1);
+    serial.serial_print_str(&buf);
+}
+
+/// Redraw cmd_buffer on the serial console at the prompt position.
+fn render_serial_line() void {
+    serial.serial_hide_cursor();
+    serial.serial_set_cursor(prompt_row, prompt_col);
+    serial.serial_print_str(cmd_buffer[0..cmd_len]);
+    serial.serial_clear_line();
+}
+
+/// Render cmd_buffer to VGA, tracking prompt_row for scroll correction.
+fn render_vga_line() void {
     vga.clear_prompt_area(prompt_row, prompt_col);
-
-    // Set cursor silently to avoid flashing the cursor at the prompt start
     vga.cursor_row = prompt_row;
     vga.cursor_col = prompt_col;
-    for (cmd_buffer[0..cmd_len]) |c| {
-        const row_before_char = vga.zig_get_cursor_row();
-        vga.zig_print_char(c);
-        const row_after_char = vga.zig_get_cursor_row();
 
-        // Detection of scroll:
-        // 1. row decreased (typical scroll)
-        // 2. row stayed the same but we were on the last row and printed a newline/wrapped
-        // Since zig_print_char handles scroll by staying on the same (last) row,
-        // we need to be careful.
-        if (row_after_char < row_before_char) {
+    for (cmd_buffer[0..cmd_len]) |c| {
+        const row_before = vga.zig_get_cursor_row();
+        vga.zig_print_char(c);
+        const row_after = vga.zig_get_cursor_row();
+
+        // Scroll detection: row dropped, or last row stayed (wrap/newline)
+        if (row_after < row_before) {
             if (prompt_row > 0) prompt_row -= 1;
-        } else if (row_before_char == vga.MAX_ROWS - 1 and row_after_char == vga.MAX_ROWS - 1) {
-            // If we are at the last row and we just did a newline or wrapped, it scrolled
-            // Note: internal_newline sets cursor_row to MAX_ROWS - 1 after scroll.
-            // We can check if we wrapped or got a newline.
+        } else if (row_before == vga.MAX_ROWS - 1 and row_after == vga.MAX_ROWS - 1) {
             if (c == '\n' or (vga.zig_get_cursor_col() == 0 and c != '\r' and c != 8)) {
                 if (prompt_row > 0) prompt_row -= 1;
             }
         }
     }
+}
 
-    // 2. Serial Update
-    serial.serial_hide_cursor();
-    serial.serial_set_cursor(prompt_row, prompt_col);
-    serial.serial_print_str(cmd_buffer[0..cmd_len]);
-    serial.serial_clear_line();
-
-    cmd_pos = saved_pos;
-    move_screen_cursor();
-    serial.serial_show_cursor();
-
-    // Update status indicator in top-right corner
+/// Draw CAPS/NUM/INS status indicators in the top-right corner.
+fn draw_status_indicators() void {
     const cols = vga.MAX_COLS;
     const caps_attr = if (keyboard.keyboard_get_caps_lock()) @as(u16, 0x0F00) else @as(u16, 0x0800);
     vga.draw_indicator(@intCast(cols - 14), caps_attr, 'C');
@@ -539,25 +627,6 @@ fn save_to_history() void {
     history_count += 1;
 }
 
-const ShellLfnState = struct {
-    buf: [256]u8,
-    active: bool,
-    checksum: u8,
-};
-
-fn shell_extract_lfn_part(buf: []const u8, start: usize, count: usize, out: []u8, out_offset: usize) void {
-    for (0..count) |j| {
-        if (out_offset + j >= out.len) return;
-        const char_low = buf[start + j * 2];
-        const char_high = buf[start + j * 2 + 1];
-        if (char_low == 0 and char_high == 0) {
-            out[out_offset + j] = 0;
-            return;
-        }
-        out[out_offset + j] = if (char_high == 0) char_low else '?';
-    }
-}
-
 fn autocomplete() void {
     if (cmd_len == 0 and !auto_cycling) return;
 
@@ -601,7 +670,7 @@ fn autocomplete() void {
         const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
         if (fat.read_bpb(drive)) |bpb| {
             var d_buf: [512]u8 = undefined;
-            var lfn: ShellLfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
+            var lfn: fat.LfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
 
             if (common.current_dir_cluster == 0 and bpb.fat_type != .FAT32) {
                 var sector = bpb.first_root_dir_sector;
@@ -617,47 +686,17 @@ fn autocomplete() void {
                             lfn.active = false;
                             continue;
                         }
-                        if (d_buf[j + 11] == 0x0F) {
-                            // LFN Parse
-                            const seq = d_buf[j];
-                            const chk = d_buf[j + 11 + 2]; // offset 13
-                            if ((seq & 0x40) != 0) {
-                                lfn.active = true;
-                                lfn.checksum = chk;
-                                @memset(&lfn.buf, 0);
-                            } else if (!lfn.active or lfn.checksum != chk) {
-                                lfn.active = false;
-                                continue;
-                            }
-                            var index = (seq & 0x1F);
-                            if (index < 1) index = 1;
-                            const offset = (index - 1) * 13;
-                            if (offset < 240) {
-                                shell_extract_lfn_part(&d_buf, j + 1, 5, &lfn.buf, offset);
-                                shell_extract_lfn_part(&d_buf, j + 14, 6, &lfn.buf, offset + 5);
-                                shell_extract_lfn_part(&d_buf, j + 28, 2, &lfn.buf, offset + 11);
-                            }
-                            continue;
-                        }
+                        if (fat.consume_lfn_entry(&d_buf, j, &lfn)) continue;
 
                         if (is_cd_cmd and (d_buf[j + 11] & 0x10) == 0) {
                             lfn.active = false;
                             continue;
                         }
 
-                        // Checksum for LFN match
-                        var sum: u8 = 0;
-                        for (0..11) |k| {
-                            const is_odd = (sum & 1) != 0;
-                            sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-                            sum = sum +% d_buf[j + k];
-                        }
-
                         var name_str: []const u8 = undefined;
-                        // Temp buffer for 8.3 name if needed
                         const sn = fat.get_name_from_raw(d_buf[j .. j + 32]);
 
-                        if (lfn.active and lfn.checksum == sum) {
+                        if (lfn.active) {
                             var len: usize = 0;
                             while (len < 256 and lfn.buf[len] != 0) : (len += 1) {}
                             name_str = lfn.buf[0..len];
@@ -692,45 +731,17 @@ fn autocomplete() void {
                                 lfn.active = false;
                                 continue;
                             }
-                            if (d_buf[j + 11] == 0x0F) {
-                                const seq = d_buf[j];
-                                const chk = d_buf[j + 13];
-                                if ((seq & 0x40) != 0) {
-                                    lfn.active = true;
-                                    lfn.checksum = chk;
-                                    @memset(&lfn.buf, 0);
-                                } else if (!lfn.active or lfn.checksum != chk) {
-                                    lfn.active = false;
-                                    continue;
-                                }
-                                var index = (seq & 0x1F);
-                                if (index < 1) index = 1;
-                                const offset = (index - 1) * 13;
-                                if (offset < 240) {
-                                    shell_extract_lfn_part(&d_buf, j + 1, 5, &lfn.buf, offset);
-                                    shell_extract_lfn_part(&d_buf, j + 14, 6, &lfn.buf, offset + 5);
-                                    shell_extract_lfn_part(&d_buf, j + 28, 2, &lfn.buf, offset + 11);
-                                }
-                                continue;
-                            }
+                            if (fat.consume_lfn_entry(&d_buf, j, &lfn)) continue;
 
                             if (is_cd_cmd and (d_buf[j + 11] & 0x10) == 0) {
                                 lfn.active = false;
                                 continue;
                             }
 
-                            // Checksum for LFN match
-                            var sum: u8 = 0;
-                            for (0..11) |k| {
-                                const is_odd = (sum & 1) != 0;
-                                sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-                                sum = sum +% d_buf[j + k];
-                            }
-
                             var name_str: []const u8 = undefined;
                             const sn = fat.get_name_from_raw(d_buf[j .. j + 32]);
 
-                            if (lfn.active and lfn.checksum == sum) {
+                            if (lfn.active) {
                                 var len: usize = 0;
                                 while (len < 256 and lfn.buf[len] != 0) : (len += 1) {}
                                 name_str = lfn.buf[0..len];
@@ -781,7 +792,7 @@ fn autocomplete() void {
         const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
         if (fat.read_bpb(drive)) |bpb| {
             var d_buf: [512]u8 = undefined;
-            var lfn: ShellLfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
+            var lfn: fat.LfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
 
             if (common.current_dir_cluster == 0 and bpb.fat_type != .FAT32) {
                 var sector = bpb.first_root_dir_sector;
@@ -797,44 +808,16 @@ fn autocomplete() void {
                             lfn.active = false;
                             continue;
                         }
-                        if (d_buf[j + 11] == 0x0F) {
-                            // LFN Parse
-                            const seq = d_buf[j];
-                            const chk = d_buf[j + 13];
-                            if ((seq & 0x40) != 0) {
-                                lfn.active = true;
-                                lfn.checksum = chk;
-                                @memset(&lfn.buf, 0);
-                            } else if (!lfn.active or lfn.checksum != chk) {
-                                lfn.active = false;
-                                continue;
-                            }
-                            var index = (seq & 0x1F);
-                            if (index < 1) index = 1;
-                            const offset = (index - 1) * 13;
-                            if (offset < 240) {
-                                shell_extract_lfn_part(&d_buf, j + 1, 5, &lfn.buf, offset);
-                                shell_extract_lfn_part(&d_buf, j + 14, 6, &lfn.buf, offset + 5);
-                                shell_extract_lfn_part(&d_buf, j + 28, 2, &lfn.buf, offset + 11);
-                            }
-                            continue;
-                        }
+                        if (fat.consume_lfn_entry(&d_buf, j, &lfn)) continue;
                         if (is_cd_cmd and (d_buf[j + 11] & 0x10) == 0) {
                             lfn.active = false;
                             continue;
                         }
 
-                        var sum: u8 = 0;
-                        for (0..11) |k| {
-                            const is_odd = (sum & 1) != 0;
-                            sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-                            sum = sum +% d_buf[j + k];
-                        }
-
                         var name_str: []const u8 = undefined;
                         const sn = fat.get_name_from_raw(d_buf[j .. j + 32]);
 
-                        if (lfn.active and lfn.checksum == sum) {
+                        if (lfn.active) {
                             var len: usize = 0;
                             while (len < 256 and lfn.buf[len] != 0) : (len += 1) {}
                             name_str = lfn.buf[0..len];
@@ -877,44 +860,16 @@ fn autocomplete() void {
                                 lfn.active = false;
                                 continue;
                             }
-                            if (d_buf[j + 11] == 0x0F) {
-                                // LFN Parse
-                                const seq = d_buf[j];
-                                const chk = d_buf[j + 13];
-                                if ((seq & 0x40) != 0) {
-                                    lfn.active = true;
-                                    lfn.checksum = chk;
-                                    @memset(&lfn.buf, 0);
-                                } else if (!lfn.active or lfn.checksum != chk) {
-                                    lfn.active = false;
-                                    continue;
-                                }
-                                var index = (seq & 0x1F);
-                                if (index < 1) index = 1;
-                                const offset = (index - 1) * 13;
-                                if (offset < 240) {
-                                    shell_extract_lfn_part(&d_buf, j + 1, 5, &lfn.buf, offset);
-                                    shell_extract_lfn_part(&d_buf, j + 14, 6, &lfn.buf, offset + 5);
-                                    shell_extract_lfn_part(&d_buf, j + 28, 2, &lfn.buf, offset + 11);
-                                }
-                                continue;
-                            }
+                            if (fat.consume_lfn_entry(&d_buf, j, &lfn)) continue;
                             if (is_cd_cmd and (d_buf[j + 11] & 0x10) == 0) {
                                 lfn.active = false;
                                 continue;
                             }
 
-                            var sum: u8 = 0;
-                            for (0..11) |k| {
-                                const is_odd = (sum & 1) != 0;
-                                sum = (sum >> 1) + (if (is_odd) @as(u8, 0x80) else 0);
-                                sum = sum +% d_buf[j + k];
-                            }
-
                             var name_str: []const u8 = undefined;
                             const sn = fat.get_name_from_raw(d_buf[j .. j + 32]);
 
-                            if (lfn.active and lfn.checksum == sum) {
+                            if (lfn.active) {
                                 var len: usize = 0;
                                 while (len < 256 and lfn.buf[len] != 0) : (len += 1) {}
                                 name_str = lfn.buf[0..len];
@@ -989,55 +944,163 @@ pub export fn execute_command() void {
     shell_execute_literal(cmd_buffer[0..cmd_len]);
 }
 
-pub fn shell_execute_literal(cmd: []const u8) void {
+/// Parsed redirection: optional file + append flag.
+const Redirection = struct {
+    file: ?[]const u8,
+    append: bool,
+};
+
+/// Extract `>file`, `>>file` from the command, returning the cleaned command
+/// and (optionally) the redirect target.
+fn parse_redirection(cmd: []const u8) struct { []const u8, Redirection } {
     var cmd_raw = common.trim(cmd);
-    if (cmd_raw.len == 0) return;
+    var redir: Redirection = .{ .file = null, .append = false };
 
+    if (common.std_mem_indexOf(u8, cmd_raw, ">>")) |idx| {
+        const file_part = common.trim(cmd_raw[idx + 2 ..]);
+        if (file_part.len > 0) {
+            redir.file = file_part;
+            redir.append = true;
+            cmd_raw = common.trim(cmd_raw[0..idx]);
+        }
+    } else if (common.std_mem_indexOf(u8, cmd_raw, ">")) |idx| {
+        const file_part = common.trim(cmd_raw[idx + 1 ..]);
+        if (file_part.len > 0) {
+            redir.file = file_part;
+            cmd_raw = common.trim(cmd_raw[0..idx]);
+        }
+    }
+    return .{ cmd_raw, redir };
+}
+
+/// Run a builtin shell command (exact match in SHELL_COMMANDS).
+/// Returns true if a builtin was dispatched.
+fn try_builtin(cmd_raw: []const u8, name: []const u8) bool {
+    for (SHELL_COMMANDS) |sc| {
+        if (common.std_mem_eql(sc.name, name)) {
+            // Reconstruct args string for legacy handlers
+            var i: usize = 0;
+            while (i < cmd_raw.len and cmd_raw[i] != ' ') : (i += 1) {}
+            while (i < cmd_raw.len and cmd_raw[i] == ' ') : (i += 1) {}
+            sc.handler(cmd_raw[i..]);
+            return true;
+        }
+    }
+    return false;
+}
+
+/// Resolve and run a Nova script: relative path, builtin, or system path.
+/// Returns true if a script was dispatched (or error reported), false if
+/// the command was not recognized as a script.
+fn try_nova_script(name: []const u8, argv: [8][]const u8, argc: usize) bool {
+    // Relative/absolute path scripts (containing /)
+    var contains_slash = false;
+    for (name) |c| {
+        if (c == '/' or c == '\\') { contains_slash = true; break; }
+    }
+
+    if (contains_slash) {
+        if (!common.endsWithIgnoreCase(name, ".nv")) {
+            common.printError("shell: Direct path execution requires .nv extension\n");
+            return true; // error reported, consumed
+        }
+        if (common.selected_disk >= 0) {
+            const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+            if (fat.read_bpb(drive)) |bpb| {
+                if (fat.resolve_full_path(drive, bpb, common.current_dir_cluster, common.current_path[0..common.current_path_len], name)) |res| {
+                    if (!res.is_dir) {
+                        nova_legacy_commands.setScriptArgs(argv[1..argc]);
+                        nova_legacy_interpreter.runScript(res.path[0..res.path_len]);
+                        return true;
+                    }
+                }
+            }
+        }
+        return true; // path specified but unresolved — consumed
+    }
+
+    // Built-in Nova scripts
+    for (BUILTIN_SCRIPTS) |script| {
+        if (common.std_mem_eql(script.name, name)) {
+            nova_legacy_commands.setScriptArgs(argv[1..argc]);
+            nova_legacy_interpreter.runScriptSource(script.source, null, false);
+            return true;
+        }
+    }
+
+    // System path scripts (/.SYSTEM/CMDS/<name>.nv)
+    if (common.selected_disk >= 0) {
+        var path_buf: [128]u8 = [_]u8{0} ** 128;
+        const prefix = "/.SYSTEM/CMDS/";
+        const extension = ".nv";
+
+        if (prefix.len + name.len + extension.len < 128) {
+            common.copy(path_buf[0..], prefix);
+            common.copy(path_buf[prefix.len..], name);
+            common.copy(path_buf[prefix.len + name.len ..], extension);
+            const full_path = path_buf[0 .. prefix.len + name.len + extension.len];
+
+            const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+            if (fat.read_bpb(drive)) |bpb| {
+                if (fat.find_entry(drive, bpb, 0, full_path)) |_| {
+                    nova_legacy_commands.setScriptArgs(argv[1..argc]);
+                    nova_legacy_interpreter.runScript(full_path);
+                    return true;
+                }
+            }
+        }
+    }
+    return false; // nothing matched → caller prints "command not found"
+}
+
+/// Flush redirect output to disk after command execution.
+fn flush_redirect(append: bool, file: []const u8) void {
+    const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+    if (fat.read_bpb(drive)) |bpb| {
+        if (append) {
+            _ = fat.append_to_file(drive, bpb, common.current_dir_cluster, file, common.redirect_buffer[0..common.redirect_pos]);
+        } else {
+            _ = fat.write_file(drive, bpb, common.current_dir_cluster, file, common.redirect_buffer[0..common.redirect_pos]);
+        }
+    }
+    common.redirect_pos = 0;
+}
+
+pub fn shell_execute_literal(cmd: []const u8) void {
     // Pipe support: cmd1 | cmd2
-    if (common.std_mem_indexOf(u8, cmd_raw, "|")) |idx| {
-        const left = common.trim(cmd_raw[0..idx]);
-        const right = common.trim(cmd_raw[idx + 1 ..]);
-
+    if (common.std_mem_indexOf(u8, cmd, "|")) |idx| {
+        const left = common.trim(cmd[0..idx]);
+        const right = common.trim(cmd[idx + 1 ..]);
         if (left.len > 0 and right.len > 0) {
             common.pipe_active = true;
             common.pipe_pos = 0;
             shell_execute_literal(left);
             common.pipe_active = false;
-
             if (common.pipe_pos > 0) {
                 common.pipe_read_active = true;
                 shell_execute_literal(right);
                 common.pipe_read_active = false;
                 common.pipe_pos = 0;
             }
-            return;
         }
+        return;
     }
 
-    // Output redirection support: cmd > file or cmd >> file
-    var redirect_file: ?[]const u8 = null;
-    var append_mode: bool = false;
-    if (common.std_mem_indexOf(u8, cmd_raw, ">>")) |idx| {
-        append_mode = true;
-        const file_part = common.trim(cmd_raw[idx + 2 ..]);
-        if (file_part.len > 0) {
-            redirect_file = file_part;
-            cmd_raw = common.trim(cmd_raw[0..idx]);
-        }
-    } else if (common.std_mem_indexOf(u8, cmd_raw, ">")) |idx| {
-        append_mode = false;
-        const file_part = common.trim(cmd_raw[idx + 1 ..]);
-        if (file_part.len > 0) {
-            redirect_file = file_part;
-            cmd_raw = common.trim(cmd_raw[0..idx]);
-        }
-    }
+    const cmd_raw, const redir = parse_redirection(cmd);
+    if (cmd_raw.len == 0) return;
 
     var argv: [8][]const u8 = undefined;
     const argc = common.parseArgs(cmd_raw, &argv);
     if (argc == 0) return;
 
-    if (redirect_file != null) {
+    const cmd_name = argv[0];
+
+    // Setup redirect guard. The cleanup defer must live at function scope:
+    // Zig's defer is block-scoped, so nesting it in the if would flush
+    // before the command even runs.
+    const is_redirect = redir.file != null;
+    const append_mode = redir.append;
+    if (is_redirect) {
         if (common.selected_disk < 0) {
             common.printError("Error: Redirection requires a mounted disk\n");
             return;
@@ -1045,104 +1108,24 @@ pub fn shell_execute_literal(cmd: []const u8) void {
         common.redirect_active = true;
         common.redirect_pos = 0;
     }
-
     defer {
-        if (redirect_file) |file| {
+        if (is_redirect) {
             common.redirect_active = false;
-            const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-            if (fat.read_bpb(drive)) |bpb| {
-                if (append_mode) {
-                    _ = fat.append_to_file(drive, bpb, common.current_dir_cluster, file, common.redirect_buffer[0..common.redirect_pos]);
-                } else {
-                    _ = fat.write_file(drive, bpb, common.current_dir_cluster, file, common.redirect_buffer[0..common.redirect_pos]);
-                }
-            }
-            common.redirect_pos = 0;
+            flush_redirect(append_mode, redir.file.?);
         }
     }
-
-    const cmd_name = argv[0];
 
     // 1. Built-in Shell Commands
-    for (SHELL_COMMANDS) |sc| {
-        if (common.std_mem_eql(sc.name, cmd_name)) {
-            // Reconstruct args string for legacy handlers
-            var i: usize = 0;
-            while (i < cmd_raw.len and cmd_raw[i] != ' ') : (i += 1) {}
-            while (i < cmd_raw.len and cmd_raw[i] == ' ') : (i += 1) {}
-            const args_only = cmd_raw[i..];
+    if (try_builtin(cmd_raw, cmd_name)) return;
 
-            sc.handler(args_only);
-            return;
+    // 2-4. Nova scripts (relative path, builtin, system path)
+    if (!try_nova_script(cmd_name, argv, argc)) {
+        common.printError("shell: command not found: ");
+        common.printError(cmd_name);
+        common.printError("\n");
+        if (config.ENABLE_ERROR_BEEP) {
+            speaker.beep_pattern_async(200, 80, 50);
         }
-    }
-
-    // 2. Relative/Absolute Path Scripts (containing /)
-    var contains_slash = false;
-    for (cmd_name) |c| {
-        if (c == '/' or c == '\\') {
-            contains_slash = true;
-            break;
-        }
-    }
-
-    if (contains_slash) {
-        if (common.endsWithIgnoreCase(cmd_name, ".nv")) {
-            if (common.selected_disk >= 0) {
-                const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-                if (fat.read_bpb(drive)) |bpb| {
-                    if (fat.resolve_full_path(drive, bpb, common.current_dir_cluster, common.current_path[0..common.current_path_len], cmd_name)) |res| {
-                        if (!res.is_dir) {
-                            nova_legacy_commands.setScriptArgs(argv[1..argc]);
-                            nova_legacy_interpreter.runScript(res.path[0..res.path_len]);
-                            return;
-                        }
-                    }
-                }
-            }
-        } else {
-            common.printError("shell: Direct path execution requires .nv extension\n");
-            return;
-        }
-    }
-
-    // 3. Built-in Nova Scripts
-    for (BUILTIN_SCRIPTS) |script| {
-        if (common.std_mem_eql(script.name, cmd_name)) {
-            nova_legacy_commands.setScriptArgs(argv[1..argc]);
-            nova_legacy_interpreter.runScriptSource(script.source, null, false);
-            return;
-        }
-    }
-
-    // 4. System Path Scripts (/.SYSTEM/CMDS/<cmd_name>.nv)
-    if (common.selected_disk >= 0) {
-        var path_buf: [128]u8 = [_]u8{0} ** 128;
-        const prefix = "/.SYSTEM/CMDS/";
-        const extension = ".nv";
-
-        if (prefix.len + cmd_name.len + extension.len < 128) {
-            common.copy(path_buf[0..], prefix);
-            common.copy(path_buf[prefix.len..], cmd_name);
-            common.copy(path_buf[prefix.len + cmd_name.len ..], extension);
-            const full_path = path_buf[0 .. prefix.len + cmd_name.len + extension.len];
-
-            const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
-            if (fat.read_bpb(drive)) |bpb| {
-                if (fat.find_entry(drive, bpb, 0, full_path)) |_| {
-                    nova_legacy_commands.setScriptArgs(argv[1..argc]);
-                    nova_legacy_interpreter.runScript(full_path);
-                    return;
-                }
-            }
-        }
-    }
-
-    common.printError("shell: command not found: ");
-    common.printError(cmd_name);
-    common.printError("\n");
-    if (config.ENABLE_ERROR_BEEP) {
-        speaker.beep_pattern_async(200, 80, 50);
     }
 }
 
@@ -1264,35 +1247,6 @@ fn cmd_handler_nova_legacy(_: []const u8) void {
     };
 }
 
-fn cmd_handler_uptime(_: []const u8) void {
-    shell_cmds.cmd_uptime();
-}
-
-fn cmd_handler_reboot(_: []const u8) void {
-    shell_cmds.cmd_reboot();
-}
-
-fn cmd_handler_shutdown(_: []const u8) void {
-    shell_cmds.cmd_shutdown();
-}
-
-fn cmd_handler_ring3(args: []const u8) void {
-    _ = args;
-    shell_cmds.cmd_ring3();
-}
-
-fn cmd_handler_run(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_run(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: run <elf>\n");
-    }
-}
-
-fn cmd_handler_ls(args: []const u8) void {
-    shell_cmds.cmd_ls(args.ptr, @intCast(args.len));
-}
-
 fn cmd_handler_la(args: []const u8) void {
     var buf: [128]u8 = [_]u8{0} ** 128;
     buf[0] = '-';
@@ -1304,104 +1258,6 @@ fn cmd_handler_la(args: []const u8) void {
         shell_cmds.cmd_ls(buf[0..].ptr, @intCast(3 + args.len));
     } else {
         shell_cmds.cmd_ls(buf[0..].ptr, 2);
-    }
-}
-
-fn cmd_handler_lsdsk(_: []const u8) void {
-    shell_cmds.cmd_lsdsk();
-}
-
-fn cmd_handler_lspci(_: []const u8) void {
-    shell_cmds.cmd_lspci();
-}
-
-fn cmd_handler_mount(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_mount(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: mount <drive>\n");
-    }
-}
-
-fn cmd_handler_mkfs12(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_mkfs_fat12(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: mkfs-fat12 <drive>\n");
-    }
-}
-
-fn cmd_handler_mkfs16(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_mkfs_fat16(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: mkfs-fat16 <drive>\n");
-    }
-}
-
-fn cmd_handler_mkfs32(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_mkfs_fat32(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: mkfs-fat32 <drive>\n");
-    }
-}
-
-fn cmd_handler_touch(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_touch(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: touch <file>\n");
-    }
-}
-
-fn cmd_handler_lseek(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_lseek(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: lseek <file> <offset> [SEEK_SET|SEEK_CUR|SEEK_END]\n");
-        common.printZ("  SEEK_SET = 0 (from start)\n");
-        common.printZ("  SEEK_CUR = 1 (from current)\n");
-        common.printZ("  SEEK_END = 2 (from end)\n");
-    }
-}
-
-fn cmd_handler_truncate(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_truncate(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: truncate <file> <size>\n");
-        common.printZ("  Truncate file to specified size in bytes\n");
-    }
-}
-
-fn cmd_handler_sync(_: []const u8) void {
-    shell_cmds.cmd_sync();
-}
-
-fn cmd_handler_expand(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_expand(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: expand <file> <size>\n");
-        common.printZ("  Expand file to specified size in bytes\n");
-    }
-}
-
-fn cmd_handler_forward(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_forward(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: forward <file> <count>\n");
-        common.printZ("  Forward file position by count bytes\n");
-    }
-}
-
-fn cmd_handler_attrib(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_attrib(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: attrib [+R|-R] [+H|-H] [+S|-S] [+A|-A] <file>\n");
     }
 }
 
@@ -1463,30 +1319,6 @@ fn cmd_handler_write(args: []const u8) void {
     shell_cmds.cmd_write(name.ptr, @intCast(name.len), data.ptr, @intCast(data.len), append);
 }
 
-fn cmd_handler_rm(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_rm(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: rm <file>\n");
-    }
-}
-
-fn cmd_handler_cat(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_cat(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: cat <file>\n");
-    }
-}
-
-fn cmd_handler_edit(args: []const u8) void {
-    if (args.len > 0) {
-        shell_cmds.cmd_edit(args.ptr, @intCast(args.len));
-    } else {
-        common.printZ("Usage: edit <file>\n");
-    }
-}
-
 fn cmd_handler_history(_: []const u8) void {
     var j: u8 = 0;
     while (j < history_count) : (j += 1) {
@@ -1495,26 +1327,6 @@ fn cmd_handler_history(_: []const u8) void {
         common.printZ(history[j][0..history_lens[j]]);
         common.printZ("\n");
     }
-}
-
-fn cmd_handler_echo(args: []const u8) void {
-    shell_cmds.cmd_echo(args.ptr, @intCast(args.len));
-}
-
-fn cmd_handler_mem(args: []const u8) void {
-    shell_cmds.cmd_mem(args.ptr, @intCast(args.len));
-}
-
-fn cmd_handler_time(_: []const u8) void {
-    shell_cmds.cmd_time();
-}
-
-fn cmd_handler_top(_: []const u8) void {
-    top_cmd.cmd_top();
-}
-
-fn cmd_handler_sysinfo(_: []const u8) void {
-    shell_cmds.cmd_sysinfo();
 }
 
 fn cmd_handler_hexdump(args: []const u8) void {
@@ -1539,61 +1351,9 @@ fn cmd_handler_codename(_: []const u8) void {
     common.printZ("\"\n");
 }
 
-fn cmd_handler_fetch(_: []const u8) void {
-    shell_cmds.cmd_fetch();
-}
-
 fn cmd_handler_matrix(_: []const u8) void {
     shell_cmds.cmd_matrix();
 }
-
-fn cmd_handler_doomfire(_: []const u8) void {
-    doomfire_cmd.cmd_doomfire();
-}
-
-fn cmd_handler_cpuinfo(_: []const u8) void {
-    shell_cmds.cmd_cpuinfo();
-}
-
-fn cmd_handler_smp_test(_: []const u8) void {
-    shell_cmds.cmd_smp_test();
-}
-
-fn cmd_handler_stress_test(_: []const u8) void {
-    shell_cmds.cmd_stress_test();
-}
-
-fn cmd_handler_panic(_: []const u8) void {
-    if (config.ENABLE_DEBUG_CRASH_COMMANDS) shell_cmds.cmd_panic();
-}
-
-const crash_suite = struct {
-    fn cmd_handler_abort(_: []const u8) void {
-        if (config.ENABLE_DEBUG_CRASH_COMMANDS) shell_cmds.cmd_abort();
-    }
-
-    fn cmd_handler_invalid_op(_: []const u8) void {
-        if (config.ENABLE_DEBUG_CRASH_COMMANDS) shell_cmds.cmd_invalid_op();
-    }
-
-    fn cmd_handler_stack_overflow(_: []const u8) void {
-        if (config.ENABLE_DEBUG_CRASH_COMMANDS) shell_cmds.cmd_stack_overflow();
-    }
-
-    fn cmd_handler_page_fault(_: []const u8) void {
-        if (config.ENABLE_DEBUG_CRASH_COMMANDS) shell_cmds.cmd_page_fault();
-    }
-
-    fn cmd_handler_gpf(_: []const u8) void {
-        if (config.ENABLE_DEBUG_CRASH_COMMANDS) shell_cmds.cmd_gpf();
-    }
-};
-
-const cmd_handler_abort = crash_suite.cmd_handler_abort;
-const cmd_handler_invalid_op = crash_suite.cmd_handler_invalid_op;
-const cmd_handler_stack_overflow = crash_suite.cmd_handler_stack_overflow;
-const cmd_handler_page_fault = crash_suite.cmd_handler_page_fault;
-const cmd_handler_gpf = crash_suite.cmd_handler_gpf;
 
 fn cmd_handler_docs(args: []const u8) void {
     shell_cmds.cmd_docs(args.ptr, @intCast(args.len));
@@ -1958,6 +1718,136 @@ fn cmd_handler_qrand(args: []const u8) void {
     }
 }
 
+fn cmd_handler_qinit(args: []const u8) void {
+    var argv: [2][]const u8 = undefined;
+    const argc = common.parseArgs(args, &argv);
+    var n: i32 = 2;
+    if (argc >= 1) {
+        const parsed = common.parse_int(argv[0]) orelse {
+            common.printZ("Usage: qinit [N]\n");
+            return;
+        };
+        n = parsed;
+    }
+    if (n < 1 or n > quantum.MAX_QUBITS) {
+        common.printZ("qinit: qubit count must be 1..");
+        common.printNum(quantum.MAX_QUBITS);
+        common.printZ("\n");
+        return;
+    }
+
+    const ram = struct {
+        fn show(bytes: usize) void {
+            if (bytes >= 1024 * 1024) {
+                common.printNum(@intCast(bytes / (1024 * 1024)));
+                common.printZ(" MB");
+            } else if (bytes >= 1024) {
+                common.printNum(@intCast(bytes / 1024));
+                common.printZ(" KB");
+            } else {
+                common.printNum(@intCast(bytes));
+                common.printZ(" B");
+            }
+        }
+    };
+
+    switch (quantum.simInit(@intCast(n))) {
+        .ok => |need| {
+            common.printZ("qinit: ");
+            common.printNum(n);
+            common.printZ(" qubit(s), state |0");
+            var i: i32 = 1;
+            while (i < n) : (i += 1) common.printZ("0");
+            common.printZ(">, needs ");
+            ram.show(need);
+            common.printZ("\n");
+        },
+        .bad_qubits => {
+            common.printZ("qinit: qubit count out of range\n");
+        },
+        .insufficient => |r| {
+            common.printZ("qinit: needs ");
+            ram.show(r.need);
+            common.printZ(", only ");
+            ram.show(r.avail);
+            common.printZ(" usable with 32 MB reserved for the OS\n");
+        },
+        .oom => |need| {
+            common.printZ("qinit: needs ");
+            ram.show(need);
+            common.printZ(", heap could not serve it\n");
+        },
+    }
+}
+
+fn cmd_handler_qh(args: []const u8) void {
+    var argv: [2][]const u8 = undefined;
+    const argc = common.parseArgs(args, &argv);
+    if (argc < 1) {
+        common.printZ("Usage: qh <qubit>\n");
+        return;
+    }
+    const q = common.parse_int(argv[0]) orelse -1;
+    if (q < 0 or !quantum.applyH(@intCast(q))) {
+        common.printZ("qh: invalid qubit (qinit first)\n");
+        return;
+    }
+    common.printZ("H applied\n");
+}
+
+fn cmd_handler_qcnot(args: []const u8) void {
+    var argv: [3][]const u8 = undefined;
+    const argc = common.parseArgs(args, &argv);
+    if (argc < 2) {
+        common.printZ("Usage: qcnot <control> <target>\n");
+        return;
+    }
+    const c = common.parse_int(argv[0]) orelse -1;
+    const t = common.parse_int(argv[1]) orelse -1;
+    if (c < 0 or t < 0 or !quantum.applyCNOT(@intCast(c), @intCast(t))) {
+        common.printZ("qcnot: invalid qubits (qinit first)\n");
+        return;
+    }
+    common.printZ("CNOT applied\n");
+}
+
+fn cmd_handler_qmeasure(args: []const u8) void {
+    var argv: [2][]const u8 = undefined;
+    const argc = common.parseArgs(args, &argv);
+    if (argc < 1) {
+        common.printZ("Usage: qmeasure <qubit>\n");
+        return;
+    }
+    const q = common.parse_int(argv[0]) orelse -1;
+    const outcome = if (q < 0) null else quantum.measure(@intCast(q));
+    if (outcome) |bit| {
+        common.printZ("qmeasure: qubit ");
+        common.printNum(q);
+        common.printZ(" -> ");
+        common.print_char(if (bit) '1' else '0');
+        common.printZ("\n");
+    } else {
+        common.printZ("qmeasure: invalid qubit (qinit first)\n");
+    }
+}
+
+fn cmd_handler_qtest(args: []const u8) void {
+    _ = args;
+    const r = quantum.selfTest(100);
+    const pass = r.x_ok and r.mixed == 0 and r.zero_zero + r.one_one == r.trials;
+    common.printZ("qtest: X gate ");
+    common.printZ(if (r.x_ok) "ok" else "FAIL");
+    common.printZ(", Bell ");
+    common.printNum(@intCast(r.zero_zero));
+    common.printZ("x 00, ");
+    common.printNum(@intCast(r.one_one));
+    common.printZ("x 11, ");
+    common.printNum(@intCast(r.mixed));
+    common.printZ(" mixed -> ");
+    common.printZ(if (pass) "PASS" else "FAIL");
+    common.printZ("\n");
+}
+
 fn cmd_handler_beep(args: []const u8) void {
     var argv: [4][]const u8 = undefined;
     const argc = common.parseArgs(args, &argv);
@@ -1990,6 +1880,7 @@ fn display_prompt() void {
     if (vga.zig_get_cursor_col() > 0) common.print_char('\n');
 
     // 1. Clock [HH:MM:SS]
+    prompt_start_col = vga.zig_get_cursor_col();
     const now = rtc.get_datetime();
     vga.set_color(8, 0); // Dark Gray
     common.print_char('[');

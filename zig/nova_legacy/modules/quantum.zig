@@ -1,5 +1,5 @@
 const common = @import("../common.zig");
-const quantum = @import("../../quantum.zig");
+const quantum = @import("../../kernel/quantum.zig");
 const hash_table = @import("../hash_table.zig");
 
 pub fn handleQuantum(vm: anytype, name: []const u8) ?hash_table.VariableValue {

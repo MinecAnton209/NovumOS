@@ -1,14 +1,26 @@
 // Common Utilities Module
 // Provides shared logic for printing, system control, and file system access.
 
-const fs = @import("../fs.zig");
+const fs = @import("../kernel/fs.zig");
 const config = @import("../config.zig");
 pub const vga = @import("../drivers/vga.zig");
 const timer = @import("../drivers/timer.zig");
 const acpi = @import("../drivers/acpi.zig");
 
 const serial = @import("../drivers/serial.zig");
-const logger = @import("../logger.zig");
+const logger = @import("../kernel/logger.zig");
+
+const str_util = @import("../kernel/str.zig");
+pub const std_mem_eql = str_util.std_mem_eql;
+pub const startsWith = str_util.startsWith;
+pub const endsWith = str_util.endsWith;
+pub const asciiLower = str_util.asciiLower;
+pub const startsWithIgnoreCase = str_util.startsWithIgnoreCase;
+pub const lastIndexOf = str_util.lastIndexOf;
+pub const copy = str_util.copy;
+pub const math_abs = str_util.math_abs;
+pub const math_max = str_util.math_max;
+pub const math_min = str_util.math_min;
 
 // --- Global State ---
 pub var selected_disk: i8 = -1; // -1 means RAM FS
@@ -24,6 +36,28 @@ pub var pipe_active: bool = false;
 pub var pipe_buffer: [16384]u8 = [_]u8{0} ** 16384;
 pub var pipe_pos: usize = 0;
 pub var pipe_read_active: bool = false;
+
+/// True when running with Ring 3 privileges (user mode).
+fn in_ring3() bool {
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    return (cs & 3) == 3;
+}
+
+/// Issue a syscall from Ring 3 and return raw eax. Call only after in_ring3().
+/// The int 0x80 stub pushad/popad's, so unused arg registers are harmless.
+fn syscall_proxy(comptime num: u32, arg0: u32, arg1: u32, arg2: u32, arg3: u32) u32 {
+    return asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> u32),
+        : [sys] "{eax}" (@as(u32, num)),
+          [b] "{ebx}" (arg0),
+          [c] "{ecx}" (arg1),
+          [d] "{edx}" (arg2),
+          [s] "{esi}" (arg3),
+    );
+}
 
 /// Low-level character output
 pub fn print_char(c: u8) void {
@@ -43,19 +77,9 @@ pub fn print_char(c: u8) void {
     }
 
     // Detect User Mode (Ring 3) by checking the low bits of Code Segment (CS)
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-
-    if ((cs & 3) == 3) {
-        // We are in Ring 3! Use syscall 1 (PrintZ logic but for a single char)
+    if (in_ring3()) {
         var buf: [2]u8 = .{ c, 0 };
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 1)),
-              [arg] "{ebx}" (@intFromPtr(&buf)),
-        );
+        _ = syscall_proxy(1, @intFromPtr(&buf), 0, 0, 0);
         return;
     }
 
@@ -64,21 +88,8 @@ pub fn print_char(c: u8) void {
 }
 
 pub fn draw_char_at(row: u8, col: u8, c: u8, attr: u16) void {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-
-    if ((cs & 3) == 3) {
-        // Syscall 18: DrawCharAt
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 18)),
-              [r] "{ebx}" (@as(u32, row)),
-              [c] "{ecx}" (@as(u32, col)),
-              [chr] "{edx}" (@as(u32, c)),
-              [atr] "{esi}" (@as(u32, attr)),
-        );
+    if (in_ring3()) {
+        _ = syscall_proxy(18, row, col, c, attr); // 18: DrawCharAt
         return;
     }
 
@@ -89,81 +100,38 @@ pub fn draw_char_at(row: u8, col: u8, c: u8, attr: u16) void {
 }
 
 pub fn get_char() u8 {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        var res: u32 = 0;
-        asm volatile ("int $0x80"
-            : [ret] "={eax}" (res),
-            : [sys] "{eax}" (@as(u32, 2)),
-        );
-        return @intCast(res);
+    if (in_ring3()) {
+        return @intCast(syscall_proxy(2, 0, 0, 0, 0));
     }
-    const keyboard = @import("../keyboard_isr.zig");
+    const keyboard = @import("../arch/mod.zig").keyboard_isr;
     return keyboard.keyboard_wait_char();
 }
 
 pub fn set_cursor(row: u8, col: u8) void {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 3)),
-              [r] "{ebx}" (@as(u32, row)),
-              [c] "{ecx}" (@as(u32, col)),
-        );
+    if (in_ring3()) {
+        _ = syscall_proxy(3, row, col, 0, 0);
         return;
     }
     vga.zig_set_cursor(row, col);
 }
 
 pub fn get_cursor_row() u8 {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        var res: u32 = 0;
-        asm volatile ("int $0x80"
-            : [ret] "={eax}" (res),
-            : [sys] "{eax}" (@as(u32, 4)),
-        );
-        return @intCast(res >> 8);
+    if (in_ring3()) {
+        return @intCast(syscall_proxy(4, 0, 0, 0, 0) >> 8);
     }
     return vga.zig_get_cursor_row();
 }
 
 pub fn get_cursor_col() u8 {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        var res: u32 = 0;
-        asm volatile ("int $0x80"
-            : [ret] "={eax}" (res),
-            : [sys] "{eax}" (@as(u32, 4)),
-        );
-        return @intCast(res & 0xFF);
+    if (in_ring3()) {
+        return @intCast(syscall_proxy(4, 0, 0, 0, 0) & 0xFF);
     }
     return vga.zig_get_cursor_col();
 }
 
 pub fn clear_screen() void {
-    var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs),
-    );
-    if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 5)),
-        );
+    if (in_ring3()) {
+        _ = syscall_proxy(5, 0, 0, 0, 0);
         return;
     }
     vga.clear_screen();
@@ -381,7 +349,7 @@ pub fn idt_check() bool {
         );
         return result == 1;
     }
-    const idt_watchdog = @import("../idt_watchdog.zig");
+    const idt_watchdog = @import("../arch/mod.zig").idt_watchdog;
     return idt_watchdog.check_idt();
 }
 
@@ -399,7 +367,7 @@ pub fn idt_move() void {
         );
         return;
     }
-    const idt_watchdog = @import("../idt_watchdog.zig");
+    const idt_watchdog = @import("../arch/mod.zig").idt_watchdog;
     idt_watchdog.trigger_panic();
 }
 
@@ -425,25 +393,6 @@ pub fn get_random(min_v: i32, max_v: i32) i32 {
     return @as(i32, @intCast(@mod(rnd_state, range))) + min_v;
 }
 
-pub fn math_abs(n: i32) i32 {
-    return if (n < 0) -n else n;
-}
-pub fn math_max(a: i32, b: i32) i32 {
-    return if (a > b) a else b;
-}
-pub fn math_min(a: i32, b: i32) i32 {
-    return if (a < b) a else b;
-}
-
-/// Check if two memory slices are equal
-pub fn std_mem_eql(a: []const u8, b: []const u8) bool {
-    if (a.len != b.len) return false;
-    for (a, 0..) |item, i| {
-        if (item != b[i]) return false;
-    }
-    return true;
-}
-
 pub fn endsWithIgnoreCase(a: []const u8, b: []const u8) bool {
     if (a.len < b.len) return false;
     const start = a.len - b.len;
@@ -451,26 +400,6 @@ pub fn endsWithIgnoreCase(a: []const u8, b: []const u8) bool {
         if (asciiLower(a[start + i]) != asciiLower(b[i])) return false;
     }
     return true;
-}
-
-/// Check if string starts with prefix
-pub fn startsWith(a: []const u8, b: []const u8) bool {
-    if (a.len < b.len) return false;
-    return std_mem_eql(a[0..b.len], b);
-}
-
-pub fn endsWith(a: []const u8, b: []const u8) bool {
-    if (a.len < b.len) return false;
-    return std_mem_eql(a[a.len - b.len ..], b);
-}
-
-pub fn lastIndexOf(slice: []const u8, c: u8) ?usize {
-    var i: usize = slice.len;
-    while (i > 0) {
-        i -= 1;
-        if (slice[i] == c) return i;
-    }
-    return null;
 }
 
 /// Simple indexOf for memory slices
@@ -491,24 +420,6 @@ pub fn trim(s: []const u8) []const u8 {
     var end: usize = s.len;
     while (end > start and s[end - 1] == ' ') : (end -= 1) {}
     return s[start..end];
-}
-
-pub fn asciiLower(c: u8) u8 {
-    if (c >= 'A' and c <= 'Z') return c + 32;
-    return c;
-}
-
-pub fn startsWithIgnoreCase(a: []const u8, b: []const u8) bool {
-    if (a.len < b.len) return false;
-    for (0..b.len) |i| {
-        if (asciiLower(a[i]) != asciiLower(b[i])) return false;
-    }
-    return true;
-}
-
-pub fn copy(dest: []u8, src: []const u8) void {
-    const len = @min(dest.len, src.len);
-    for (0..len) |i| dest[i] = src[i];
 }
 
 /// Parse command line arguments with support for quoted strings

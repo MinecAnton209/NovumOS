@@ -1,6 +1,6 @@
 // Basic Text Editor (Nano-like)
 const common = @import("common.zig");
-const keyboard = @import("../keyboard_isr.zig");
+const keyboard = @import("../arch/mod.zig").keyboard_isr;
 const vga = @import("../drivers/vga.zig");
 const serial = @import("../drivers/serial.zig");
 const fat = @import("../drivers/fat.zig");

@@ -190,7 +190,9 @@ fn scroll() void {
         }
     }
 
-    lfb.swap_buffers(); // Flush after scrolling
+    // No flush here: kernel_loop does one vga_flush after execute_command,
+    // so a burst paints in a single pass. A per-line VRAM copy made output
+    // O(screen) for every new line once the display was full.
 }
 
 fn internal_newline() void {
@@ -405,7 +407,7 @@ pub export fn erase_vga_cursor() void {
         interrupts_restore_vga(eflags);
     }
     erase_vga_cursor_internal();
-    lfb.swap_buffers(); // flush after erase
+    lfb.swap_buffers_immediate(); // under cli+vga_lock: never vsync (timer sleep) here
 }
 
 pub export fn update_vga_cursor() void {
@@ -444,7 +446,7 @@ pub export fn update_vga_cursor() void {
     prev_cursor_row = r;
     prev_cursor_col = c;
     cursor_visible = true;
-    lfb.swap_buffers();
+    lfb.swap_buffers_immediate(); // under cli+vga_lock: never vsync (timer sleep) here
 }
 
 pub export fn update_hardware_cursor() void {

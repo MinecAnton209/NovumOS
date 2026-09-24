@@ -2,9 +2,9 @@
 // Memory-related syscalls: malloc, free, MemoryMapRange, GetFreeMemory.
 
 const common = @import("../commands/common.zig");
-const memory = @import("../memory.zig");
-const user = @import("../user.zig");
-const logger = @import("../logger.zig");
+const memory = @import("../kernel/memory.zig");
+const user = @import("../arch/mod.zig").user;
+const logger = @import("../kernel/logger.zig");
 const syscalls = @import("mod.zig");
 const process_mod = @import("process.zig");
 
@@ -111,29 +111,77 @@ const MmapRegion = struct {
 };
 var mmap_regions: [MAX_MMAP_REGIONS]?MmapRegion = [_]?MmapRegion{null} ** MAX_MMAP_REGIONS;
 var mmap_next: u32 = 0x40000000;
+/// mmap grows a fixed VA window [0x40000000, MMAP_WINDOW_END): everything
+/// below the backbuffer window at 0xD0000000 (see drivers/lfb.zig).
+const MMAP_WINDOW_END: u32 = 0xD0000000;
 
 /// Syscall 107: mmap(EBX=addr_hint, ECX=length, EDX=prot, ESI=flags, EDI=fd) -> EAX=addr or -1
 pub fn mmap(regs: *user.Registers) void {
     _ = regs.ebx; // addr_hint — ignored for now
+    // ecx + 0xFFF must not wrap, and the whole region must fit the
+    // window — mmap_next previously grew with no bound and could wrap
+    // into low memory or the backbuffer.
+    if (regs.ecx == 0 or regs.ecx > 0xFFFFF000) {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    }
     const length = (regs.ecx + 0xFFF) & ~@as(u32, 0xFFF);
-    if (length == 0) { regs.eax = 0xFFFFFFFF; return; }
     const addr = mmap_next;
-    mmap_next += length;
+    if (addr >= MMAP_WINDOW_END or length > MMAP_WINDOW_END - addr) {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    }
+
+    // Claim the tracking slot before mapping: success with a full slot
+    // table would leave a region munmap can never find again.
+    var slot: ?*?MmapRegion = null;
+    for (&mmap_regions) |*s| {
+        if (s.* == null) {
+            slot = s;
+            break;
+        }
+    }
+    if (slot == null) {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    }
+
+    mmap_next = addr + length;
     var page = addr;
     while (page < addr + length) : (page += 0x1000) {
         const paddr = memory.pmm.alloc_page() orelse {
-            regs.eax = 0xFFFFFFFF; return;
+            rollback_mmap(addr, page, slot.?);
+            regs.eax = 0xFFFFFFFF;
+            return;
         };
-        _ = memory.map_page_at(page, paddr, true);
-    }
-    for (&mmap_regions) |*slot| {
-        if (slot.* == null) {
-            slot.* = .{ .addr = addr, .size = length };
-            regs.eax = addr;
+        if (!memory.map_page_at(page, paddr, true)) {
+            memory.pmm.free_page(paddr);
+            rollback_mmap(addr, page, slot.?);
+            regs.eax = 0xFFFFFFFF;
             return;
         }
     }
+    slot.?.* = .{ .addr = addr, .size = length };
     regs.eax = addr;
+}
+
+/// Undo a partial mmap: frames in [start, fail_at) return to the PMM,
+/// the VA window reopens at start, and the reserved slot is released.
+fn rollback_mmap(start: u32, fail_at: u32, slot: *?MmapRegion) void {
+    var page = start;
+    while (page < fail_at) : (page += 0x1000) {
+        const pd_idx = page >> 22;
+        const pt_idx = (page >> 12) & 0x3FF;
+        if (memory.page_tables[pd_idx]) |pt| {
+            const paddr = pt[pt_idx] & 0xFFFFF000;
+            if (paddr != 0) {
+                memory.pmm.free_page(paddr);
+                pt[pt_idx] = 0;
+            }
+        }
+    }
+    mmap_next = start;
+    slot.* = null;
 }
 
 /// Syscall 108: munmap(EBX=addr, ECX=length) -> EAX=0 or -1

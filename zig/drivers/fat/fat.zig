@@ -14,6 +14,7 @@ pub const read_bpb = bpb_mod.read_bpb;
 pub const DirEntry = bpb_mod.DirEntry;
 pub const LfnState = bpb_mod.LfnState;
 pub const extract_lfn_part = bpb_mod.extract_lfn_part;
+pub const consume_lfn_entry = dir.consume_lfn_entry;
 
 pub const EntryLocation = dir.EntryLocation;
 pub const FatName = dir.FatName;
@@ -45,6 +46,7 @@ pub const find_free_cluster = dir.find_free_cluster;
 pub const free_cluster_chain = dir.free_cluster_chain;
 
 pub const read_file = file.read_file;
+pub const read_file_bounded = file.read_file_bounded;
 pub const read_file_literal = file.read_file_literal;
 pub const stream_to_console = file.stream_to_console;
 pub const stream_to_console_literal = file.stream_to_console_literal;

@@ -27,10 +27,6 @@ pub const DateTime = extern struct {
 };
 
 pub fn get_datetime() DateTime {
-    if (time_valid) {
-        return last_good_time;
-    }
-
     var cs: u16 = 0;
     asm volatile ("mov %%cs, %[cs]"
         : [cs] "=r" (cs),
@@ -46,7 +42,9 @@ pub fn get_datetime() DateTime {
         if (dt.year >= 2020 and dt.year <= 2100) {
             last_good_time = dt;
             time_valid = true;
+            return dt;
         }
+        if (time_valid) return last_good_time;
         return dt;
     }
 
@@ -86,8 +84,10 @@ pub fn get_datetime() DateTime {
             .second = second,
         };
         time_valid = true;
+        return last_good_time;
     }
 
+    if (time_valid) return last_good_time;
     return .{
         .year = year,
         .month = month,

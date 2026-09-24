@@ -1,11 +1,11 @@
 const ata = @import("../drivers/ata.zig");
 const fat = @import("../drivers/fat/fat.zig");
-const user = @import("../user.zig");
-const logger = @import("../logger.zig");
-const memory = @import("../memory.zig");
-const path_policy = @import("../path_policy.zig");
+const user = @import("../arch/mod.zig").user;
+const logger = @import("../kernel/logger.zig");
+const memory = @import("../kernel/memory.zig");
+const path_policy = @import("../kernel/path_policy.zig");
 const syscalls = @import("mod.zig");
-const scheduler = @import("../scheduler.zig");
+const scheduler = @import("../kernel/scheduler.zig");
 const common = @import("../commands/common.zig");
 
 const MAX_GLOBAL_HANDLES = 128;
@@ -34,7 +34,7 @@ fn free_global_handle(idx: u16) void {
 
 fn get_handle(fd: u32) ?*fat.FileHandle {
     if (fd >= MAX_FD) return null;
-    const p = scheduler.current_process orelse return null;
+    const p = scheduler.current_process() orelse return null;
     const gi = p.fd_table[@intCast(fd)];
     if (gi < 0 or gi >= MAX_GLOBAL_HANDLES) return null;
     if (global_handles[@intCast(gi)]) |*h| return h;
@@ -82,7 +82,7 @@ pub fn open(regs: *user.Registers) void {
         regs.eax = 0xFFFFFFFF; return;
     }
     const state = resolve_fat_state() orelse { regs.eax = 0xFFFFFFFF; return; };
-    const p = scheduler.current_process orelse { regs.eax = 0xFFFFFFFF; return; };
+    const p = scheduler.current_process() orelse { regs.eax = 0xFFFFFFFF; return; };
     const cwd_cluster: u32 = 0;
     const handle = fat.fat_open(state[0], state[1], cwd_cluster, path) orelse {
         regs.eax = 0xFFFFFFFF; return;
@@ -103,7 +103,7 @@ pub fn open(regs: *user.Registers) void {
 
 /// Syscall 101: close(EBX=fd) -> EAX=0 or -1
 pub fn close(regs: *user.Registers) void {
-    const p = scheduler.current_process orelse { regs.eax = 0xFFFFFFFF; return; };
+    const p = scheduler.current_process() orelse { regs.eax = 0xFFFFFFFF; return; };
     if (regs.ebx >= MAX_FD) { regs.eax = 0xFFFFFFFF; return; }
     const gi = p.fd_table[regs.ebx];
     if (gi < 0) { regs.eax = 0xFFFFFFFF; return; }

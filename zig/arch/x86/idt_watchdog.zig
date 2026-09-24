@@ -7,10 +7,10 @@
 // - IDT checks injected into memory alloc / context switch
 // - Obfuscated key access (can't просто read key[i])
 
-const config = @import("config.zig");
-const common = @import("commands/common.zig");
+const config = @import("../../config.zig");
+const common = @import("../../commands/common.zig");
 const exceptions = @import("exceptions.zig");
-const memory = @import("memory.zig");
+const memory = @import("../../kernel/memory.zig");
 
 extern var idt_start: u8;
 
@@ -95,7 +95,7 @@ fn generate_key() void {
           [high] "={edx}" (tsc_high),
     );
 
-    const timer = @import("drivers/timer.zig");
+    const timer = @import("../../drivers/timer.zig");
     const ticks = timer.get_ticks();
 
     const pit_low: u8 = @truncate(ticks);

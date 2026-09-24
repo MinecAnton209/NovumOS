@@ -1,9 +1,9 @@
 // NovumOS Kernel Logger
 // Provides colored, formatted, and toggleable logging for system events.
 
-const common = @import("commands/common.zig");
-const vga = @import("drivers/vga.zig");
-const config = @import("config.zig");
+const common = @import("../commands/common.zig");
+const vga = @import("../drivers/vga.zig");
+const config = @import("../config.zig");
 
 pub const Level = enum {
     INFO,
@@ -14,6 +14,14 @@ pub const Level = enum {
 };
 
 /// Internal shared printing function
+///
+/// INTERRUPT-SAFE INVARIANT: logging is reachable from schedule()
+/// (timer ISR) through heap/pmm error paths. Nothing here may do sti,
+/// sleep, vsync or otherwise wait on interrupts — printZ must keep
+/// going through the flush-free zig_print_char, and ISR-reachable log
+/// calls must stay minimal: the vga_lock spin self-deadlocks if the
+/// ISR interrupts a ring 3 print that already holds it (ring 3 prints
+/// do not cli).
 fn internal_log(level: Level, prefix: []const u8, msg: []const u8) void {
     if (!config.ENABLE_KERNEL_LOGGING) return;
 
@@ -52,6 +60,8 @@ pub fn err(msg: []const u8) void {
     internal_log(.ERROR, "[ ERROR  ] ", msg);
 }
 
+/// Same interrupt-safety invariant as internal_log: reachable from the
+/// timer ISR via heap/pmm error paths — no sti, sleep or vsync here.
 pub fn security(msg: []const u8) void {
     if (!config.ENABLE_KERNEL_LOGGING) return;
     vga.set_color(12, 0);

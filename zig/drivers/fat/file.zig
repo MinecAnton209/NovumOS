@@ -1,4 +1,5 @@
 const common = @import("../../commands/common.zig");
+const config = @import("../../config.zig");
 const ata = @import("../ata.zig");
 const dir = @import("dir.zig");
 
@@ -225,27 +226,71 @@ pub fn fat_forward(handle: *FileHandle, count: u32) i32 {
     return @intCast(new_offset);
 }
 
+/// Compute the LBA of the current sector for `offset_in_cluster`.
+fn current_sector_lba(handle: *FileHandle, offset_in_cluster: u32) u32 {
+    const sector_lba = handle.bpb.first_data_sector + (handle.cluster - 2) * @as(u32, handle.bpb.sectors_per_cluster);
+    return sector_lba + offset_in_cluster / 512;
+}
+
+/// Per-iteration geometry shared by the sector IO loops: LBA, byte offset
+/// within that sector, and how many bytes remain until the sector boundary.
+const SectorWindow = struct { lba: u32, off: u32, capacity: u32 };
+
+fn sector_window(handle: *FileHandle) SectorWindow {
+    const cluster_size = @as(u32, handle.bpb.sectors_per_cluster) * 512;
+    const off = (handle.offset % cluster_size) % 512;
+    return .{
+        .lba = current_sector_lba(handle, handle.offset % cluster_size),
+        .off = off,
+        .capacity = 512 - off,
+    };
+}
+
+/// Advance to the next cluster. Returns false on EOF, true on success.
+fn advance_cluster(handle: *FileHandle) bool {
+    const next_cluster = get_fat_entry(handle.drive, handle.bpb, handle.cluster);
+    const eof_val: u32 = switch (handle.bpb.fat_type) {
+        .FAT12  => 0xFF8,
+        .FAT16  => 0xFFF8,
+        .FAT32  => 0x0FFFFFF8,
+        else   => 0xFFF8,
+    };
+    if (next_cluster >= eof_val) return false;
+    handle.cluster = next_cluster;
+    return true;
+}
+
+/// Allocate and link a new cluster chain for writing. Returns false if
+/// allocation fails.
+fn allocate_next_cluster(handle: *FileHandle) bool {
+    const new_cluster = find_free_cluster(handle.drive, handle.bpb) orelse return false;
+    const eof_val: u32 = switch (handle.bpb.fat_type) {
+        .FAT12  => 0xFF8,
+        .FAT16  => 0xFFF8,
+        .FAT32  => 0x0FFFFFF8,
+        else   => 0xFFF8,
+    };
+    set_fat_entry(handle.drive, handle.bpb, handle.cluster, new_cluster);
+    set_fat_entry(handle.drive, handle.bpb, new_cluster, eof_val);
+    handle.cluster = new_cluster;
+    return true;
+}
+
 pub fn fat_gets(handle: *FileHandle, buffer: [*]u8, max_len: u32) i32 {
     if (handle.offset >= handle.size) return -1;
 
     var bytes_read: u32 = 0;
-    const cluster_size = @as(u32, handle.bpb.sectors_per_cluster) * 512;
     var sector_buf: [512]u8 = undefined;
 
     while (bytes_read < max_len and handle.offset < handle.size) {
-        const sector_lba = handle.bpb.first_data_sector + (handle.cluster - 2) * @as(u32, handle.bpb.sectors_per_cluster);
-        const offset_in_cluster = handle.offset % cluster_size;
-        const sector_offset = offset_in_cluster / 512;
+        const win = sector_window(handle);
+        ata.read_sector(handle.drive, win.lba, &sector_buf);
 
-        const lba = sector_lba + sector_offset;
-        ata.read_sector(handle.drive, @intCast(lba), &sector_buf);
-
-        const remaining_in_sector = 512 - (offset_in_cluster % 512);
-        const to_read = @min(remaining_in_sector, max_len - bytes_read);
+        const to_read = @min(win.capacity, max_len - bytes_read);
 
         var j: u32 = 0;
         while (j < to_read and handle.offset < handle.size) {
-            const ch = sector_buf[(offset_in_cluster % 512) + j];
+            const ch = sector_buf[win.off + j];
             buffer[bytes_read] = ch;
             bytes_read += 1;
             handle.offset += 1;
@@ -254,16 +299,7 @@ pub fn fat_gets(handle: *FileHandle, buffer: [*]u8, max_len: u32) i32 {
         }
 
         if (j < to_read) break;
-
-        const next_cluster = get_fat_entry(handle.drive, handle.bpb, handle.cluster);
-        const eof_val: u32 = switch (handle.bpb.fat_type) {
-            .FAT12 => 0xFF8,
-            .FAT16 => 0xFFF8,
-            .FAT32 => 0x0FFFFFF8,
-            else => 0xFFF8,
-        };
-        if (next_cluster >= eof_val) break;
-        handle.cluster = next_cluster;
+        if (!advance_cluster(handle)) break;
     }
 
     if (bytes_read == 0 and handle.offset >= handle.size) return -1;
@@ -276,44 +312,57 @@ pub fn fat_puts(handle: *FileHandle, str: [*]const u8, len: u32) i32 {
     const cluster_size = @as(u32, handle.bpb.sectors_per_cluster) * 512;
     var sector_buf: [512]u8 = undefined;
     var written: u32 = 0;
+    const eof_val: u32 = switch (handle.bpb.fat_type) {
+        .FAT12 => 0xFF8,
+        .FAT16 => 0xFFF8,
+        .FAT32 => 0x0FFFFFF8,
+        else => 0xFFF8,
+    };
 
     while (written < len) {
-        const sector_lba = handle.bpb.first_data_sector + (handle.cluster - 2) * @as(u32, handle.bpb.sectors_per_cluster);
-        const offset_in_cluster = handle.offset % cluster_size;
-        const sector_offset = offset_in_cluster / 512;
-        const lba = sector_lba + sector_offset;
+        // A positive multiple of cluster_size means the next byte starts
+        // a fresh cluster: walk node offset/cluster_size from the chain
+        // head before the sector geometry runs. The old ceil() compare
+        // read handle.size after it was committed, so it never fired and
+        // long writes wrapped onto the file start; lseek can also park
+        // handle.cluster on an EOF sentinel at exact EOF.
+        if (handle.offset > 0 and handle.offset % cluster_size == 0) {
+            const ent = find_entry_literal(handle.drive, handle.bpb, handle.dir_cluster, handle.name) orelse return -1;
+            var cur = @as(u32, ent.first_cluster_low) | (@as(u32, ent.first_cluster_high) << 16);
+            const want = handle.offset / cluster_size;
+            var i: u32 = 0;
+            while (i < want) {
+                if (cur < 2) return -1;
+                const nx = get_fat_entry(handle.drive, handle.bpb, cur);
+                if (nx >= 2 and nx < eof_val) {
+                    cur = nx;
+                    i += 1;
+                    continue;
+                }
+                // Chain ends short of `want`: grow it from the tail; a
+                // longer chain (overwrite) is reused by the walk above.
+                handle.cluster = cur;
+                if (!allocate_next_cluster(handle)) return -1;
+                cur = handle.cluster;
+                i += 1;
+            }
+            handle.cluster = cur;
+        }
+        const win = sector_window(handle);
+        const to_write = @min(win.capacity, len - written);
 
-        const offset_in_sector = offset_in_cluster % 512;
-        const to_write = @min(512 - offset_in_sector, len - written);
-
-        if (offset_in_sector > 0) {
-            ata.read_sector(handle.drive, @intCast(lba), &sector_buf);
+        if (win.off > 0) {
+            ata.read_sector(handle.drive, win.lba, &sector_buf);
         }
 
-        @memcpy(sector_buf[offset_in_sector .. offset_in_sector + to_write], str[written .. written + to_write]);
-        ata.write_sector(handle.drive, @intCast(lba), &sector_buf);
+        @memcpy(sector_buf[win.off .. win.off + to_write], str[written .. written + to_write]);
+        ata.write_sector(handle.drive, win.lba, &sector_buf);
 
         written += to_write;
         handle.offset += to_write;
 
         if (handle.offset > handle.size) {
             handle.size = handle.offset;
-        }
-
-        const new_cluster_needed = (handle.offset + cluster_size - 1) / cluster_size;
-        const current_cluster = (handle.size + cluster_size - 1) / cluster_size;
-
-        if (new_cluster_needed > current_cluster) {
-            const new_cluster = find_free_cluster(handle.drive, handle.bpb) orelse return -1;
-            const eof_val: u32 = switch (handle.bpb.fat_type) {
-                .FAT12 => 0xFF8,
-                .FAT16 => 0xFFF8,
-                .FAT32 => 0x0FFFFFF8,
-                else => 0xFFF8,
-            };
-            set_fat_entry(handle.drive, handle.bpb, handle.cluster, new_cluster);
-            set_fat_entry(handle.drive, handle.bpb, new_cluster, eof_val);
-            handle.cluster = new_cluster;
         }
     }
 
@@ -356,18 +405,29 @@ pub const free_cluster_chain = dir.free_cluster_chain;
 pub const add_directory_entry = dir.add_directory_entry;
 
 pub fn read_file(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u8, output: [*]u8) i32 {
+    return read_file_bounded(drive, bpb, dir_cluster, path, output, 0xFFFFFFFF);
+}
+
+pub fn read_file_bounded(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u8, output: [*]u8, max_len: u32) i32 {
     if (resolve_path(drive, bpb, dir_cluster, path)) |res| {
-        return read_file_literal(drive, bpb, res.dir_cluster, res.file_name, output);
+        return read_file_literal_bounded(drive, bpb, res.dir_cluster, res.file_name, output, max_len);
     }
     return -1;
 }
 
 pub fn read_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []const u8, output: [*]u8) i32 {
+    return read_file_literal_bounded(drive, bpb, dir_cluster, name, output, 0xFFFFFFFF);
+}
+
+/// Bounded core: writes at most max_len bytes. Callers that validated
+/// a user buffer must pass its size — a bigger file would otherwise
+/// run straight past the checked range.
+pub fn read_file_literal_bounded(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []const u8, output: [*]u8, max_len: u32) i32 {
     const entry = find_entry_literal(drive, bpb, dir_cluster, name) orelse return -1;
 
     var current_cluster = @as(u32, entry.first_cluster_low) | (@as(u32, entry.first_cluster_high) << 16);
     var bytes_read: u32 = 0;
-    const total_size = entry.file_size;
+    const total_size = @min(entry.file_size, max_len);
 
     const eof_val = switch (bpb.fat_type) {
         .FAT12 => @as(u32, 0xFF8),
@@ -454,7 +514,12 @@ pub fn append_to_file(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []cons
 fn get_last_cluster(drive: ata.Drive, bpb: BPB, start_cluster: u32) u32 {
     var current = start_cluster;
     if (current == 0) return 0;
-    const eof_limit = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+    const eof_limit = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFF8),
+        .FAT16 => @as(u32, 0xFFF8),
+        .FAT32 => @as(u32, 0x0FFFFFF8),
+        else => @as(u32, 0xFFF8),
+    };
     while (true) {
         const next = get_fat_entry(drive, bpb, current);
         if (next < 2 or next >= eof_limit) return current;
@@ -476,7 +541,12 @@ fn append_to_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []
     var current_cluster = get_last_cluster(drive, bpb, start_cluster);
     var bytes_written: u32 = 0;
     var offset_in_cluster = old_size % bytes_per_cluster;
-    const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFFF) else @as(u32, 0xFFFF);
+    const eof_val = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFFF),
+        .FAT16 => @as(u32, 0xFFFF),
+        .FAT32 => @as(u32, 0x0FFFFFFF),
+        else => @as(u32, 0xFFFF),
+    };
 
     if (old_size > 0 and offset_in_cluster == 0) {
         const next = find_free_cluster(drive, bpb) orelse return false;
@@ -528,11 +598,42 @@ fn write_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []cons
     var entry_attr: u8 = 0x20;
     const exists = find_entry_literal(drive, bpb, dir_cluster, name);
 
+    if (config.ENABLE_FAT_DEBUG) {
+        common.printZ("DBG wfl: exists=");
+        if (exists) |_| { common.printZ("Y"); } else { common.printZ("N"); }
+        common.printZ(" dir_cluster="); common.printNum(@intCast(dir_cluster));
+        common.printZ(" name=\""); common.printZ(name); common.printZ("\"");
+        common.printZ(" root_ent="); common.printNum(@intCast(bpb.root_entries));
+        common.printZ(" root_sec="); common.printNum(@intCast(bpb.root_dir_sectors));
+        common.printZ(" frs="); common.printNum(@intCast(bpb.first_root_dir_sector));
+        common.printZ(" fds="); common.printNum(@intCast(bpb.first_data_sector));
+        common.printZ(" nfat="); common.printNum(@intCast(bpb.num_fats));
+        common.printZ(" spf="); common.printNum(@intCast(bpb.sectors_per_fat));
+        common.printZ(" spc="); common.printNum(@intCast(bpb.sectors_per_cluster));
+        common.printZ("\n");
+
+    }
     if (exists) |entry| {
         if ((entry.attr & 0x04) != 0) {
             return false;
         }
         entry_attr = entry.attr | 0x20;
+        // Overwrites must target the file's OWN chain. With cluster left
+        // at 0 the write below computes lba = first_data_sector - 2*spc,
+        // inside the FAT/root region: directory metadata gets trashed
+        // while the real clusters never change (stale reads, empty ls).
+        cluster = @as(u32, entry.first_cluster_low) | (@as(u32, entry.first_cluster_high) << 16);
+        if (cluster < 2) {
+            cluster = find_free_cluster(drive, bpb) orelse return false;
+            const eof0: u32 = switch (bpb.fat_type) {
+                .FAT12 => 0xFFF,
+                .FAT16 => 0xFFFF,
+                .FAT32 => 0x0FFFFFFF,
+                else => 0xFFFF,
+            };
+            set_fat_entry(drive, bpb, cluster, eof0);
+            if (!update_entry_cluster_literal(drive, bpb, dir_cluster, name, cluster)) return false;
+        }
     } else {
         cluster = find_free_cluster(drive, bpb) orelse return false;
         const eof_val: u32 = switch (bpb.fat_type) {
@@ -548,7 +649,12 @@ fn write_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []cons
 
     var bytes_written: u32 = 0;
     var current_cluster = cluster;
-    const eof_val: u32 = if (bpb.fat_type == .FAT12) 0xFFF else 0xFFFF;
+    const eof_val: u32 = switch (bpb.fat_type) {
+        .FAT12 => 0xFFF,
+        .FAT16 => 0xFFFF,
+        .FAT32 => 0x0FFFFFFF,
+        else => 0xFFFF,
+    };
 
     while (bytes_written < data.len) {
         const lba = bpb.first_data_sector + (current_cluster - 2) * bpb.sectors_per_cluster;
@@ -564,7 +670,13 @@ fn write_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []cons
 
         if (bytes_written < data.len) {
             var next = get_fat_entry(drive, bpb, current_cluster);
-            if (next >= (if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8))) {
+            const grow_eof = switch (bpb.fat_type) {
+                .FAT12 => @as(u32, 0xFF8),
+                .FAT16 => @as(u32, 0xFFF8),
+                .FAT32 => @as(u32, 0x0FFFFFF8),
+                else => @as(u32, 0xFFF8),
+            };
+            if (next >= grow_eof) {
                 next = find_free_cluster(drive, bpb) orelse return false;
                 set_fat_entry(drive, bpb, current_cluster, next);
                 set_fat_entry(drive, bpb, next, eof_val);
@@ -587,6 +699,21 @@ fn write_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []cons
 
     const final_size: u32 = @intCast(data.len);
     return update_entry_size_literal(drive, bpb, dir_cluster, name, final_size);
+}
+
+fn update_entry_cluster_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []const u8, cluster: u32) bool {
+    const loc = find_entry_location_literal(drive, bpb, dir_cluster, name) orelse return false;
+    var buffer: [512]u8 = undefined;
+    ata.read_sector(drive, loc.sector, &buffer);
+
+    const i = loc.offset;
+    buffer[i + 20] = @intCast((cluster >> 16) & 0xFF);
+    buffer[i + 21] = @intCast((cluster >> 24) & 0xFF);
+    buffer[i + 26] = @intCast(cluster & 0xFF);
+    buffer[i + 27] = @intCast((cluster >> 8) & 0xFF);
+
+    ata.write_sector(drive, loc.sector, &buffer);
+    return true;
 }
 
 fn update_entry_size_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []const u8, size: u32) bool {

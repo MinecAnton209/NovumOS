@@ -1,6 +1,6 @@
 // Nova Language - Main export module
-const interpreter = @import("nova_legacy/interpreter.zig");
-const user = @import("user.zig");
+const interpreter = @import("../nova_legacy/interpreter.zig");
+const user = @import("../arch/mod.zig").user;
 
 // Global storage for arguments when jumping to Ring 3
 pub var ring3_arg_ptr: [*]const u8 = undefined;
