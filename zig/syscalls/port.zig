@@ -20,9 +20,14 @@ fn is_io_port_allowed(port: u16) bool {
     if (port == 0x70 or port == 0x71) return false;
     // Block DMA Controllers
     if (port <= 0x1F or (port >= 0xC0 and port <= 0xDF)) return false;
-    // Block Primary/Secondary ATA (Hard Disk)
+    // Block DMA page registers (scatter addresses of DMA buffers)
+    if (port >= 0x81 and port <= 0x8F) return false;
+    // Block Primary/Secondary ATA (Hard Disk) + alternate status
     if (port >= 0x1F0 and port <= 0x1F7) return false;
-    if (port == 0x3F6) return false;
+    if (port >= 0x170 and port <= 0x177) return false;
+    if (port == 0x3F6 or port == 0x376) return false;
+    // Block A20 gate controller (re-enable → physical address wrap)
+    if (port == 0x92) return false;
     // Block PCI Configuration Ports
     if (port == 0xCF8 or port == 0xCFC) return false;
     // Allow everything else (VGA, Serial COM1/COM2)
