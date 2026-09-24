@@ -89,6 +89,14 @@ pub fn is_path_allowed(path: []const u8) bool {
             logger.security("Path policy: blocked prefix path");
             return false;
         }
+        // canonicalize drops the trailing slash, so "/boot" must also
+        // match the "/boot/" prefix form — it resolves into that dir.
+        if (prefix.len > 0 and prefix[prefix.len - 1] == '/' and
+            common.std_mem_eql(canon, prefix[0 .. prefix.len - 1]))
+        {
+            logger.security("Path policy: blocked prefix path");
+            return false;
+        }
     }
 
     return true;
