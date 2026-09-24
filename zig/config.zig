@@ -23,7 +23,6 @@ pub const WATCHDOG_CHANCE_TIMER = 1 + (BUILD_HASH % 8); // 1-8
 pub const ENABLE_SPEAKER = true;
 pub const ENABLE_BOOT_BEEP = true;
 pub const ENABLE_ERROR_BEEP = true;
-pub const ENABLE_NOTIFICATION_BEEP = true;
 
 // Nova (CVE-2026-40573 mitigation)
 pub const NOVA_PATH_POLICY_ENABLED = true; // Kill-switch for path policy
