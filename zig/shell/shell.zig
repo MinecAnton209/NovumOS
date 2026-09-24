@@ -21,6 +21,7 @@ const mouse = @import("../kernel/mouse.zig");
 const speaker = @import("../drivers/speaker.zig");
 const speaker_timer = @import("../drivers/timer.zig");
 const quantum = @import("../kernel/quantum.zig");
+const memory = @import("../kernel/memory.zig");
 
 extern const mb2_info: u32;
 extern const fb_addr: u32;
@@ -172,6 +173,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "qtest", .help = "qtest - Bell state and Pauli-X self test", .handler = cmd_handler_qtest, .kind = .custom },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
     .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = no_args_handler(&shell_cmds.cmd_panic), .kind = .no_args },
+    .{ .name = "crash", .help = "Alias for panic - trigger a CPU exception", .handler = no_args_handler(&shell_cmds.cmd_panic), .kind = .no_args },
     .{ .name = "abort", .help = "Trigger a manual kernel panic", .handler = no_args_handler(&shell_cmds.cmd_abort), .kind = .no_args },
     .{ .name = "invalid_op", .help = "Trigger an Invalid Opcode exception", .handler = no_args_handler(&shell_cmds.cmd_invalid_op), .kind = .no_args },
     .{ .name = "stack_overflow", .help = "Trigger a Double Fault via stack overflow", .handler = no_args_handler(&shell_cmds.cmd_stack_overflow), .kind = .no_args },
@@ -435,7 +437,9 @@ fn save_history_to_disk() void {
     const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
 
     if (fat.read_bpb(drive)) |bpb| {
-        var join_buf: [HISTORY_SIZE * 1024]u8 = [_]u8{0} ** (HISTORY_SIZE * 1024);
+        const buf_ptr = memory.heap.alloc(HISTORY_SIZE * 1024) orelse return;
+        defer memory.heap.free(buf_ptr);
+        const join_buf = buf_ptr[0 .. HISTORY_SIZE * 1024];
         var offset: usize = 0;
 
         var i: u8 = 0;
@@ -458,8 +462,10 @@ fn load_history_from_disk() void {
     const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
 
     if (fat.read_bpb(drive)) |bpb| {
-        var load_buf: [HISTORY_SIZE * 1024]u8 = [_]u8{0} ** (HISTORY_SIZE * 1024);
-        const read = fat.read_file(drive, bpb, 0, ".HISTORY", &load_buf);
+        const load_ptr = memory.heap.alloc(HISTORY_SIZE * 1024) orelse return;
+        defer memory.heap.free(load_ptr);
+        const load_buf = load_ptr[0 .. HISTORY_SIZE * 1024];
+        const read = fat.read_file(drive, bpb, 0, ".HISTORY", load_ptr);
         if (read <= 0) return;
 
         history_count = 0;
