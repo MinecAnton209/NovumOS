@@ -68,7 +68,7 @@ pub fn readFile(regs: *user.Registers) void {
         regs.eax = 0xFFFFFFFF;
         return;
     }
-    const bytes = fat.read_file(state[0], state[1], 0, path, @ptrFromInt(regs.ecx));
+    const bytes = fat.read_file_bounded(state[0], state[1], 0, path, @ptrFromInt(regs.ecx), regs.edx);
     if (bytes < 0) {
         regs.eax = 0xFFFFFFFF;
     } else {

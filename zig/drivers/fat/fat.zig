@@ -46,6 +46,7 @@ pub const find_free_cluster = dir.find_free_cluster;
 pub const free_cluster_chain = dir.free_cluster_chain;
 
 pub const read_file = file.read_file;
+pub const read_file_bounded = file.read_file_bounded;
 pub const read_file_literal = file.read_file_literal;
 pub const stream_to_console = file.stream_to_console;
 pub const stream_to_console_literal = file.stream_to_console_literal;

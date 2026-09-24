@@ -378,18 +378,29 @@ pub const free_cluster_chain = dir.free_cluster_chain;
 pub const add_directory_entry = dir.add_directory_entry;
 
 pub fn read_file(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u8, output: [*]u8) i32 {
+    return read_file_bounded(drive, bpb, dir_cluster, path, output, 0xFFFFFFFF);
+}
+
+pub fn read_file_bounded(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u8, output: [*]u8, max_len: u32) i32 {
     if (resolve_path(drive, bpb, dir_cluster, path)) |res| {
-        return read_file_literal(drive, bpb, res.dir_cluster, res.file_name, output);
+        return read_file_literal_bounded(drive, bpb, res.dir_cluster, res.file_name, output, max_len);
     }
     return -1;
 }
 
 pub fn read_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []const u8, output: [*]u8) i32 {
+    return read_file_literal_bounded(drive, bpb, dir_cluster, name, output, 0xFFFFFFFF);
+}
+
+/// Bounded core: writes at most max_len bytes. Callers that validated
+/// a user buffer must pass its size — a bigger file would otherwise
+/// run straight past the checked range.
+pub fn read_file_literal_bounded(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []const u8, output: [*]u8, max_len: u32) i32 {
     const entry = find_entry_literal(drive, bpb, dir_cluster, name) orelse return -1;
 
     var current_cluster = @as(u32, entry.first_cluster_low) | (@as(u32, entry.first_cluster_high) << 16);
     var bytes_read: u32 = 0;
-    const total_size = entry.file_size;
+    const total_size = @min(entry.file_size, max_len);
 
     const eof_val = switch (bpb.fat_type) {
         .FAT12 => @as(u32, 0xFF8),

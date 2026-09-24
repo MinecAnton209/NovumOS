@@ -42,6 +42,7 @@ pub const find_free_cluster = fat.find_free_cluster;
 pub const free_cluster_chain = fat.free_cluster_chain;
 
 pub const read_file = fat.read_file;
+pub const read_file_bounded = fat.read_file_bounded;
 pub const read_file_literal = fat.read_file_literal;
 pub const stream_to_console = fat.stream_to_console;
 pub const stream_to_console_literal = fat.stream_to_console_literal;
