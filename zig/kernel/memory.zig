@@ -933,9 +933,30 @@ pub const heap = struct {
             return false;
         }
 
+        // Validate the header's own claims BEFORE using them as offsets:
+        // ring 3 shares this heap (USER RW), so a stray write can set
+        // size/requested to anything and the canary offset computed from
+        // them would otherwise be dereferenced outside the region.
         const block_size = header.size;
+        if (block_size < MIN_BLOCK_SIZE or block_size > 128 * 1024 * 1024) {
+            if (safe) logger.security("Free: implausible block size");
+            return false;
+        }
+        if (!regionContains(header_addr, block_size)) {
+            if (safe) logger.security("Free: block spans outside heap regions");
+            return false;
+        }
+        if (header.requested > block_size) {
+            if (safe) logger.security("Free: requested exceeds block size");
+            return false;
+        }
+
         const aligned: u32 = (header.requested + 7) & ~@as(u32, 7);
         const canary_off: u32 = HEADER_SIZE + aligned;
+        if (@as(u64, canary_off) + CANARY_SIZE + FOOTER_SIZE > block_size) {
+            if (safe) logger.security("Free: requested/size mismatch");
+            return false;
+        }
         const stored = @as(*align(1) const u32, @ptrFromInt(@intFromPtr(header) + canary_off)).*;
         if (stored != END_CANARY) {
             if (safe) logger.security("Free: buffer overflow (END_CANARY corrupted)");
@@ -950,15 +971,6 @@ pub const heap = struct {
                     return false;
                 }
             }
-        }
-
-        if (block_size < MIN_BLOCK_SIZE or block_size > 128 * 1024 * 1024) {
-            if (safe) logger.security("Free: implausible block size");
-            return false;
-        }
-        if (!regionContains(header_addr, block_size)) {
-            if (safe) logger.security("Free: block spans outside heap regions");
-            return false;
         }
 
         const poison_len = block_size - HEADER_SIZE - FOOTER_SIZE;
