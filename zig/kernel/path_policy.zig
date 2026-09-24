@@ -7,11 +7,12 @@ const config = @import("../config.zig");
 const logger = @import("logger.zig");
 const common = @import("../commands/common.zig");
 
-/// Prefixes that are always blocked for untrusted processes
+/// Prefixes that are always blocked for untrusted processes. Entries
+/// stay lowercase: is_path_allowed folds the canon before matching.
 const BLOCKED_PREFIXES = [_][]const u8{
     "/boot/",
-    "/.SYSTEM/",
-    "/EFI/",
+    "/.system/",
+    "/efi/",
     "/initrd/",
     "/zig/",
 };
@@ -76,6 +77,12 @@ pub fn is_path_allowed(path: []const u8) bool {
         logger.security("Path policy: unresolvable path");
         return false;
     };
+
+    // FAT resolves names case-insensitively: fold the canon the same way
+    // or /BOOT/grub.cfg walks straight past the /boot/ blocklist.
+    for (canon_buf[0..canon.len]) |*c| {
+        if (c.* >= 'A' and c.* <= 'Z') c.* += 32;
+    }
 
     for (BLOCKED_EXACT) |blocked| {
         if (common.std_mem_eql(canon, blocked)) {
