@@ -38,6 +38,9 @@ pub const pmm = struct {
         BITMAP_SIZE = TOTAL_PAGES / 8;
 
         const kernel_end = @intFromPtr(&ebss);
+        // NOTE: runs single-threaded in early boot, before SMP and timer
+        // interrupts exist — bitmap zeroing and page reservation are
+        // lock-free by that assumption. Never call pmm.init after smp.init().
         for (&bitmap) |*b| b.* = 0;
         // Reserve memory for kernel, BIOS, and stack (up to 8MB)
         // Our stack is at 0x500000 (5MB), so 8MB is a safe bound.
@@ -360,8 +363,7 @@ fn create_page_table(pd_idx: u32) ?*PageTable {
         page_tables[pd_idx] = pt;
         // The first 16MB (indices 0-3) MUST have USER bit set in PDE to allow user access to kernel binary (Nova/Shell).
         // For higher indices, we keep them as Supervisor-only; map_page will upgrade if needed.
-        const attr: u32 = if (pd_idx < 4) 0x7 else 0x3;
-        page_directory[pd_idx] = @as(u32, @intCast(@intFromPtr(pt))) | attr;
+        page_directory[pd_idx] = @as(u32, @intCast(@intFromPtr(pt))) | 0x7;
         return pt;
     }
 
@@ -411,11 +413,24 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
     if (vaddr < 4096) return false;
     if (vaddr >= 0xDEAD0000 and vaddr <= 0xDEADFFFF) return false;
 
+    // Single gate for user-mode requests: must run before the huge-page
+    // fast path, which also writes page_directory entries and would
+    // otherwise grant USER bits without ever asking.
+    if (is_user and !check_user_permissions(vaddr)) return false;
+
     const pd_idx = vaddr >> 22;
 
     // --- Restore Huge Page (4MB) Activation ---
     const pde = &page_directory[pd_idx];
     if ((pde.* & 0x80) != 0) {
+        // PDE read-modify-write races with other cores demand-paging the
+        // same region — same lock discipline as the small-page path.
+        const eflags = interrupts_save();
+        smp.spin_lock(&paging_lock);
+        defer {
+            smp.spin_unlock(&paging_lock);
+            interrupts_restore(eflags);
+        }
         // If not present or (if user request) user bit missing
         if ((pde.* & 1) == 0 or (is_user and (pde.* & 4) == 0)) {
             pde.* |= 0x1; // Mark Present
@@ -430,9 +445,6 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
         }
         return true; // Already present
     }
-
-    // Security check for User Mode requests
-    if (is_user and !check_user_permissions(vaddr)) return false;
 
     const eflags = interrupts_save();
     smp.spin_lock(&paging_lock);
