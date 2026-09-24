@@ -1,8 +1,3 @@
-// zig/path_policy.zig
-// Path whitelist/blocklist for untrusted ELFs (Nova in Ring 3).
-// When NOVA_PATH_POLICY_ENABLED, blocks access to sensitive paths.
-// Gated by config.NOVA_PATH_POLICY_ENABLED kill-switch.
-
 const config = @import("../config.zig");
 const logger = @import("logger.zig");
 const common = @import("../commands/common.zig");

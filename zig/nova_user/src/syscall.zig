@@ -1,6 +1,3 @@
-// Centralized syscall helpers for Ring 3 (user mode).
-// All user-mode drivers call int 0x80 with the same register layout.
-
 pub fn syscall0(n: u32) u32 {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> u32),
