@@ -9,6 +9,8 @@ var pending_bytes: u8 = 0;
 pub fn init() void {
     detect_rdrand();
     seed_entropy();
+    // Warm reboot preserves RAM: drop any register from a previous session.
+    sim_n = 0;
 }
 
 fn detect_rdrand() void {
