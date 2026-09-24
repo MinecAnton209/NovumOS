@@ -9,6 +9,7 @@ const vga = @import("../drivers/vga.zig");
 
 /// Syscall 53: ShellExec(EBX = cmd_ptr, ECX = cmd_len) — execute a shell command string
 pub fn shellExec(regs: *user.Registers) void {
+    if (!user.checkPrivilege(regs, "ShellExec")) return;
     const ptr = regs.ebx;
     const len: usize = @intCast(regs.ecx);
     if (len > 0 and len <= syscalls.MAX_SYSCALL_STR_LEN and syscalls.is_safe_user_range(ptr, len)) {
