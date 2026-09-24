@@ -688,7 +688,8 @@ fn delete_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []con
 
     if (!mark_entry_deleted(drive, bpb, dir_cluster, name)) return false;
 
-    free_cluster_chain(drive, bpb, entry.first_cluster_low);
+    const start = @as(u32, entry.first_cluster_low) | (@as(u32, entry.first_cluster_high) << 16);
+    free_cluster_chain(drive, bpb, start);
 
     return true;
 }
@@ -721,7 +722,12 @@ pub fn is_directory_empty(drive: ata.Drive, bpb: BPB, dir_cluster: u32) bool {
     if (dir_cluster == 0) return false;
 
     var current = dir_cluster;
-    const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+    const eof_val = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFF8),
+        .FAT16 => @as(u32, 0xFFF8),
+        .FAT32 => @as(u32, 0x0FFFFFF8),
+        else => @as(u32, 0xFFF8),
+    };
     while (current < eof_val) {
         const lba = bpb.first_data_sector + (current - 2) * bpb.sectors_per_cluster;
         var s: u32 = 0;
@@ -760,7 +766,12 @@ pub fn delete_all_in_directory(drive: ata.Drive, bpb: BPB, dir_cluster: u32, rec
         }
     } else {
         var current = dir_cluster;
-        const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+        const eof_val = switch (bpb.fat_type) {
+            .FAT12 => @as(u32, 0xFF8),
+            .FAT16 => @as(u32, 0xFFF8),
+            .FAT32 => @as(u32, 0x0FFFFFF8),
+            else => @as(u32, 0xFFF8),
+        };
         while (current < eof_val) {
             const lba = bpb.first_data_sector + (current - 2) * bpb.sectors_per_cluster;
             var s: u32 = 0;
@@ -888,7 +899,12 @@ pub fn copy_file_literal(drive: ata.Drive, bpb: BPB, src_dir: u32, src_name: []c
     if ((src_entry.attr & 0x10) != 0) return false;
 
     const dest_cluster = find_free_cluster(drive, bpb) orelse return false;
-    const fat_eof = if (bpb.fat_type == .FAT12) @as(u32, 0xFFF) else @as(u32, 0xFFFF);
+    const fat_eof = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFFF),
+        .FAT16 => @as(u32, 0xFFFF),
+        .FAT32 => @as(u32, 0x0FFFFFFF),
+        else => @as(u32, 0xFFFF),
+    };
     set_fat_entry(drive, bpb, dest_cluster, fat_eof);
 
     if (!add_directory_entry(drive, bpb, dest_dir, dest_name, dest_cluster, src_entry.file_size, src_entry.attr)) {
@@ -898,7 +914,12 @@ pub fn copy_file_literal(drive: ata.Drive, bpb: BPB, src_dir: u32, src_name: []c
 
     var current_src = @as(u32, src_entry.first_cluster_low);
     var current_dest = dest_cluster;
-    const eof_limit = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+    const eof_limit = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFF8),
+        .FAT16 => @as(u32, 0xFFF8),
+        .FAT32 => @as(u32, 0x0FFFFFF8),
+        else => @as(u32, 0xFFF8),
+    };
 
     var sector_buf: [512]u8 = undefined;
     while (current_src < eof_limit) {
@@ -950,7 +971,12 @@ pub fn copy_directory_literal(drive: ata.Drive, bpb: BPB, src_parent: u32, src_n
 fn copy_all_entries(drive: ata.Drive, bpb: BPB, src_cluster: u32, dest_cluster: u32) void {
     var buffer: [512]u8 = undefined;
     var current = src_cluster;
-    const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+    const eof_val = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFF8),
+        .FAT16 => @as(u32, 0xFFF8),
+        .FAT32 => @as(u32, 0x0FFFFFF8),
+        else => @as(u32, 0xFFF8),
+    };
 
     while (current < eof_val) {
         const lba = bpb.first_data_sector + (current - 2) * bpb.sectors_per_cluster;
@@ -987,7 +1013,12 @@ fn copy_entry_recursive(drive: ata.Drive, bpb: BPB, src_dir_cluster: u32, name: 
 pub fn free_cluster_chain(drive: ata.Drive, bpb: BPB, start_cluster: u32) void {
     if (start_cluster < 2) return;
     var current = start_cluster;
-    const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+    const eof_val = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFF8),
+        .FAT16 => @as(u32, 0xFFF8),
+        .FAT32 => @as(u32, 0x0FFFFFF8),
+        else => @as(u32, 0xFFF8),
+    };
 
     while (current < eof_val) {
         const next = get_fat_entry(drive, bpb, current);

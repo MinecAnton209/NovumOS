@@ -476,7 +476,12 @@ pub fn append_to_file(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []cons
 fn get_last_cluster(drive: ata.Drive, bpb: BPB, start_cluster: u32) u32 {
     var current = start_cluster;
     if (current == 0) return 0;
-    const eof_limit = if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8);
+    const eof_limit = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFF8),
+        .FAT16 => @as(u32, 0xFFF8),
+        .FAT32 => @as(u32, 0x0FFFFFF8),
+        else => @as(u32, 0xFFF8),
+    };
     while (true) {
         const next = get_fat_entry(drive, bpb, current);
         if (next < 2 or next >= eof_limit) return current;
@@ -498,7 +503,12 @@ fn append_to_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []
     var current_cluster = get_last_cluster(drive, bpb, start_cluster);
     var bytes_written: u32 = 0;
     var offset_in_cluster = old_size % bytes_per_cluster;
-    const eof_val = if (bpb.fat_type == .FAT12) @as(u32, 0xFFF) else @as(u32, 0xFFFF);
+    const eof_val = switch (bpb.fat_type) {
+        .FAT12 => @as(u32, 0xFFF),
+        .FAT16 => @as(u32, 0xFFFF),
+        .FAT32 => @as(u32, 0x0FFFFFFF),
+        else => @as(u32, 0xFFFF),
+    };
 
     if (old_size > 0 and offset_in_cluster == 0) {
         const next = find_free_cluster(drive, bpb) orelse return false;
@@ -601,7 +611,12 @@ fn write_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []cons
 
     var bytes_written: u32 = 0;
     var current_cluster = cluster;
-    const eof_val: u32 = if (bpb.fat_type == .FAT12) 0xFFF else 0xFFFF;
+    const eof_val: u32 = switch (bpb.fat_type) {
+        .FAT12 => 0xFFF,
+        .FAT16 => 0xFFFF,
+        .FAT32 => 0x0FFFFFFF,
+        else => 0xFFFF,
+    };
 
     while (bytes_written < data.len) {
         const lba = bpb.first_data_sector + (current_cluster - 2) * bpb.sectors_per_cluster;
@@ -617,7 +632,13 @@ fn write_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []cons
 
         if (bytes_written < data.len) {
             var next = get_fat_entry(drive, bpb, current_cluster);
-            if (next >= (if (bpb.fat_type == .FAT12) @as(u32, 0xFF8) else @as(u32, 0xFFF8))) {
+            const grow_eof = switch (bpb.fat_type) {
+                .FAT12 => @as(u32, 0xFF8),
+                .FAT16 => @as(u32, 0xFFF8),
+                .FAT32 => @as(u32, 0x0FFFFFF8),
+                else => @as(u32, 0xFFF8),
+            };
+            if (next >= grow_eof) {
                 next = find_free_cluster(drive, bpb) orelse return false;
                 set_fat_entry(drive, bpb, current_cluster, next);
                 set_fat_entry(drive, bpb, next, eof_val);
