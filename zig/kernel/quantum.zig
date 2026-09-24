@@ -124,18 +124,26 @@ pub fn randByte() u8 {
     return get_entropy_byte();
 }
 
-/// Bell state |Φ⁺⟩ = (|00⟩ + |11⟩) / √2 — two bytes that match
-/// almost every bit (~98 %) with simulated decoherence.
+/// Two bytes correlated bit-by-bit through a real Bell state: for each
+/// bit, |00⟩ → H(0) → CNOT(0,1) → measure both qubits. Ideal
+/// simulation ⇒ the pair always matches (no fake decoherence).
 pub fn entangledPair() [2]u8 {
-    const a = randByte();
+    const eflags = simEnter();
+    defer simLeave(eflags);
+
+    var a: u8 = 0;
     var b: u8 = 0;
-    for (0..8) |i| {
-        const bit = (a >> @as(u3, @intCast(i))) & 1;
-        if (get_entropy_byte() < 250) {
-            b |= bit << @as(u3, @intCast(i));
-        } else {
-            b |= (bit ^ 1) << @as(u3, @intCast(i));
+    for (0..8) |bit_idx| {
+        switch (simInitLocked(2)) {
+            .ok => {},
+            else => break,
         }
+        _ = applyHLocked(0);
+        _ = applyCNOTLocked(0, 1);
+        const m0 = measureLocked(0) orelse break;
+        const m1 = measureLocked(1) orelse break;
+        if (m0) a |= @as(u8, 1) << @as(u3, @intCast(bit_idx));
+        if (m1) b |= @as(u8, 1) << @as(u3, @intCast(bit_idx));
     }
     return .{ a, b };
 }
@@ -170,10 +178,47 @@ pub const InitResult = union(enum) {
     oom: usize,
 };
 
+// The register is global state reachable from the shell, syscall 57 and
+// any SMP core — every public entry takes this lock. Ring 0 callers run
+// cli'd; ring 3 cannot cli, but an interrupted ring-3 section is safe:
+// schedule() never touches simulator state.
+var sim_lock: u32 = 0;
+
+fn simEnter() u32 {
+    var eflags: u32 = undefined;
+    asm volatile ("pushfl; popl %[f]"
+        : [f] "=r" (eflags),
+    );
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) asm volatile ("cli");
+    while (@atomicRmw(u32, &sim_lock, .Xchg, 1, .acquire) == 1) {
+        asm volatile ("pause");
+    }
+    return eflags;
+}
+
+fn simLeave(eflags: u32) void {
+    @atomicStore(u32, &sim_lock, 0, .release);
+    asm volatile ("pushl %[f]; popfl"
+        :
+        : [f] "r" (eflags),
+        : .{ .memory = true });
+}
+
+pub fn simInit(n: usize) InitResult {
+    const eflags = simEnter();
+    defer simLeave(eflags);
+    return simInitLocked(n);
+}
+
 /// Reset the register to |0…0⟩ with n qubits. The buffer comes from the
 /// kernel heap; sizes that would eat into the 32 MB OS reserve are
 /// refused with the actual numbers so qinit can print them.
-pub fn simInit(n: usize) InitResult {
+/// Caller must hold the sim lock.
+fn simInitLocked(n: usize) InitResult {
     if (n == 0 or n > MAX_QUBITS) return .{ .bad_qubits = {} };
 
     var dim: usize = 1;
@@ -210,7 +255,8 @@ pub fn simInit(n: usize) InitResult {
 }
 
 fn initOk(n: usize) bool {
-    return switch (simInit(n)) {
+    // Called only from selfTest, which holds the sim lock.
+    return switch (simInitLocked(n)) {
         .ok => true,
         else => false,
     };
@@ -221,6 +267,12 @@ fn qubitOk(q: usize) bool {
 }
 
 pub fn applyX(target: usize) bool {
+    const eflags = simEnter();
+    defer simLeave(eflags);
+    return applyXLocked(target);
+}
+
+fn applyXLocked(target: usize) bool {
     if (!qubitOk(target)) return false;
     const amps = sim_amps.?;
     const bit = sim_bits[target];
@@ -238,6 +290,12 @@ pub fn applyX(target: usize) bool {
 }
 
 pub fn applyH(target: usize) bool {
+    const eflags = simEnter();
+    defer simLeave(eflags);
+    return applyHLocked(target);
+}
+
+fn applyHLocked(target: usize) bool {
     if (!qubitOk(target)) return false;
     const amps = sim_amps.?;
     const bit = sim_bits[target];
@@ -257,6 +315,12 @@ pub fn applyH(target: usize) bool {
 }
 
 pub fn applyCNOT(control: usize, target: usize) bool {
+    const eflags = simEnter();
+    defer simLeave(eflags);
+    return applyCNOTLocked(control, target);
+}
+
+fn applyCNOTLocked(control: usize, target: usize) bool {
     if (!qubitOk(control) or !qubitOk(target) or control == target) return false;
     const amps = sim_amps.?;
     const cbit = sim_bits[control];
@@ -291,6 +355,13 @@ fn randFloat() f64 {
 /// with the target bit set. After drawing the outcome, incompatible
 /// amplitudes are zeroed and the survivors renormalized.
 pub fn measure(target: usize) ?bool {
+    const eflags = simEnter();
+    defer simLeave(eflags);
+    return measureLocked(target);
+}
+
+/// Caller must hold the sim lock.
+fn measureLocked(target: usize) ?bool {
     if (!qubitOk(target)) return null;
     const amps = sim_amps.?;
     const bit = sim_bits[target];
@@ -334,6 +405,9 @@ pub const TestResult = struct {
 /// Self-check: X|0⟩ must measure 1, and Bell states may only yield
 /// 00 or 11 — any mixed result means CNOT or collapse is broken.
 pub fn selfTest(trials: usize) TestResult {
+    const eflags = simEnter();
+    defer simLeave(eflags);
+
     var res = TestResult{
         .x_ok = false,
         .trials = trials,
@@ -342,9 +416,9 @@ pub fn selfTest(trials: usize) TestResult {
         .mixed = 0,
     };
 
-    if (initOk(2) and applyX(1)) {
-        const m0 = measure(0);
-        const m1 = measure(1);
+    if (initOk(2) and applyXLocked(1)) {
+        const m0 = measureLocked(0);
+        const m1 = measureLocked(1);
         if (m0 != null and m1 != null) {
             res.x_ok = !m0.? and m1.?;
         }
@@ -352,9 +426,9 @@ pub fn selfTest(trials: usize) TestResult {
 
     var t: usize = 0;
     while (t < trials) : (t += 1) {
-        if (!initOk(2) or !applyH(0) or !applyCNOT(0, 1)) break;
-        const m0 = measure(0) orelse break;
-        const m1 = measure(1) orelse break;
+        if (!initOk(2) or !applyHLocked(0) or !applyCNOTLocked(0, 1)) break;
+        const m0 = measureLocked(0) orelse break;
+        const m1 = measureLocked(1) orelse break;
         if (!m0 and !m1) {
             res.zero_zero += 1;
         } else if (m0 and m1) {
