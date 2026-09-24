@@ -131,22 +131,57 @@ pub fn mmap(regs: *user.Registers) void {
         regs.eax = 0xFFFFFFFF;
         return;
     }
+
+    // Claim the tracking slot before mapping: success with a full slot
+    // table would leave a region munmap can never find again.
+    var slot: ?*?MmapRegion = null;
+    for (&mmap_regions) |*s| {
+        if (s.* == null) {
+            slot = s;
+            break;
+        }
+    }
+    if (slot == null) {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    }
+
     mmap_next = addr + length;
     var page = addr;
     while (page < addr + length) : (page += 0x1000) {
         const paddr = memory.pmm.alloc_page() orelse {
-            regs.eax = 0xFFFFFFFF; return;
+            rollback_mmap(addr, page, slot.?);
+            regs.eax = 0xFFFFFFFF;
+            return;
         };
-        _ = memory.map_page_at(page, paddr, true);
-    }
-    for (&mmap_regions) |*slot| {
-        if (slot.* == null) {
-            slot.* = .{ .addr = addr, .size = length };
-            regs.eax = addr;
+        if (!memory.map_page_at(page, paddr, true)) {
+            memory.pmm.free_page(paddr);
+            rollback_mmap(addr, page, slot.?);
+            regs.eax = 0xFFFFFFFF;
             return;
         }
     }
+    slot.?.* = .{ .addr = addr, .size = length };
     regs.eax = addr;
+}
+
+/// Undo a partial mmap: frames in [start, fail_at) return to the PMM,
+/// the VA window reopens at start, and the reserved slot is released.
+fn rollback_mmap(start: u32, fail_at: u32, slot: *?MmapRegion) void {
+    var page = start;
+    while (page < fail_at) : (page += 0x1000) {
+        const pd_idx = page >> 22;
+        const pt_idx = (page >> 12) & 0x3FF;
+        if (memory.page_tables[pd_idx]) |pt| {
+            const paddr = pt[pt_idx] & 0xFFFFF000;
+            if (paddr != 0) {
+                memory.pmm.free_page(paddr);
+                pt[pt_idx] = 0;
+            }
+        }
+    }
+    mmap_next = start;
+    slot.* = null;
 }
 
 /// Syscall 108: munmap(EBX=addr, ECX=length) -> EAX=0 or -1
