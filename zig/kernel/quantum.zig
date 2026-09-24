@@ -7,6 +7,37 @@ var entropy_pool: u32 = 0;
 var pending_word: u32 = 0;
 var pending_bytes: u8 = 0;
 
+// pending_word/pending_bytes drain from ring-3 qrand, syscalls 55/56 and
+// every AP core: an unguarded pending_bytes -= 1 races (0-1 wraps to 255
+// and serves stale bytes). cli only in ring 0; ring 3 spins while the
+// holder finishes this bounded section. Taken standalone or inside sim
+// (sim -> rng nesting), never before another lock.
+var rng_lock: u32 = 0;
+
+fn rngEnter() u32 {
+    var eflags: u32 = undefined;
+    asm volatile ("pushfl; popl %[f]"
+        : [f] "=r" (eflags),
+    );
+    var cs: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
+    if ((cs & 3) == 0) asm volatile ("cli");
+    while (@atomicRmw(u32, &rng_lock, .Xchg, 1, .acquire) == 1) {
+        asm volatile ("pause");
+    }
+    return eflags;
+}
+
+fn rngLeave(eflags: u32) void {
+    @atomicStore(u32, &rng_lock, 0, .release);
+    asm volatile ("pushl %[f]; popfl"
+        :
+        : [f] "r" (eflags),
+        : .{ .memory = true });
+}
+
 pub fn init() void {
     detect_rdrand();
     seed_entropy();
@@ -110,6 +141,8 @@ fn get_entropy_word() u32 {
 /// One rdrand sample feeds four bytes: the buffered word is drained
 /// before the next 32-bit hardware read (was: one call per byte).
 fn get_entropy_byte() u8 {
+    const eflags = rngEnter();
+    defer rngLeave(eflags);
     if (pending_bytes == 0) {
         pending_word = get_entropy_word();
         pending_bytes = 4;
