@@ -472,11 +472,24 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
         interrupts_restore(eflags);
     }
 
-    return map_page_at(vaddr, vaddr & 0xFFFFF000, is_user);
+    return map_page_at_locked(vaddr, vaddr & 0xFFFFF000, is_user);
 }
 
-/// map_page_at maps a specific virtual address to a specific physical address with requested permissions.
+/// map_page_at maps a specific virtual address to a specific physical
+/// address with requested permissions. Locking wrapper — callers that
+/// already hold paging_lock must use map_page_at_locked instead.
 pub fn map_page_at(vaddr: usize, paddr_in: usize, is_user: bool) bool {
+    const eflags = interrupts_save();
+    smp.spin_lock(&paging_lock);
+    defer {
+        smp.spin_unlock(&paging_lock);
+        interrupts_restore(eflags);
+    }
+    return map_page_at_locked(vaddr, paddr_in, is_user);
+}
+
+/// Caller must hold paging_lock with interrupts saved.
+fn map_page_at_locked(vaddr: usize, paddr_in: usize, is_user: bool) bool {
     const pd_idx = vaddr >> 22;
     const pt_idx = (vaddr >> 12) & 0x3FF;
 
@@ -634,12 +647,12 @@ pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
         const pd_idx = addr >> 22;
         if ((page_directory[pd_idx] & 0x80) != 0) {
             // Huge page: map it and jump to next 4MB
-            _ = map_page_at(addr, addr & 0xFFC00000, is_user);
+            _ = map_page_at_locked(addr, addr & 0xFFC00000, is_user);
             const res = @addWithOverflow(addr & 0xFFC00000, @as(usize, 0x400000));
             if (res[1] != 0 or res[0] > end_aligned) break;
             addr = res[0];
         } else {
-            _ = map_page_at(addr, addr & 0xFFFFF000, is_user);
+            _ = map_page_at_locked(addr, addr & 0xFFFFF000, is_user);
             if (addr >= end_aligned) break;
             const res = @addWithOverflow(addr, @as(usize, PAGE_SIZE));
             if (res[1] != 0) break;
