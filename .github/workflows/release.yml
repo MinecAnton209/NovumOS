@@ -5,6 +5,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -70,6 +72,11 @@ jobs:
         run: |
           chmod +x build.sh
           ./build.sh
+
+      - name: Attest ISO build provenance
+        uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-path: NovumOS.iso
 
       - name: Create tag
         run: |
