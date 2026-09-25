@@ -1,6 +1,39 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
+    const kconfig = @import("kconfig.zig");
+    const cfg_schema = @import("config_schema.zig");
+
+    const Cfg = struct { text: []const u8, source: []const u8 };
+    const cfg: Cfg = blk: {
+        const handle = b.build_root.handle;
+        const read = struct {
+            fn go(h: @TypeOf(handle), io: anytype, path: []const u8, alloc: std.mem.Allocator) ?[]const u8 {
+                return h.readFileAlloc(io, path, alloc, .limited(1024 * 1024)) catch |err| switch (err) {
+                    error.FileNotFound => null,
+                    else => {
+                        std.log.err("cannot read {s}: {s}", .{ path, @errorName(err) });
+                        std.process.exit(1);
+                    },
+                };
+            }
+        }.go;
+        if (read(handle, b.graph.io, "../.config", b.allocator)) |t|
+            break :blk Cfg{ .text = t, .source = ".config" };
+        if (read(handle, b.graph.io, "../defconfig", b.allocator)) |t|
+            break :blk Cfg{ .text = t, .source = "defconfig" };
+        break :blk Cfg{ .text = "", .source = "(schema defaults)" };
+    };
+
+    if (kconfig.validate(&cfg_schema.schema, cfg.text)) |d| {
+        if (d.first_line) |fl| {
+            std.log.err("invalid config in {s} at line {d}: duplicate key '{s}' (first at line {d})", .{ cfg.source, d.line, d.key, fl });
+        } else {
+            std.log.err("invalid config in {s} at line {d}: {s} key '{s}' detail '{s}'", .{ cfg.source, d.line, @tagName(d.kind), d.key, d.detail });
+        }
+        std.process.exit(1);
+    }
+
     const arch = b.option([]const u8, "arch", "Target architecture (supported: x86)") orelse "x86";
     if (!std.mem.eql(u8, arch, "x86")) {
         std.log.err("unsupported -Darch={s}; supported: x86", .{arch});
@@ -40,7 +73,7 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption([]const u8, "target_arch", arch);
     options.addOption(?u32, "history_size", history_size);
-    options.addOption([]const u8, "config_text", "");
+    options.addOption([]const u8, "config_text", cfg.text);
     kernel_mod.addOptions("build_config", options);
 
     // Build the kernel object file

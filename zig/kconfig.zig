@@ -240,6 +240,7 @@ fn get(comptime T: type, comptime schema: []const Field, text: []const u8, compt
 
 pub fn value(comptime T: type, comptime schema: []const Field, comptime text: []const u8, comptime name: []const u8) T {
     return comptime blk: {
+        @setEvalBranchQuota(1_000_000);
         if (validate(schema, text)) |d| {
             @compileError(std.fmt.comptimePrint(
                 "invalid .config: line {d}: {s} key '{s}' detail '{s}'",

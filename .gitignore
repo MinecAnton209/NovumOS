@@ -41,3 +41,6 @@ sdk/**/*.o
 *.a
 
 docs/superpowers/
+
+# Local configuration
+.config
