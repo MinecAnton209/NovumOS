@@ -1,7 +1,8 @@
-// PIT (Programmable Interval Timer) Driver
 const common = @import("../commands/common.zig");
 const config = @import("../config.zig");
 const keyboard = @import("../arch/mod.zig").keyboard_isr;
+
+// PIT (Programmable Interval Timer) Driver
 
 var tick_callback: ?*const fn () void = null;
 

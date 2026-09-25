@@ -1,3 +1,8 @@
+const config = @import("../../config.zig");
+const common = @import("../../commands/common.zig");
+const exceptions = @import("exceptions.zig");
+const memory = @import("../../kernel/memory.zig");
+
 // IDT Watchdog Module
 // Protects IDT integrity with SipHash128 HMAC
 //
@@ -6,11 +11,6 @@
 // - Build-time seed used in key derivation
 // - IDT checks injected into memory alloc / context switch
 // - Obfuscated key access (can't просто read key[i])
-
-const config = @import("../../config.zig");
-const common = @import("../../commands/common.zig");
-const exceptions = @import("exceptions.zig");
-const memory = @import("../../kernel/memory.zig");
 
 extern var idt_start: u8;
 

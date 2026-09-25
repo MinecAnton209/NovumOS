@@ -1,12 +1,11 @@
-// zig/syscalls/debug.zig
-// Debug-only syscalls: IDT watchdog check/inject, ctrl-c detection, WriteBuf.
-
 const common = @import("../commands/common.zig");
 const user = @import("../arch/mod.zig").user;
 const keyboard = @import("../arch/mod.zig").keyboard_isr;
 const logger = @import("../kernel/logger.zig");
 const config = @import("../config.zig");
 const syscalls = @import("mod.zig");
+
+// Debug-only syscalls: IDT watchdog check/inject, ctrl-c detection, WriteBuf.
 
 /// Syscall 32: CheckCtrlC() -> EAX (1 = Ctrl+C pressed, 0 = otherwise)
 pub fn checkCtrlC(regs: *user.Registers) void {

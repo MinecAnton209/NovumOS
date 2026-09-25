@@ -1,6 +1,3 @@
-// Common Utilities Module
-// Provides shared logic for printing, system control, and file system access.
-
 const fs = @import("../kernel/fs.zig");
 const config = @import("../config.zig");
 pub const vga = @import("../drivers/vga.zig");
@@ -21,6 +18,9 @@ pub const copy = str_util.copy;
 pub const math_abs = str_util.math_abs;
 pub const math_max = str_util.math_max;
 pub const math_min = str_util.math_min;
+
+// Common Utilities Module
+// Provides shared logic for printing, system control, and file system access.
 
 // Global State
 pub var selected_disk: i8 = -1; // -1 means RAM FS

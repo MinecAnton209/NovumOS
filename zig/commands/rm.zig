@@ -1,5 +1,6 @@
-// rm command - delete file
 const common = @import("common.zig");
+
+// rm command - delete file
 
 pub fn execute(name_ptr: [*]const u8, name_len: u8) void {
     const id = common.fs_find(name_ptr, name_len);

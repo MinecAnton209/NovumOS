@@ -1,7 +1,3 @@
-// zig/syscalls/file.zig
-// File system syscalls (45-52) for Ring 3 processes.
-// Uses FAT driver via absolute paths. All paths validated by path_policy.
-
 const common = @import("../commands/common.zig");
 const fat = @import("../drivers/fat/fat.zig");
 const ata = @import("../drivers/ata.zig");
@@ -9,6 +5,9 @@ const user = @import("../arch/mod.zig").user;
 const logger = @import("../kernel/logger.zig");
 const path_policy = @import("../kernel/path_policy.zig");
 const syscalls = @import("mod.zig");
+
+// File system syscalls (45-52) for Ring 3 processes.
+// Uses FAT driver via absolute paths. All paths validated by path_policy.
 
 /// StatResult returned by syscall 49 (16 bytes, user-allocated)
 const StatResult = extern struct {

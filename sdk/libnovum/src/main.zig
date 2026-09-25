@@ -1,13 +1,12 @@
-// libnovum - NovumOS Universal SDK
-// Implements syscall wrappers for C, C#, and Zig
-
-/// Syscall Internal Wrappers
 inline fn syscall0(num: u32) u32 {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> u32),
         : [num] "{eax}" (num),
     );
 }
+
+// libnovum - NovumOS Universal SDK
+// Implements syscall wrappers for C, C#, and Zig
 
 inline fn syscall1(num: u32, arg1: u32) u32 {
     return asm volatile ("int $0x80"

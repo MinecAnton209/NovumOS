@@ -1,7 +1,8 @@
-// Nova Language - Hash Table for Symbol Storage
 const common = @import("common.zig");
 const memory = @import("../kernel/memory.zig");
 const user = @import("../arch/mod.zig").user;
+
+// Nova Language - Hash Table for Symbol Storage
 
 pub const Entry = struct {
     key: []const u8,

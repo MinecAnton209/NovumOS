@@ -1,7 +1,8 @@
-// Disk Management Commands
 const common = @import("common.zig");
 const ata = @import("../drivers/ata.zig");
 const bpb_mod = @import("../drivers/fat/bpb.zig");
+
+// Disk Management Commands
 
 pub fn lsdsk() void {
     common.printZ("Scanning for ATA disks...\n");

@@ -1,5 +1,3 @@
-// compat: user_malloc/user_free via syscall 30/31 (inline asm)
-
 fn syscall1(n: u32, a1: u32) u32 {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> u32),
@@ -7,6 +5,8 @@ fn syscall1(n: u32, a1: u32) u32 {
           [a1] "{ebx}" (a1),
     );
 }
+
+// compat: user_malloc/user_free via syscall 30/31 (inline asm)
 
 pub fn user_malloc(size: usize) ?[*]u8 {
     const res = syscall1(30, @intCast(size));

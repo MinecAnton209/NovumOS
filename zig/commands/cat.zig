@@ -1,5 +1,6 @@
-// cat command - show file contents
 const common = @import("common.zig");
+
+// cat command - show file contents
 
 pub fn execute(name_ptr: [*]const u8, name_len: u8) void {
     const id = common.fs_find(name_ptr, name_len);

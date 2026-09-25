@@ -1,6 +1,3 @@
-// Nova Language - Main interpreter REPL
-// This module handles input buffering and execution of Nova commands.
-
 const common = @import("common.zig");
 const keyboard = @import("../keyboard_isr.zig");
 const versioning = @import("../versioning.zig");
@@ -15,6 +12,9 @@ const vm_mod = @import("vm.zig");
 const parser_mod = @import("parser.zig");
 const checker_mod = @import("checker.zig");
 const arena_mod = @import("arena.zig");
+
+// Nova Language - Main interpreter REPL
+// This module handles input buffering and execution of Nova commands.
 
 const BUFFER_SIZE: usize = 512;
 const REPL_BUFFER_SIZE: usize = 4096;

@@ -1,9 +1,8 @@
-// zig/syscalls/control.zig
-// Privileged system control syscalls: Shutdown, Reboot.
-
 const common = @import("../commands/common.zig");
 const user = @import("../arch/mod.zig").user;
 const logger = @import("../kernel/logger.zig");
+
+// Privileged system control syscalls: Shutdown, Reboot.
 
 /// Syscall 13: Shutdown(EBX = magic) — privileged
 pub fn shutdown(regs: *user.Registers) void {

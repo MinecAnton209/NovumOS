@@ -1,5 +1,6 @@
-// touch command - create empty file
 const common = @import("common.zig");
+
+// touch command - create empty file
 
 pub fn execute(name_ptr: [*]const u8, name_len: u8) void {
     const existing = common.fs_find(name_ptr, name_len);

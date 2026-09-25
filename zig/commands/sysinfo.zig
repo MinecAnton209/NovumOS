@@ -1,4 +1,3 @@
-// Sysinfo command with ASCII art
 const common = @import("common.zig");
 const vga = @import("../drivers/vga.zig");
 const versioning = @import("../kernel/versioning.zig");
@@ -8,6 +7,8 @@ const memory = @import("../kernel/memory.zig");
 const lfb = @import("../drivers/lfb.zig");
 
 const ata = @import("../drivers/ata.zig");
+
+// Sysinfo command with ASCII art
 
 pub fn execute() void {
     const COLOR_LOGO = 11; // Bright Yellow

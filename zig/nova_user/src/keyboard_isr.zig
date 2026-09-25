@@ -1,11 +1,11 @@
-// compat: keyboard via syscalls 2 (GetChar) and 32 (CheckCtrlC)
-
 fn syscall0(n: u32) u32 {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> u32),
         : [num] "{eax}" (n),
     );
 }
+
+// compat: keyboard via syscalls 2 (GetChar) and 32 (CheckCtrlC)
 
 fn syscall1(n: u32, a1: u32) u32 {
     return asm volatile ("int $0x80"

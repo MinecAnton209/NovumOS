@@ -1,10 +1,11 @@
-// Basic Text Editor (Nano-like)
 const common = @import("common.zig");
 const keyboard = @import("../arch/mod.zig").keyboard_isr;
 const vga = @import("../drivers/vga.zig");
 const serial = @import("../drivers/serial.zig");
 const fat = @import("../drivers/fat.zig");
 const ata = @import("../drivers/ata.zig");
+
+// Basic Text Editor (Nano-like)
 
 const MAX_BUF = 8192;
 var buffer: [MAX_BUF]u8 = [_]u8{0} ** MAX_BUF;

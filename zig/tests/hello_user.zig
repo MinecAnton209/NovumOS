@@ -1,7 +1,3 @@
-// Simple test program for NovumOS ELF loader
-// This program will use Syscall 1 (PrintZ) and Syscall 0 (Exit)
-
-// Syscall 1 expects a pointer to a null-terminated string in EBX.
 fn print_z(str: [*:0]const u8) void {
     asm volatile ("int $0x80"
         :
@@ -9,6 +5,10 @@ fn print_z(str: [*:0]const u8) void {
           [str] "{ebx}" (@intFromPtr(str)),
     );
 }
+
+// Simple test program for NovumOS ELF loader
+// This program will use Syscall 1 (PrintZ) and Syscall 0 (Exit)
+// Syscall 1 expects a pointer to a null-terminated string in EBX.
 
 pub fn main() noreturn {
     // In Zig, string literals are null-terminated by default (*const [N:0]u8).

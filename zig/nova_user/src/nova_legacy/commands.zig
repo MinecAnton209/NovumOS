@@ -1,8 +1,9 @@
-// Nova Language - Commands execution
 const common = @import("common.zig");
 const parser = @import("parser.zig");
 const interpreter = @import("interpreter.zig");
 const shell = @import("../shell.zig");
+
+// Nova Language - Commands execution
 
 // Variable Storage
 const MAX_VARS = 16;

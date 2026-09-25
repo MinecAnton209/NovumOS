@@ -1,7 +1,9 @@
-// compat: commands/common.zig — syscall-based Ring 3 implementations
-// replaces kernel's commands/common.zig
 const syscall = @import("../syscall.zig");
 const str_util = @import("str");
+
+// compat: commands/common.zig — syscall-based Ring 3 implementations
+// replaces kernel's commands/common.zig
+
 pub const std_mem_eql = str_util.std_mem_eql;
 pub const startsWith = str_util.startsWith;
 pub const endsWith = str_util.endsWith;

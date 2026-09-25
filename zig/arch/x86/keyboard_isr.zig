@@ -1,6 +1,7 @@
-// Keyboard interrupt handler for NovumOS
 const std = @import("std");
 const events = @import("../../kernel/events.zig");
+
+// Keyboard interrupt handler for NovumOS
 
 // Keyboard buffer
 const BUFFER_SIZE = 256;

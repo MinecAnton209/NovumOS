@@ -1,5 +1,6 @@
-// ls command - list files
 const common = @import("common.zig");
+
+// ls command - list files
 
 pub fn execute() void {
     var ids: [16]u8 = undefined;

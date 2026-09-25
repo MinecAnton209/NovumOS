@@ -1,12 +1,11 @@
-// zig/syscalls/console.zig
-// Console-related syscalls: print, input, cursor positioning, character drawing.
-
 const common = @import("../commands/common.zig");
 const vga = @import("../drivers/vga.zig");
 const keyboard = @import("../arch/mod.zig").keyboard_isr;
 const user = @import("../arch/mod.zig").user;
 const logger = @import("../kernel/logger.zig");
 const syscalls = @import("mod.zig");
+
+// Console-related syscalls: print, input, cursor positioning, character drawing.
 
 /// Syscall 1: PrintZ(EBX = string_ptr) — print null-terminated string
 pub fn printZ(regs: *user.Registers) void {

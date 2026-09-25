@@ -1,9 +1,10 @@
-// ELF Loader for NovumOS
 const common = @import("../commands/common.zig");
 const memory = @import("memory.zig");
 const user = @import("../arch/mod.zig").user;
 const logger = @import("logger.zig");
 const config = @import("../config.zig");
+
+// ELF Loader for NovumOS
 
 pub const Elf32_Addr = u32;
 pub const Elf32_Off = u32;

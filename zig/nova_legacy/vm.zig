@@ -1,4 +1,3 @@
-// Nova Language - Virtual Machine
 const common = @import("common.zig");
 const lexer = @import("lexer.zig");
 const hash_table = @import("hash_table.zig");
@@ -15,6 +14,8 @@ const sys_mod = @import("modules/sys.zig");
 const speaker_mod = @import("modules/speaker.zig");
 const quantum_mod = @import("modules/quantum.zig");
 const user = @import("../arch/mod.zig").user;
+
+// Nova Language - Virtual Machine
 
 pub const VM = struct {
     tokens: lexer.TokenList,

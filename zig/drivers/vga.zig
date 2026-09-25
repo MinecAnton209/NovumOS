@@ -1,5 +1,6 @@
-// VGA Compatibility Layer for LFB
 const lfb = @import("lfb.zig");
+
+// VGA Compatibility Layer for LFB
 
 var internal_char_buffer: [256 * 160]u16 = undefined;
 pub const VIDEO_MEMORY: [*]volatile u16 = @ptrCast(&internal_char_buffer);

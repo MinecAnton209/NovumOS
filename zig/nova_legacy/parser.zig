@@ -1,5 +1,6 @@
-// Nova Language - Parser
 const common = @import("common.zig");
+
+// Nova Language - Parser
 
 pub const Statement = struct {
     cmd_type: CmdType,

@@ -1,15 +1,14 @@
-// zig/syscalls/mod.zig
+const common = @import("../commands/common.zig");
+const memory = @import("../kernel/memory.zig");
+const user = @import("../arch/mod.zig").user;
+const logger = @import("../kernel/logger.zig");
+
 // Syscall dispatch table + shared validation helpers.
 // Each category file (console, port, time, memory, etc.) implements a
 // subset of handlers; this file dispatches by syscall number (regs.eax).
 //
 // All user pointers passed to handlers MUST be validated with
 // is_safe_user_range() or safe_str_from_user() before dereferencing.
-
-const common = @import("../commands/common.zig");
-const memory = @import("../kernel/memory.zig");
-const user = @import("../arch/mod.zig").user;
-const logger = @import("../kernel/logger.zig");
 
 /// All syscall handlers implement this signature
 pub const Handler = fn (regs: *user.Registers) void;

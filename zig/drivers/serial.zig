@@ -1,5 +1,6 @@
-// Serial COM1 Driver
 const common = @import("../commands/common.zig");
+
+// Serial COM1 Driver
 
 pub const PORT = 0x3F8;
 

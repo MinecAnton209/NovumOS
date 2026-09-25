@@ -1,8 +1,7 @@
-// zig/nova_user/src/main.zig
+const interpreter = @import("nova_legacy/interpreter.zig");
+
 // Nova user-space ELF entry point (Ring 3).
 // No kernel imports — everything via syscall inline asm.
-
-const interpreter = @import("nova_legacy/interpreter.zig");
 
 fn syscall0(n: u32) u32 {
     return asm volatile ("int $0x80"

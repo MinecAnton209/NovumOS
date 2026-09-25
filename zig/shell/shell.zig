@@ -1,4 +1,3 @@
-// NovumOS Shell - Main command line interface
 const common = @import("../commands/common.zig");
 const keyboard = @import("../arch/mod.zig").keyboard_isr;
 const shell_cmds = @import("shell_cmds.zig");
@@ -22,6 +21,8 @@ const speaker = @import("../drivers/speaker.zig");
 const speaker_timer = @import("../drivers/timer.zig");
 const quantum = @import("../kernel/quantum.zig");
 const memory = @import("../kernel/memory.zig");
+
+// NovumOS Shell - Main command line interface
 
 extern const mb2_info: u32;
 extern const fb_addr: u32;

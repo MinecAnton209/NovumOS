@@ -1,5 +1,6 @@
-; User Mode Logic and Transition
 [bits 32]
+
+; User Mode Logic and Transition
 
 global jump_to_ring3_entry
 extern handle_syscall_zig

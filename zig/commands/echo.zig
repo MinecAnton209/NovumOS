@@ -1,5 +1,6 @@
-// echo command - print text
 const common = @import("common.zig");
+
+// echo command - print text
 
 pub fn execute(text_ptr: [*]const u8, text_len: u16) void {
     var i: u16 = 0;

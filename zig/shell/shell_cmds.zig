@@ -1,6 +1,3 @@
-// Shell Commands Module
-// Bridges high-level command logic with individual command implementations.
-
 const ls = @import("../commands/ls.zig");
 const cat = @import("../commands/cat.zig");
 const touch = @import("../commands/touch.zig");
@@ -35,6 +32,9 @@ const lfb = @import("../drivers/lfb.zig");
 const calc = @import("../commands/calc.zig");
 const logger = @import("../kernel/logger.zig");
 const scheduler = @import("../kernel/scheduler.zig");
+
+// Shell Commands Module
+// Bridges high-level command logic with individual command implementations.
 
 pub export fn cmd_ps() void {
     scheduler.list_processes();

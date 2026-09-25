@@ -1,6 +1,3 @@
-; IDT (Interrupt Descriptor Table) Management
-; Sets up the CPU interrupt table, PIC remap, and basic ISR wrappers.
-
 [bits 32]
 
 global idt_init
@@ -17,6 +14,9 @@ extern handle_exception
 extern handle_double_fault
 extern handle_syscall_zig
 extern idt_watchdog_save_snapshot
+
+; IDT (Interrupt Descriptor Table) Management
+; Sets up the CPU interrupt table, PIC remap, and basic ISR wrappers.
 
 section .data
 align 16

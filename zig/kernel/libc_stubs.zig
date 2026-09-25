@@ -1,6 +1,6 @@
-// Minimal libc stubs for freestanding kernel environment
-
 const std = @import("std");
+
+// Minimal libc stubs for freestanding kernel environment
 
 pub export fn memcpy(dest: [*]u8, src: [*]const u8, n: usize) [*]u8 {
     var d = dest;

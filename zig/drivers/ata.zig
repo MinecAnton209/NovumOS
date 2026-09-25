@@ -1,7 +1,7 @@
+const common = @import("../commands/common.zig");
+
 // ATA PIO Driver
 // Provides basic read/write access to ATA hard disks.
-
-const common = @import("../commands/common.zig");
 
 pub const Drive = enum(u1) {
     Master = 0,

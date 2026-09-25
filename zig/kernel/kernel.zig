@@ -1,6 +1,3 @@
-// NovumOS Kernel - Main Zig Module
-// Entry point for the Zig portion of the kernel and panic handler.
-
 const shell_cmds = @import("../shell/shell_cmds.zig");
 const keyboard_isr = @import("../arch/mod.zig").keyboard_isr;
 const nova = @import("nova.zig");
@@ -24,6 +21,9 @@ const speaker = @import("../drivers/speaker.zig");
 const mouse = @import("mouse.zig");
 const quantum = @import("quantum.zig");
 const config = @import("../config.zig");
+
+// NovumOS Kernel - Main Zig Module
+// Entry point for the Zig portion of the kernel and panic handler.
 
 // Ensure all modules are included in the compilation
 comptime {

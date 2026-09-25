@@ -1,9 +1,9 @@
+const ata = @import("ata.zig");
+const syscall = @import("../syscall.zig");
+
 // compat: FAT driver interface via syscalls 45-52 (Ring 3).
 // All file ops go through kernel's permission-checked syscalls.
 // BPB/drive/cluster params are accepted for signature compat but ignored.
-
-const ata = @import("ata.zig");
-const syscall = @import("../syscall.zig");
 
 // Re-export ATA Drive for callers
 pub const Drive = ata.Drive;

@@ -1,12 +1,11 @@
-// zig/syscalls/port.zig
+const common = @import("../commands/common.zig");
+const user = @import("../arch/mod.zig").user;
+const logger = @import("../kernel/logger.zig");
+
 // I/O port syscalls (inb/outb/inw/outw/inl/outl).
 // Gated by is_io_port_allowed() — whitelist blocks sensitive ports
 // (PIC, PIT, PS/2, CMOS, DMA, ATA, PCI config). Production-hardening
 // would use a bitmap or per-process capability bitmap.
-
-const common = @import("../commands/common.zig");
-const user = @import("../arch/mod.zig").user;
-const logger = @import("../kernel/logger.zig");
 
 /// Whitelist of I/O ports accessible from Ring 3.
 fn is_io_port_allowed(port: u16) bool {

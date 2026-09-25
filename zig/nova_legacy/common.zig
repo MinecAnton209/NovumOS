@@ -1,5 +1,6 @@
-// Nova Language - Common utilities
 const common = @import("../commands/common.zig");
+
+// Nova Language - Common utilities
 
 pub const print_char = common.print_char;
 pub const printZ = common.printZ;

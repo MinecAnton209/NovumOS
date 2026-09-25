@@ -1,7 +1,8 @@
+[bits 32]
+
 ; NovumOS Kernel - 32-bit Protected Mode
 ; Main entry point and module includes
 ; Used by Limine bootloader via Multiboot2 protocol
-[bits 32]
 
 ; Constants
 VIDEO_MEMORY    equ 0xb8000

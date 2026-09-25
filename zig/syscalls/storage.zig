@@ -1,4 +1,9 @@
-// zig/syscalls/storage.zig
+const common = @import("../commands/common.zig");
+const user = @import("../arch/mod.zig").user;
+const ata = @import("../drivers/ata.zig");
+const logger = @import("../kernel/logger.zig");
+const syscalls = @import("mod.zig");
+
 // Storage syscalls: ATA_IDENTIFY / READ_SECTOR / WRITE_SECTOR (privileged, deprecated).
 //
 // These syscalls allow ELFs to talk directly to the disk, bypassing
@@ -8,12 +13,6 @@
 // For user ELFs, prefer the FAT-based file syscalls (45-52) added in
 // Phase 2. These ATA syscalls remain for backward compatibility and
 // for shell-internal disk operations.
-
-const common = @import("../commands/common.zig");
-const user = @import("../arch/mod.zig").user;
-const ata = @import("../drivers/ata.zig");
-const logger = @import("../kernel/logger.zig");
-const syscalls = @import("mod.zig");
 
 /// Syscall 20: ATA_IDENTIFY(EBX = drive) -> EAX
 pub fn ataIdentify(regs: *user.Registers) void {

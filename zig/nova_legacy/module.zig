@@ -1,7 +1,8 @@
-// Nova Language - Module Resolver
 const common = @import("common.zig");
 const hash_table = @import("hash_table.zig");
 const memory = @import("../kernel/memory.zig");
+
+// Nova Language - Module Resolver
 
 pub const ModuleCache = struct {
     loaded: hash_table.HashTable,

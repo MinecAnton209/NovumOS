@@ -1,9 +1,9 @@
-// NovumOS Kernel Logger
-// Provides colored, formatted, and toggleable logging for system events.
-
 const common = @import("../commands/common.zig");
 const vga = @import("../drivers/vga.zig");
 const config = @import("../config.zig");
+
+// NovumOS Kernel Logger
+// Provides colored, formatted, and toggleable logging for system events.
 
 pub const Level = enum {
     INFO,

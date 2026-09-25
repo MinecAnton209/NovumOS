@@ -1,9 +1,9 @@
-// NovumOS Zig Kernel Extension
-// Provides: SimpleFS (RAM-based file system) + FAT support
-
 pub const MAX_FILES = 16;
 pub const MAX_FILENAME = 12;
 pub const MAX_FILESIZE = 1024;
+
+// NovumOS Zig Kernel Extension
+// Provides: SimpleFS (RAM-based file system) + FAT support
 
 pub const FileEntry = struct {
     name: [MAX_FILENAME]u8,

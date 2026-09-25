@@ -1,6 +1,7 @@
-// Detailed Documentation Command
 const common = @import("common.zig");
 const vga = @import("../drivers/vga.zig");
+
+// Detailed Documentation Command
 
 pub fn execute(args: []const u8) void {
     const COLOR_HEADER = 14; // Yellow

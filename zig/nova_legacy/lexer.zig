@@ -1,7 +1,8 @@
-// Nova Language - Lexer
 const common = @import("common.zig");
 const memory = @import("../kernel/memory.zig");
 const user = @import("../arch/mod.zig").user;
+
+// Nova Language - Lexer
 
 pub const TokenType = enum {
     DEF,
