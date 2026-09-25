@@ -97,6 +97,10 @@ pub fn build(b: *std.Build) void {
 
     const nasm_k32 = b.addSystemCommand(&.{ "nasm", "-f", "elf32" });
     nasm_k32.addPrefixedDirectoryArg("-i", b.path("../arch/x86"));
+    // The -i directory arg is hashed by path only, so content-track every
+    // file %included through it: add new entries here when kernel32.asm
+    // grows includes, or edits to them build a silently stale kernel.
+    nasm_k32.addFileInput(b.path("../arch/x86/idt.asm"));
     nasm_k32.addFileArg(b.path("../arch/x86/kernel32.asm"));
     nasm_k32.addArg(b.fmt("-D{s}", .{serial_flag}));
     nasm_k32.addArg(b.fmt("-D{s}", .{lfb_flag}));
