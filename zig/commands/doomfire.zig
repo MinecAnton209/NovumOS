@@ -1,4 +1,5 @@
 const common = @import("common.zig");
+const config = @import("../config.zig");
 const lfb = @import("../drivers/lfb.zig");
 const vga = @import("../drivers/vga.zig");
 const timer = @import("../drivers/timer.zig");
@@ -107,6 +108,10 @@ fn blit(fire_w: u32, fire_h: u32) void {
 }
 
 pub fn cmd_doomfire() void {
+    if (!config.ENABLE_QUANTUM) {
+        common.printZ("doomfire: requires ENABLE_QUANTUM=y\n");
+        return;
+    }
     if (!lfb.initialized or lfb.backbuffer_ptr == null) {
         common.printZ("doomfire: no framebuffer available\n");
         return;

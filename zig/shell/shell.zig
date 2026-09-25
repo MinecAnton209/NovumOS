@@ -163,7 +163,6 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "codename", .help = "Show current release codename", .handler = cmd_handler_codename, .kind = .custom },
     .{ .name = "fetch", .help = "Show stylish system info summary", .handler = no_args_handler(&shell_cmds.cmd_fetch), .kind = .no_args },
     .{ .name = "matrix", .help = "Enter the NovumOS Matrix (fun!)", .handler = cmd_handler_matrix, .kind = .custom },
-    .{ .name = "doomfire", .help = "Quantum-ignited DOOM fire on the framebuffer", .handler = no_args_handler(&doomfire_cmd.cmd_doomfire), .kind = .no_args },
     .{ .name = "mv", .help = "mv <src> <dest> - Move or rename file/folder", .handler = direct_handler(&shell_cmds.cmd_mv), .kind = .direct_args },
     .{ .name = "ren", .help = "Alias for mv (rename file/folder)", .handler = direct_handler(&shell_cmds.cmd_rename), .kind = .direct_args },
     .{ .name = "format", .help = "Low-level drive formatting tool", .handler = direct_handler(&shell_cmds.cmd_format), .kind = .direct_args },
@@ -199,6 +198,8 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "qcnot", .help = "qcnot <control> <target> - CNOT gate", .handler = cmd_handler_qcnot, .kind = .custom },
     .{ .name = "qmeasure", .help = "qmeasure <qubit> - Measure qubit (collapses state)", .handler = cmd_handler_qmeasure, .kind = .custom },
     .{ .name = "qtest", .help = "qtest - Bell state and Pauli-X self test", .handler = cmd_handler_qtest, .kind = .custom },
+} else [_]Command{}) ++ (if (config.ENABLE_DOOMFIRE) [_]Command{
+    .{ .name = "doomfire", .help = "Quantum-ignited DOOM fire on the framebuffer", .handler = no_args_handler(&doomfire_cmd.cmd_doomfire), .kind = .no_args },
 } else [_]Command{});
 
 // Local command buffer
