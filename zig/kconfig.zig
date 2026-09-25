@@ -240,7 +240,7 @@ fn get(comptime T: type, comptime schema: []const Field, text: []const u8, compt
 
 pub fn value(comptime T: type, comptime schema: []const Field, comptime text: []const u8, comptime name: []const u8) T {
     return comptime blk: {
-        @setEvalBranchQuota(1_000_000);
+        @setEvalBranchQuota(100_000_000); // a full pass over the 1 MiB read cap stays inside this
         if (validate(schema, text)) |d| {
             @compileError(std.fmt.comptimePrint(
                 "invalid .config: line {d}: {s} key '{s}' detail '{s}'",
@@ -266,8 +266,36 @@ pub fn value(comptime T: type, comptime schema: []const Field, comptime text: []
 }
 
 pub fn nasmDefine(buf: []u8, comptime schema: []const Field, text: []const u8, comptime name: []const u8) []const u8 {
+    return nasmDefineChecked(buf, schema, text, name) catch {
+        const d = validate(schema, text).?;
+        std.debug.panic("invalid config: line {d}: {s} key '{s}' detail '{s}'", .{ d.line, @tagName(d.kind), d.key, d.detail });
+    };
+}
+
+fn nasmDefineChecked(buf: []u8, comptime schema: []const Field, text: []const u8, comptime name: []const u8) error{InvalidConfig}![]const u8 {
     const field = comptime findField(schema, name) orelse
         @compileError("kconfig.nasmDefine: no schema field named " ++ name);
+    if (validate(schema, text) != null) return error.InvalidConfig;
     const v = get(bool, schema, text, name) orelse field.default.bool;
     return std.fmt.bufPrint(buf, "{s}={d}", .{ name, @intFromBool(v) }) catch unreachable;
+}
+
+test "empty config text validates clean" {
+    try testing.expect(validate(&test_schema, "") == null);
+}
+
+test "str value aliases into config_text buffer" {
+    const text = "CONFIG_TARGET_NAME=\"hello\"";
+    const v = value([]const u8, &test_schema, text, "TARGET_NAME");
+    const start = @intFromPtr(text.ptr);
+    const p = @intFromPtr(v.ptr);
+    try testing.expect(p >= start and p < start + text.len);
+}
+
+test "nasmDefine rejects unvalidated invalid text" {
+    var buf: [64]u8 = undefined;
+    try testing.expectError(
+        error.InvalidConfig,
+        nasmDefineChecked(&buf, &test_schema, "CONFIG_BOGUS=1", "ENABLE_SERIAL_DEBUG"),
+    );
 }
