@@ -7,6 +7,7 @@ const memory = @import("../kernel/memory.zig");
 const logger = @import("../kernel/logger.zig");
 const syscalls = @import("mod.zig");
 const scheduler = @import("../kernel/scheduler.zig");
+const versioning = @import("../kernel/versioning.zig");
 
 extern fn kernel_loop() noreturn;
 extern fn jump_to_ring3_entry(entry: usize, stack: usize, eflags: u32) noreturn;
@@ -162,7 +163,7 @@ pub fn uname(regs: *user.Registers) void {
     @memset(@as([*]u8, @ptrCast(&uts.domainname))[0..65], 0);
     @memcpy(uts.sysname[0..7], "NovumOS");
     @memcpy(uts.nodename[0..5], "novum");
-    @memcpy(uts.release[0..11], "0.25-beta.1");
+    @memcpy(uts.release[0..versioning.NOVUMOS_VERSION.len], versioning.NOVUMOS_VERSION);
     @memcpy(uts.version[0..2], "#1");
     @memcpy(uts.machine[0..4], "i386");
     @memcpy(uts.domainname[0..6], "(none)");
