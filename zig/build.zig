@@ -34,6 +34,8 @@ pub fn build(b: *std.Build) void {
         std.process.exit(1);
     }
 
+    const nova_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_NOVA");
+
     const arch = b.option([]const u8, "arch", "Target architecture (supported: x86)") orelse "x86";
     if (!std.mem.eql(u8, arch, "x86")) {
         std.log.err("unsupported -Darch={s}; supported: x86", .{arch});
@@ -152,27 +154,29 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_config_tests.step);
 
     // Nova User-Space ELF
-    const nova_mod = b.createModule(.{
-        .root_source_file = b.path("nova_user/src/main.zig"),
-        .target = target,
-        .optimize = .ReleaseSmall,
-    });
-    // Shared string/math helpers used by both kernel and nova_user.
-    nova_mod.addAnonymousImport("str", .{ .root_source_file = b.path("kernel/str.zig") });
-    const nova_exe = b.addExecutable(.{
-        .name = "nova",
-        .root_module = nova_mod,
-    });
-    nova_exe.setLinkerScript(b.path("nova_user/linker.ld"));
+    if (nova_on) {
+        const nova_mod = b.createModule(.{
+            .root_source_file = b.path("nova_user/src/main.zig"),
+            .target = target,
+            .optimize = .ReleaseSmall,
+        });
+        // Shared string/math helpers used by both kernel and nova_user.
+        nova_mod.addAnonymousImport("str", .{ .root_source_file = b.path("kernel/str.zig") });
+        const nova_exe = b.addExecutable(.{
+            .name = "nova",
+            .root_module = nova_mod,
+        });
+        nova_exe.setLinkerScript(b.path("nova_user/linker.ld"));
 
-    // Install nova.elf next to the kernel
-    const install_nova = b.addInstallArtifact(nova_exe, .{
-        .dest_dir = .{ .override = .{ .custom = "../build" } },
-    });
-    b.default_step.dependOn(&install_nova.step);
+        // Install nova.elf next to the kernel
+        const install_nova = b.addInstallArtifact(nova_exe, .{
+            .dest_dir = .{ .override = .{ .custom = "../build" } },
+        });
+        b.default_step.dependOn(&install_nova.step);
 
-    // Make kernel compile depend on nova install (for @embedFile)
-    kernel.step.dependOn(&install_nova.step);
+        // Make kernel compile depend on nova install (for @embedFile)
+        kernel.step.dependOn(&install_nova.step);
+    }
 
     // Developer Commands
 

@@ -29,7 +29,9 @@ const config = @import("../config.zig");
 comptime {
     _ = shell_cmds;
     _ = keyboard_isr;
-    _ = nova;
+    if (config.ENABLE_NOVA) {
+        _ = nova;
+    }
     _ = shell;
     _ = messages;
     _ = timer;

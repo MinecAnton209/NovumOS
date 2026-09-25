@@ -117,8 +117,6 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "clear", .help = "Clear screen and reset console state", .handler = cmd_handler_clear, .kind = .custom },
     .{ .name = "cls", .help = "Alias for clear", .handler = cmd_handler_clear, .kind = .custom },
     .{ .name = "about", .help = "Show legal information & credits", .handler = cmd_handler_about, .kind = .custom },
-    .{ .name = "nova", .help = "Start Nova Scripting Interpreter", .handler = cmd_handler_nova_legacy, .kind = .custom },
-    .{ .name = "nova_legacy", .help = "Alias for nova", .handler = cmd_handler_nova_legacy, .kind = .custom },
     .{ .name = "top", .help = "Real-time CPU and Task Monitor", .handler = no_args_handler(&top_cmd.cmd_top), .kind = .no_args },
     .{ .name = "ps", .help = "List active system processes", .handler = no_args_handler(&shell_cmds.cmd_ps), .kind = .no_args },
     .{ .name = "kill", .help = "kill <pid> - Terminate a running process", .handler = cmd_handler_kill, .kind = .custom },
@@ -166,8 +164,6 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "ren", .help = "Alias for mv (rename file/folder)", .handler = direct_handler(&shell_cmds.cmd_rename), .kind = .direct_args },
     .{ .name = "format", .help = "Low-level drive formatting tool", .handler = direct_handler(&shell_cmds.cmd_format), .kind = .direct_args },
     .{ .name = "mkfs", .help = "Create filesystem on current drive", .handler = direct_handler(&shell_cmds.cmd_mkfs), .kind = .direct_args },
-    .{ .name = "install", .help = "install <src> [name] - Install Nova script", .handler = cmd_handler_install, .kind = .custom },
-    .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall, .kind = .custom },
     .{ .name = "ring3", .help = "Switch to Ring 3 (User Mode) test", .handler = no_args_handler(&shell_cmds.cmd_ring3), .kind = .no_args },
     .{ .name = "run", .help = "run <elf> - Execute an ELF (RAM FS or disk)", .handler = guarded_handler(&shell_cmds.cmd_run, "Usage: run <elf>\n"), .kind = .guarded_args, .usage = "Usage: run <elf>\n" },
     .{ .name = "exec", .help = "Alias for run", .handler = guarded_handler(&shell_cmds.cmd_run, "Usage: run <elf>\n"), .kind = .guarded_args, .usage = "Usage: run <elf>\n" },
@@ -203,7 +199,13 @@ const SHELL_COMMANDS = [_]Command{
 } else [_]Command{}) ++ (if (config.ENABLE_DEBUG_COMMANDS and config.ENABLE_SMP) [_]Command{
     .{ .name = "smp-test", .help = "Test global task queue across cores", .handler = no_args_handler(&shell_cmds.cmd_smp_test), .kind = .no_args },
     .{ .name = "stress-test", .help = "Run heavy math on AP cores while BSP stays free", .handler = no_args_handler(&shell_cmds.cmd_stress_test), .kind = .no_args },
+} else [_]Command{}) ++ (if (config.ENABLE_NOVA) [_]Command{
+    .{ .name = "nova", .help = "Start Nova Scripting Interpreter", .handler = cmd_handler_nova_legacy, .kind = .custom },
+    .{ .name = "nova_legacy", .help = "Alias for nova", .handler = cmd_handler_nova_legacy, .kind = .custom },
+    .{ .name = "install", .help = "install <src> [name] - Install Nova script", .handler = cmd_handler_install, .kind = .custom },
+    .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall, .kind = .custom },
 } else [_]Command{});
+
 
 
 // Local command buffer
@@ -1030,6 +1032,7 @@ fn try_builtin(cmd_raw: []const u8, name: []const u8) bool {
 /// Returns true if a script was dispatched (or error reported), false if
 /// the command was not recognized as a script.
 fn try_nova_script(name: []const u8, argv: [8][]const u8, argc: usize) bool {
+    if (!config.ENABLE_NOVA) return false;
     // Relative/absolute path scripts (containing /)
     var contains_slash = false;
     for (name) |c| {

@@ -125,6 +125,7 @@ pub fn load_and_run_nova_legacy() !noreturn {
 /// Load and run the embedded nova.elf (Ring 3 Nova VM).
 /// Debug output controlled by NOVA_DEBUG in config.zig.
 pub fn load_and_run_nova() !noreturn {
+    if (!config.ENABLE_NOVA) return error.NovaDisabled;
     const data = @embedFile("../build/nova");
     if (config.NOVA_DEBUG) {
         common.printZ("[nova] Loading embedded nova.elf (");
