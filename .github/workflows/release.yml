@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Read version from versioning.zig
+        id: version
+        run: |
+          VER=$(grep -oP 'NOVUMOS_VERSION = "\K[^"]+' zig/kernel/versioning.zig)
+          CODENAME=$(grep -oP 'NOVUMOS_CODENAME = "\K[^"]+' zig/kernel/versioning.zig)
+          echo "tag=v$VER" >> "$GITHUB_OUTPUT"
+          echo "title=v$VER - $CODENAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Check tag does not exist
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/${{ steps.version.outputs.tag }}" > /dev/null 2>&1; then
+            echo "::error::Tag ${{ steps.version.outputs.tag }} already exists"
+            exit 1
+          fi
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          VER="${{ steps.version.outputs.version }}"
+          SECTION=$(awk -v ver="## [$VER]" '
+            index($0, ver) == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md)
+          if [ -z "$SECTION" ]; then
+            echo "::error::CHANGELOG.md has no section [$VER]"
+            exit 1
+          fi
+          echo "$SECTION" > release-notes.md
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Setup NASM
+        uses: ilammy/setup-nasm@v1
+
+      - name: Install xorriso
+        run: sudo apt-get update && sudo apt-get install -y xorriso
+
+      - name: Cache Zig
+        uses: actions/cache@v6
+        with:
+          path: |
+            .zig-cache
+            zig/.zig-cache
+            ~/.cache/zig
+          key: ${{ runner.os }}-zig-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-zig-
+
+      - name: Build ISO
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Create tag
+        run: |
+          git tag "${{ steps.version.outputs.tag }}" "$GITHUB_SHA"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if [[ "$TAG" =~ (alpha|beta|rc) ]]; then
+            PRERELEASE="--prerelease"
+          fi
+          gh release create "$TAG" \
+            --title "${{ steps.version.outputs.title }}" \
+            --notes-file release-notes.md \
+            $PRERELEASE \
+            "NovumOS.iso#NovumOS-$TAG.iso"
