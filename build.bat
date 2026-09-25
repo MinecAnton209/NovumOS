@@ -1,6 +1,8 @@
 @echo off
-if "%ARCH%"=="" set ARCH=x86
 echo Building NovumOS...
+
+:: Local .config: fall back to committed defconfig on first build
+if not exist .config copy defconfig .config
 
 :: Create directories
 if not exist build mkdir build
@@ -27,61 +29,18 @@ copy limine\limine-bios-cd.bin limine-build\
 copy limine\limine-uefi-cd.bin limine-build\
 copy limine\BOOTX64.EFI limine-build\
 
-:: Detect config flags from zig/config.zig
-set SERIAL_DEBUG=0
-set EARLY_LFB_DEBUG=0
-findstr /c:"ENABLE_SERIAL_DEBUG = true" zig\config.zig > nul 2>&1
-if %errorlevel% equ 0 set SERIAL_DEBUG=1
-findstr /c:"ENABLE_EARLY_LFB_DEBUG = true" zig\config.zig > nul 2>&1
-if %errorlevel% equ 0 set EARLY_LFB_DEBUG=1
-
-:: Assemble kernel
-echo Assembling kernel...
-nasm -f elf32 -iarch\%ARCH%\ arch\%ARCH%\kernel32.asm -o build\kernel32.o -DENABLE_SERIAL_DEBUG=%SERIAL_DEBUG% -DENABLE_EARLY_LFB_DEBUG=%EARLY_LFB_DEBUG%
-if %errorlevel% neq 0 (
-    echo Error assembling kernel!
-    pause
-    exit /b 1
-)
-
-:: Assemble SMP Trampoline
-echo Assembling SMP Trampoline...
-nasm -f bin zig\arch\%ARCH%\smp_trampoline.asm -o build\trampoline.bin
-if %errorlevel% neq 0 (
-    echo Error assembling SMP trampoline!
-    pause
-    exit /b 1
-)
-
-:: Build Zig modules
-echo Building Zig modules...
+:: Kernel: Zig modules, NASM objects and link. Flag parsing lives in
+:: build.zig - this script never reads .config content.
+echo Building kernel...
 pushd zig
 zig build %*
 if %errorlevel% neq 0 (
-    echo Error building Zig modules!
+    echo Error building kernel!
     popd
     pause
     exit /b 1
 )
 popd
-
-:: Assemble User Mode
-echo Assembling User Mode...
-nasm -f elf32 arch\%ARCH%\user_mode.asm -o build\user_mode.o
-if %errorlevel% neq 0 (
-    echo Error assembling user_mode!
-    pause
-    exit /b 1
-)
-
-:: Link kernel
-echo Linking...
-zig ld.lld -m elf_i386 -T arch\%ARCH%\linker.ld --strip-all -o build\kernel32.elf build\kernel32.o build\user_mode.o zig\build\kernel.o
-if %errorlevel% neq 0 (
-    echo Error linking!
-    pause
-    exit /b 1
-)
 
 :: Copy files to ISO directory
 echo Creating ISO...

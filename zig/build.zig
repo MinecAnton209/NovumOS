@@ -89,6 +89,44 @@ pub fn build(b: *std.Build) void {
 
     b.default_step.dependOn(&install_kernel.step);
 
+    // --- Kernel binary: NASM objects + link (flags from validated config) ---
+    var flag_buf1: [64]u8 = undefined;
+    var flag_buf2: [64]u8 = undefined;
+    const serial_flag = kconfig.nasmDefine(&flag_buf1, &cfg_schema.schema, cfg.text, "ENABLE_SERIAL_DEBUG");
+    const lfb_flag = kconfig.nasmDefine(&flag_buf2, &cfg_schema.schema, cfg.text, "ENABLE_EARLY_LFB_DEBUG");
+
+    const nasm_k32 = b.addSystemCommand(&.{ "nasm", "-f", "elf32" });
+    nasm_k32.addPrefixedDirectoryArg("-i", b.path("../arch/x86"));
+    nasm_k32.addFileArg(b.path("../arch/x86/kernel32.asm"));
+    nasm_k32.addArg(b.fmt("-D{s}", .{serial_flag}));
+    nasm_k32.addArg(b.fmt("-D{s}", .{lfb_flag}));
+    nasm_k32.addArg("-o");
+    const k32_o = nasm_k32.addOutputFileArg("kernel32.o");
+
+    const nasm_um = b.addSystemCommand(&.{ "nasm", "-f", "elf32" });
+    nasm_um.addFileArg(b.path("../arch/x86/user_mode.asm"));
+    nasm_um.addArg("-o");
+    const um_o = nasm_um.addOutputFileArg("user_mode.o");
+
+    const nasm_tr = b.addSystemCommand(&.{ "nasm", "-f", "bin" });
+    nasm_tr.addFileArg(b.path("arch/x86/smp_trampoline.asm"));
+    nasm_tr.addArg("-o");
+    const tramp_bin = nasm_tr.addOutputFileArg("trampoline.bin");
+
+    const link_cmd = b.addSystemCommand(&.{ "zig", "ld.lld", "-m", "elf_i386", "-T" });
+    link_cmd.addFileArg(b.path("../arch/x86/linker.ld"));
+    link_cmd.addArg("--strip-all");
+    link_cmd.addArg("-o");
+    const kernel_elf = link_cmd.addOutputFileArg("kernel32.elf");
+    link_cmd.addFileArg(k32_o);
+    link_cmd.addFileArg(um_o);
+    link_cmd.addFileArg(kernel.getEmittedBin());
+
+    const install_elf = b.addInstallFileWithDir(kernel_elf, .{ .custom = "../../build" }, "kernel32.elf");
+    const install_tramp = b.addInstallFileWithDir(tramp_bin, .{ .custom = "../../build" }, "trampoline.bin");
+    b.default_step.dependOn(&install_elf.step);
+    b.default_step.dependOn(&install_tramp.step);
+
     // --- Nova User-Space ELF ---
     const nova_mod = b.createModule(.{
         .root_source_file = b.path("nova_user/src/main.zig"),

@@ -1,8 +1,12 @@
 #!/bin/bash
 set -e
-ARCH="${ARCH:-x86}"
 
 echo "Building NovumOS..."
+
+# Local .config: fall back to committed defconfig on first build
+if [ ! -f .config ]; then
+    cp defconfig .config
+fi
 
 # Initialize/update limine submodule
 echo "Initializing Limine..."
@@ -23,35 +27,12 @@ cp limine/limine-uefi-cd.bin limine-build/
 cp limine/BOOTX64.EFI limine-build/
 cp limine/limine limine-build/
 
-# Assemble kernel
-echo "Assembling kernel..."
-SERIAL_DEBUG=0
-EARLY_LFB_DEBUG=0
-if grep -q 'ENABLE_SERIAL_DEBUG = true' zig/config.zig 2>/dev/null; then
-    SERIAL_DEBUG=1
-fi
-if grep -q 'ENABLE_EARLY_LFB_DEBUG = true' zig/config.zig 2>/dev/null; then
-    EARLY_LFB_DEBUG=1
-fi
-nasm -f elf32 -iarch/$ARCH/ arch/$ARCH/kernel32.asm -o build/kernel32.o -DENABLE_SERIAL_DEBUG=$SERIAL_DEBUG -DENABLE_EARLY_LFB_DEBUG=$EARLY_LFB_DEBUG
-
-# Assemble SMP Trampoline
-echo "Assembling SMP Trampoline..."
-nasm -f bin zig/arch/$ARCH/smp_trampoline.asm -o build/trampoline.bin
-
-# Build Zig modules
-echo "Building Zig modules..."
+# Kernel: Zig modules, NASM objects and link. Flag parsing lives in
+# build.zig — this script never reads .config content.
+echo "Building kernel..."
 cd zig
 zig build
 cd ..
-
-# Assemble User Mode
-echo "Assembling User Mode..."
-nasm -f elf32 arch/$ARCH/user_mode.asm -o build/user_mode.o
-
-# Link kernel
-echo "Linking..."
-zig ld.lld -m elf_i386 -T arch/$ARCH/linker.ld --strip-all -o build/kernel32.elf build/kernel32.o build/user_mode.o zig/build/kernel.o
 
 # Copy Limine files to ISO directory
 cp limine-build/limine-bios.sys iso_root/boot/
@@ -81,7 +62,7 @@ if command -v xorriso &> /dev/null; then
     ./limine-build/limine bios-install NovumOS.iso
 else
     echo "Skipping ISO (xorriso not found)"
-    echo "Install xorriso to create ISO: sudo apt install xorriso"
+    echo "Install xorriso to create an ISO: sudo apt install xorriso"
 fi
 
 echo ""
