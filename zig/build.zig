@@ -127,6 +127,22 @@ pub fn build(b: *std.Build) void {
     b.default_step.dependOn(&install_elf.step);
     b.default_step.dependOn(&install_tramp.step);
 
+    // --- Config facade tests (build_config with a non-empty override) ---
+    const config_test_mod = b.createModule(.{
+        .root_source_file = b.path("config.zig"),
+        .target = b.resolveTargetQuery(.{}),
+        .optimize = .Debug,
+    });
+    const test_options = b.addOptions();
+    test_options.addOption([]const u8, "target_arch", arch);
+    test_options.addOption(?u32, "history_size", null);
+    test_options.addOption([]const u8, "config_text", "CONFIG_HISTORY_SIZE=7");
+    config_test_mod.addOptions("build_config", test_options);
+    const config_tests = b.addTest(.{ .root_module = config_test_mod });
+    const run_config_tests = b.addRunArtifact(config_tests);
+    const test_step = b.step("test", "Run config facade tests");
+    test_step.dependOn(&run_config_tests.step);
+
     // --- Nova User-Space ELF ---
     const nova_mod = b.createModule(.{
         .root_source_file = b.path("nova_user/src/main.zig"),

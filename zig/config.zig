@@ -1,3 +1,4 @@
+const std = @import("std");
 const kconfig = @import("kconfig.zig");
 const build_config = @import("build_config");
 
@@ -33,3 +34,11 @@ pub const WATCHDOG_INTERVAL_TICKS = 1000 + (BUILD_HASH % 500);
 pub const WATCHDOG_CHANCE_ALLOC = 1 + (BUILD_HASH % 16);
 pub const WATCHDOG_CHANCE_SCHED = 1 + (BUILD_HASH % 32);
 pub const WATCHDOG_CHANCE_TIMER = 1 + (BUILD_HASH % 8);
+
+test "config_text overrides schema default" {
+    try std.testing.expectEqual(@as(u32, 7), HISTORY_SIZE);
+}
+
+test "field absent from config_text uses schema default" {
+    try std.testing.expectEqual(false, ENABLE_SERIAL_DEBUG);
+}
