@@ -206,8 +206,6 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall, .kind = .custom },
 } else [_]Command{});
 
-
-
 // Local command buffer
 var cmd_buffer: [1024]u8 = [_]u8{0} ** 1024;
 var cmd_len: u16 = 0;
