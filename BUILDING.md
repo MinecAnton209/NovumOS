@@ -121,6 +121,10 @@ zig build -Dhistory_size=100      # shell history depth
 zig build test                 # config facade tests (kconfig engine: zig test kconfig.zig)
 ```
 
+Bare `zig test config.zig` fails with `no module named build_config` by
+design — use `zig build test` for the facade, `zig test kconfig.zig` for
+the engine.
+
 Known gap: `zig build run` and `zig build run-disk` still reference
 `../build/os-image.bin`, which the current pipeline does not produce —
 launch QEMU manually as shown below.
