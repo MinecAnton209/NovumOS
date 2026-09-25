@@ -89,7 +89,7 @@ pub fn build(b: *std.Build) void {
 
     b.default_step.dependOn(&install_kernel.step);
 
-    // --- Kernel binary: NASM objects + link (flags from validated config) ---
+    // Kernel binary: NASM objects + link (flags from validated config)
     var flag_buf1: [64]u8 = undefined;
     var flag_buf2: [64]u8 = undefined;
     const serial_flag = kconfig.nasmDefine(&flag_buf1, &cfg_schema.schema, cfg.text, "ENABLE_SERIAL_DEBUG");
@@ -131,7 +131,7 @@ pub fn build(b: *std.Build) void {
     b.default_step.dependOn(&install_elf.step);
     b.default_step.dependOn(&install_tramp.step);
 
-    // --- Config facade tests (build_config with a non-empty override) ---
+    // Config facade tests (build_config with a non-empty override)
     const config_test_mod = b.createModule(.{
         .root_source_file = b.path("config.zig"),
         .target = b.resolveTargetQuery(.{}),
@@ -147,7 +147,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run config facade tests");
     test_step.dependOn(&run_config_tests.step);
 
-    // --- Nova User-Space ELF ---
+    // Nova User-Space ELF
     const nova_mod = b.createModule(.{
         .root_source_file = b.path("nova_user/src/main.zig"),
         .target = target,
@@ -170,7 +170,7 @@ pub fn build(b: *std.Build) void {
     // Make kernel compile depend on nova install (for @embedFile)
     kernel.step.dependOn(&install_nova.step);
 
-    // --- Developer Commands ---
+    // Developer Commands
 
     // 1. Run the OS without disk
     const run_cmd = b.addSystemCommand(&[_][]const u8{

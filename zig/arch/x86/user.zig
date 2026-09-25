@@ -204,7 +204,7 @@ pub fn jump_to_user_mode_with_entry(entry: usize, privileged: bool) noreturn {
         unreachable;
     }
 
-    // --- Dynamic User Stack Allocation ---
+    // Dynamic User Stack Allocation
     // We'll use 0x3FF000 as the virtual base for the stack page
     const stack_vaddr = 0x3FF000;
     const pd_idx = stack_vaddr >> 22;

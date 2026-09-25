@@ -195,7 +195,7 @@ fn get_ss() u32 {
     );
 }
 
-// --- Crash Suite Test Functions ---
+// Crash Suite Test Functions
 
 pub fn crash_abort() noreturn {
     panic("Manual abort triggered via shell command.");
@@ -337,7 +337,7 @@ fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]cons
         }
     }
 
-    // --- Helper closures (comptime row tracking) ---
+    // Helper closures (comptime row tracking)
     // We use mutable variables and call lfb_print_at / print_at based on use_lfb.
     // LFB: scale=1, char size 8x16, so each row is 18px, col is 8px wide.
     const LFB_CHAR_W = 8;

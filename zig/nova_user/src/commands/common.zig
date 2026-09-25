@@ -18,7 +18,7 @@ pub fn syscall0(n: u32) u32 { return syscall.syscall0(n); }
 pub fn syscall1(n: u32, a1: u32) u32 { return syscall.syscall1(n, a1); }
 pub fn syscall2(n: u32, a1: u32, a2: u32) u32 { return syscall.syscall2(n, a1, a2); }
 
-// --- VGA/console ---
+// VGA/console
 pub var current_color: u16 = 0x07;
 
 pub fn print_char(c: u8) void {
@@ -79,18 +79,18 @@ pub fn get_char() u8 {
     return @intCast(syscall1(2, 0));
 }
 
-// --- Sleep ---
+// Sleep
 pub fn sleep(ms: usize) void {
     _ = syscall1(10, @intCast(ms));
 }
 
-// --- File system state (Ring 3 — always root) ---
+// File system state (Ring 3 — always root)
 pub var selected_disk: i8 = 0; // ATA Master
 pub var current_dir_cluster: u32 = 0;
 pub var current_path: [256]u8 = [_]u8{'/'} ** 256;
 pub var current_path_len: usize = 1;
 
-// --- Random ---
+// Random
 pub fn seed_random_with_tsc() void {}
 
 pub fn get_random(min_v: i32, max_v: i32) i32 {
@@ -104,7 +104,7 @@ pub fn get_random(min_v: i32, max_v: i32) i32 {
     return min_v + @rem(@as(i32, @intCast(r)), range);
 }
 
-// --- String utilities (same implementations as kernel) ---
+// String utilities (same implementations as kernel)
 pub fn fmt_to_buf(buf: []u8, comptime fmt: []const u8, args: anytype) []const u8 {
     _ = buf;
     _ = fmt;

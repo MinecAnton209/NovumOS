@@ -7,7 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 
-// --- System Types ---
+// System Types
 typedef uint32_t nv_size_t;
 typedef int32_t  nv_status_t;
 
@@ -20,7 +20,7 @@ typedef struct {
     uint8_t second;
 } nv_datetime_t;
 
-// --- Syscall Constants ---
+// Syscall Constants
 #define SYS_EXIT           0
 #define SYS_PRINT          1
 #define SYS_GETCHAR        2
@@ -47,7 +47,7 @@ typedef struct {
 #define SYS_FREE           31
 #define SYS_CHECK_CTRL_C   32
 
-// --- Core API ---
+// Core API
 
 /**
  * Exit the current process.

@@ -22,7 +22,7 @@ pub const math_abs = str_util.math_abs;
 pub const math_max = str_util.math_max;
 pub const math_min = str_util.math_min;
 
-// --- Global State ---
+// Global State
 pub var selected_disk: i8 = -1; // -1 means RAM FS
 pub var current_dir_cluster: u32 = 0; // 0 = Root on FAT12/16
 pub var current_path: [256]u8 = [_]u8{0} ** 256;
@@ -184,7 +184,7 @@ pub fn printHex(val: u32) void {
     }
 }
 
-// --- File System Interface ---
+// File System Interface
 // Re-export core fs functions for easy access by shell commands
 pub const fs_init = fs.fs_init;
 pub const fs_create = fs.fs_create;
@@ -196,7 +196,7 @@ pub const fs_size = fs.fs_size;
 pub const fs_read = fs.fs_read;
 pub const fs_write = fs.fs_write;
 
-// --- System Control (I/O Ports) ---
+// System Control (I/O Ports)
 
 /// Core I/O — width (8/16/32-bit), is_out (true = write, false = read).
 /// Ring 3 (user mode): uses kernel syscalls (out:7/9/17, in:6/8/16).

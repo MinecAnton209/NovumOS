@@ -440,7 +440,7 @@ pub fn map_page(vaddr: usize, is_user: bool) bool {
 
     const pd_idx = vaddr >> 22;
 
-    // --- Restore Huge Page (4MB) Activation ---
+    // Restore Huge Page (4MB) Activation
     const pde = &page_directory[pd_idx];
     if ((pde.* & 0x80) != 0) {
         // PDE read-modify-write races with other cores demand-paging the
@@ -662,7 +662,7 @@ pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
     }
 }
 
-/// --- Segregated Explicit Free List with Boundary Tags ---
+/// Segregated Explicit Free List with Boundary Tags
 const HEAP_MAGIC = 0x48454150;
 const END_CANARY = 0xCAFEBABE;
 const CANARY_BYTE = 0xCB;

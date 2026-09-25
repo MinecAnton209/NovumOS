@@ -4,7 +4,7 @@ const parser = @import("parser.zig");
 const interpreter = @import("interpreter.zig");
 const shell = @import("../shell.zig");
 
-// --- Variable Storage ---
+// Variable Storage
 const MAX_VARS = 16;
 const MAX_VAR_NAME = 16;
 const MAX_VAL_LEN = 64;
@@ -52,7 +52,7 @@ pub fn clearScriptArgs() void {
     }
 }
 
-// --- Helper Functions ---
+// Helper Functions
 
 fn trim(s: []const u8) []const u8 {
     if (s.len == 0) return s;
@@ -447,7 +447,7 @@ fn evaluateExpression(expr_in: []const u8) EvalResult {
     }
 }
 
-// --- commands ---
+// commands
 
 fn execSetString(buffer: []const u8, stmt: parser.Statement) void {
     const arg = buffer[stmt.arg_start .. stmt.arg_start + stmt.arg_len];

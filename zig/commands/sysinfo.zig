@@ -27,7 +27,7 @@ pub fn execute() void {
 
     const history_size = if (build_config.history_size) |h| h else config.HISTORY_SIZE;
 
-    // --- System ---
+    // System
     vga.set_color(COLOR_SECTION, COLOR_BG);
     common.printZ(" [ System ]\n");
 
@@ -35,7 +35,7 @@ pub fn execute() void {
     print_entry("Codename", versioning.NOVUMOS_CODENAME, COLOR_LABEL, COLOR_VALUE, COLOR_BG);
     print_entry("Kernel", "Zig + x86 ASM", COLOR_LABEL, COLOR_VALUE, COLOR_BG);
 
-    // --- Hardware ---
+    // Hardware
     vga.set_color(COLOR_SECTION, COLOR_BG);
     common.printZ(" [ Hardware ]\n");
 

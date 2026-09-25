@@ -76,7 +76,7 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
         return;
     }
 
-    // --- size validation (runtime: depends on total_sectors) -----------
+    // size validation (runtime: depends on total_sectors)
     const too_large: bool = switch (ft) {
         .Fat12 => total_sectors > 32768,
         .Fat16 => total_sectors > 4194304,
@@ -115,14 +115,14 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
 
     var boot_sector: [512]u8 = [_]u8{0} ** 512;
 
-    // --- boot jump & OEM (same for all FAT variants) -------------------
+    // boot jump & OEM (same for all FAT variants)
     boot_sector[0] = 0xEB;
     boot_sector[1] = comptime switch (ft) { .Fat32 => 0x34, else => 0x3C };
     boot_sector[2] = 0x90;
     const oem = "NOVUMOS ";
     for (oem, 0..) |c, i| boot_sector[3 + i] = c;
 
-    // --- BPB common fields ---------------------------------------------
+    // BPB common fields
     boot_sector[11] = 0x00;
     boot_sector[12] = 0x02; // 512 bytes per sector
 
@@ -161,7 +161,7 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
     boot_sector[16] = 0x02; // 2 FATs
     boot_sector[21] = 0xF8; // Media descriptor
 
-    // --- total sectors / root entry count ------------------------------
+    // total sectors / root entry count
     if (total_sectors < 65536) {
         boot_sector[19] = @intCast(total_sectors & 0xFF);
         boot_sector[20] = @intCast((total_sectors >> 8) & 0xFF);
@@ -174,7 +174,7 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
         boot_sector[35] = @intCast((total_sectors >> 24) & 0xFF);
     }
 
-    // --- FAT-size -------------------------------------------------------
+    // FAT-size
     const fat_size: u32 = switch (ft) {
         .Fat12 => 12, // fixed estimate: ~6126 bytes
         .Fat16 => blk: {
@@ -223,7 +223,7 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
         },
     }
 
-    // --- physical drive + serial + label --------------------------------
+    // physical drive + serial + label
     switch (ft) {
         .Fat12 => {
             boot_sector[24] = 0x20;
@@ -274,7 +274,7 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
     boot_sector[511] = 0xAA;
     ata.write_sector(drive, 0, &boot_sector);
 
-    // --- FAT tables + root directory ------------------------------------
+    // FAT tables + root directory
     const zero_sector: [512]u8 = [_]u8{0} ** 512;
     var fat_start: [512]u8 = [_]u8{0} ** 512;
     fat_start[0] = 0xF8;

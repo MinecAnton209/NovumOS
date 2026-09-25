@@ -259,7 +259,7 @@ EXCEPTION_NOERR 29
 EXCEPTION_NOERR 30
 EXCEPTION_NOERR 31
 
-; --- IRQ Wrappers ---
+; IRQ Wrappers
 
 ; ISR Wrapper: Keyboard (IRQ1)
 isr_keyboard_wrapper:

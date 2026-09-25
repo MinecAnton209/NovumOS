@@ -50,14 +50,14 @@ _start equ limine_start
 section .multiboot
 align 8
 _multiboot2_header_start:
-    ; --- Main header ---
+    ; Main header
     dd 0xe85250d6                ; Magic: Multiboot2
     dd 0                         ; Architecture: i386 (32-bit)
     dd _multiboot2_header_end - _multiboot2_header_start ; Header length
     ; Checksum: -(magic + arch + length)
     dd -(0xe85250d6 + 0 + (_multiboot2_header_end - _multiboot2_header_start))
 
-    ; --- Framebuffer request ---
+    ; Framebuffer request
     align 8
     dw 5                         ; Type 5: Framebuffer request
     dw 0                         ; Flags
@@ -66,7 +66,7 @@ _multiboot2_header_start:
     dd 768                       ; Height
     dd 32                        ; Depth (32 bpp)
 
-    ; --- Closing tag ---
+    ; Closing tag
     align 8
     dw 0                         ; Type 0
     dw 0                         ; Flags
@@ -304,7 +304,7 @@ gdt_install_tss:
     popad
     ret
 
-; --- Hardware Modules ---
+; Hardware Modules
 
 ; Initialize debug serial port (COM1, 38400 baud)
 debug_putc_init:

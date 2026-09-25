@@ -1,7 +1,7 @@
 // libnovum - NovumOS Universal SDK
 // Implements syscall wrappers for C, C#, and Zig
 
-/// --- Syscall Internal Wrappers ---
+/// Syscall Internal Wrappers
 inline fn syscall0(num: u32) u32 {
     return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> u32),
@@ -47,7 +47,7 @@ inline fn syscall4(num: u32, arg1: u32, arg2: u32, arg3: u32, arg4: u32) u32 {
     );
 }
 
-/// --- C Exported API ---
+/// C Exported API
 pub export fn nv_exit(code: i32) noreturn {
     _ = syscall1(0, @as(u32, @bitCast(code)));
     while (true) {}
@@ -143,7 +143,7 @@ pub export fn nv_check_ctrl_c() i32 {
     return @intCast(syscall0(32));
 }
 
-/// --- Zig Idiomatic API ---
+/// Zig Idiomatic API
 pub fn print(str: []const u8) void {
     nv_print(str.ptr);
 }
