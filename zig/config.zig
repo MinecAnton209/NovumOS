@@ -29,6 +29,13 @@ pub const NOVA_PATH_POLICY_ENABLED = value(bool, "NOVA_PATH_POLICY_ENABLED");
 pub const NOVA_DEBUG = value(bool, "NOVA_DEBUG");
 pub const MOUSE_DEBUG = value(bool, "MOUSE_DEBUG");
 
+pub const ENABLE_QUANTUM = value(bool, "ENABLE_QUANTUM");
+pub const ENABLE_DOOMFIRE = value(bool, "ENABLE_DOOMFIRE");
+pub const ENABLE_BUILTIN_SCRIPTS = value(bool, "ENABLE_BUILTIN_SCRIPTS");
+pub const ENABLE_MOUSE = value(bool, "ENABLE_MOUSE");
+pub const ENABLE_SMP = value(bool, "ENABLE_SMP");
+pub const ENABLE_NOVA = value(bool, "ENABLE_NOVA");
+
 pub const BUILD_HASH = 0xDEADC0DE ^ 0xCAFEBABE ^ 0x12345678;
 pub const WATCHDOG_INTERVAL_TICKS = 1000 + (BUILD_HASH % 500);
 pub const WATCHDOG_CHANCE_ALLOC = 1 + (BUILD_HASH % 16);
