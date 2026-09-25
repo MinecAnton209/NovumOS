@@ -176,12 +176,6 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "calc", .help = "Evaluate math & bitwise expressions (e.g. 1 << 8)", .handler = direct_handler(&shell_cmds.cmd_calc), .kind = .direct_args },
     .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = direct_handler(&shell_cmds.cmd_res), .kind = .direct_args },
     .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep, .kind = .custom },
-    .{ .name = "qrand", .help = "qrand [N | --hex N | --entangle N | --info] - Quantum random numbers", .handler = cmd_handler_qrand, .kind = .custom },
-    .{ .name = "qinit", .help = "qinit [N] - Init quantum register (RAM-checked, 32 MB reserved)", .handler = cmd_handler_qinit, .kind = .custom },
-    .{ .name = "qh", .help = "qh <qubit> - Hadamard gate", .handler = cmd_handler_qh, .kind = .custom },
-    .{ .name = "qcnot", .help = "qcnot <control> <target> - CNOT gate", .handler = cmd_handler_qcnot, .kind = .custom },
-    .{ .name = "qmeasure", .help = "qmeasure <qubit> - Measure qubit (collapses state)", .handler = cmd_handler_qmeasure, .kind = .custom },
-    .{ .name = "qtest", .help = "qtest - Bell state and Pauli-X self test", .handler = cmd_handler_qtest, .kind = .custom },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
     .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = no_args_handler(&shell_cmds.cmd_panic), .kind = .no_args },
     .{ .name = "crash", .help = "Alias for panic - trigger a CPU exception", .handler = no_args_handler(&shell_cmds.cmd_panic), .kind = .no_args },
@@ -198,6 +192,13 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "idt-move", .help = "Test IDTR relocation (detected by watchdog)", .handler = no_args_handler(&common.idt_move), .kind = .no_args },
     .{ .name = "fbinfo", .help = "Display framebuffer info", .handler = cmd_handler_fbinfo, .kind = .custom },
     .{ .name = "fbtest", .help = "Draw test pattern to framebuffer", .handler = cmd_handler_fbtest, .kind = .custom },
+} else [_]Command{}) ++ (if (config.ENABLE_QUANTUM) [_]Command{
+    .{ .name = "qrand", .help = "qrand [N | --hex N | --entangle N | --info] - Quantum random numbers", .handler = cmd_handler_qrand, .kind = .custom },
+    .{ .name = "qinit", .help = "qinit [N] - Init quantum register (RAM-checked, 32 MB reserved)", .handler = cmd_handler_qinit, .kind = .custom },
+    .{ .name = "qh", .help = "qh <qubit> - Hadamard gate", .handler = cmd_handler_qh, .kind = .custom },
+    .{ .name = "qcnot", .help = "qcnot <control> <target> - CNOT gate", .handler = cmd_handler_qcnot, .kind = .custom },
+    .{ .name = "qmeasure", .help = "qmeasure <qubit> - Measure qubit (collapses state)", .handler = cmd_handler_qmeasure, .kind = .custom },
+    .{ .name = "qtest", .help = "qtest - Bell state and Pauli-X self test", .handler = cmd_handler_qtest, .kind = .custom },
 } else [_]Command{});
 
 // Local command buffer

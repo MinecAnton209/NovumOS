@@ -41,7 +41,9 @@ comptime {
     _ = @import("../drivers/vga.zig");
     _ = speaker;
     _ = mouse;
-    _ = quantum;
+    if (config.ENABLE_QUANTUM) {
+        _ = quantum;
+    }
     _ = libc_stubs;
 }
 
@@ -158,7 +160,7 @@ fn init_peripherals() void {
     timer.set_tick_callback(&speaker.beep_async_tick);
     if (config.ENABLE_BOOT_BEEP) speaker.beep(1000, 100);
     mouse.init();
-    quantum.init();
+    if (config.ENABLE_QUANTUM) quantum.init();
 }
 
 /// Kernel entry point.
