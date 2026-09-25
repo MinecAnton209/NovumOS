@@ -105,6 +105,25 @@ test "line without equals" {
     try testing.expect(d.kind == .missing_equals);
 }
 
+test "value returns override and default" {
+    try testing.expect(value(bool, &test_schema, "CONFIG_ENABLE_SERIAL_DEBUG=y", "ENABLE_SERIAL_DEBUG"));
+    try testing.expect(!value(bool, &test_schema, "", "ENABLE_SERIAL_DEBUG"));
+    try testing.expectEqual(@as(u32, 1024 * 1024), value(u32, &test_schema, "", "HEAP_INITIAL_SIZE"));
+    try testing.expectEqual(@as(u32, 2097152), value(u32, &test_schema, "CONFIG_HEAP_INITIAL_SIZE=2097152", "HEAP_INITIAL_SIZE"));
+}
+
+test "value unquotes str and falls back" {
+    try testing.expectEqualStrings("hello", value([]const u8, &test_schema, "CONFIG_TARGET_NAME=\"hello\"", "TARGET_NAME"));
+    try testing.expectEqualStrings("x86", value([]const u8, &test_schema, "", "TARGET_NAME"));
+}
+
+test "nasmDefine formats fragments" {
+    var buf1: [64]u8 = undefined;
+    try testing.expectEqualStrings("ENABLE_SERIAL_DEBUG=1", nasmDefine(&buf1, &test_schema, "CONFIG_ENABLE_SERIAL_DEBUG=y", "ENABLE_SERIAL_DEBUG"));
+    var buf2: [64]u8 = undefined;
+    try testing.expectEqualStrings("ENABLE_SERIAL_DEBUG=0", nasmDefine(&buf2, &test_schema, "", "ENABLE_SERIAL_DEBUG"));
+}
+
 const test_schema = [_]Field{
     .{ .name = "ENABLE_SERIAL_DEBUG", .default = .{ .bool = false }, .help = "serial" },
     .{ .name = "HEAP_INITIAL_SIZE", .default = .{ .int = 1024 * 1024 }, .help = "heap" },
@@ -196,4 +215,58 @@ fn checkValue(expected: Option, val: []const u8) ?ErrorKind {
         },
     }
     return null;
+}
+
+fn get(comptime T: type, comptime schema: []const Field, text: []const u8, comptime name: []const u8) ?T {
+    _ = schema;
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |raw| {
+        const line = trim(raw);
+        if (line.len == 0 or line[0] == '#') continue;
+        const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        const key = trim(line[0..eq]);
+        const wanted = "CONFIG_" ++ name;
+        if (!std.mem.eql(u8, key, wanted)) continue;
+        const val = trim(line[eq + 1 ..]);
+        return switch (T) {
+            bool => asBool(val).?,
+            u32 => asInt(val).?,
+            []const u8 => unquote(val) catch unreachable,
+            else => @compileError("unsupported config type " ++ @typeName(T)),
+        };
+    }
+    return null;
+}
+
+pub fn value(comptime T: type, comptime schema: []const Field, comptime text: []const u8, comptime name: []const u8) T {
+    return comptime blk: {
+        if (validate(schema, text)) |d| {
+            @compileError(std.fmt.comptimePrint(
+                "invalid .config: line {d}: {s} key '{s}' detail '{s}'",
+                .{ d.line, @tagName(d.kind), d.key, d.detail },
+            ));
+        }
+        const field = findField(schema, name) orelse
+            @compileError("kconfig.value: no schema field named " ++ name);
+        switch (T) {
+            bool => switch (field.default) { .bool => {}, else => @compileError("schema type mismatch for " ++ name) },
+            u32 => switch (field.default) { .int => {}, else => @compileError("schema type mismatch for " ++ name) },
+            []const u8 => switch (field.default) { .str => {}, else => @compileError("schema type mismatch for " ++ name) },
+            else => @compileError("unsupported config type " ++ @typeName(T)),
+        }
+        if (get(T, schema, text, name)) |v| break :blk v;
+        break :blk switch (T) {
+            bool => field.default.bool,
+            u32 => field.default.int,
+            []const u8 => field.default.str,
+            else => unreachable,
+        };
+    };
+}
+
+pub fn nasmDefine(buf: []u8, comptime schema: []const Field, text: []const u8, comptime name: []const u8) []const u8 {
+    const field = comptime findField(schema, name) orelse
+        @compileError("kconfig.nasmDefine: no schema field named " ++ name);
+    const v = get(bool, schema, text, name) orelse field.default.bool;
+    return std.fmt.bufPrint(buf, "{s}={d}", .{ name, @intFromBool(v) }) catch unreachable;
 }
