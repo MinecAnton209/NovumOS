@@ -40,6 +40,7 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption([]const u8, "target_arch", arch);
     options.addOption(?u32, "history_size", history_size);
+    options.addOption([]const u8, "config_text", "");
     kernel_mod.addOptions("build_config", options);
 
     // Build the kernel object file
