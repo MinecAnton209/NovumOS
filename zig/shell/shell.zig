@@ -37,10 +37,10 @@ const EmbeddedScript = struct {
     source: []const u8,
 };
 
-const BUILTIN_SCRIPTS = [_]EmbeddedScript{
+const BUILTIN_SCRIPTS = if (config.ENABLE_BUILTIN_SCRIPTS) [_]EmbeddedScript{
     .{ .name = "hello", .source = @embedFile("../nova_legacy/scripts/hello.nv") },
     .{ .name = "syscheck", .source = @embedFile("../nova_legacy/scripts/syscheck.nv") },
-};
+} else [_]EmbeddedScript{};
 
 // Shell configuration
 const build_config = @import("build_config");
