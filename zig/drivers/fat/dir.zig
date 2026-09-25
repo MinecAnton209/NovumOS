@@ -31,7 +31,11 @@ const GB: u32 = MB * 1024;
 
 fn printSizeFmt(size: u32, comptime fmt: Format) void {
     if (size == 0) {
-        const s = comptime switch (fmt) { .Compact => "0B", .Padded => "   0B ", .Nice => "0B " };
+        const s = comptime switch (fmt) {
+            .Compact => "0B",
+            .Padded => "   0B ",
+            .Nice => "0B ",
+        };
         common.printZ(s);
         return;
     }
@@ -41,17 +45,14 @@ fn printSizeFmt(size: u32, comptime fmt: Format) void {
     // PrintSizeNice prints ".X" only when X > 0, and X = size % unit / next_smaller_unit.
     const is_nice = fmt == .Nice;
     const suffix: u8, const whole: u32, const frac: u32, const show_frac: bool = if (size >= GB) .{
-        'G', size / GB,
-        if (is_nice) @intCast((size % GB) / MB) else @intCast(((size % GB) * 10) / GB),
-        !is_nice or (size % GB) / MB > 0,
+        'G',                                                                            size / GB,
+        if (is_nice) @intCast((size % GB) / MB) else @intCast(((size % GB) * 10) / GB), !is_nice or (size % GB) / MB > 0,
     } else if (size >= MB) .{
-        'M', size / MB,
-        if (is_nice) @intCast((size % MB) / KB) else @intCast(((size % MB) * 10) / MB),
-        !is_nice or (size % MB) / KB > 0,
+        'M',                                                                            size / MB,
+        if (is_nice) @intCast((size % MB) / KB) else @intCast(((size % MB) * 10) / MB), !is_nice or (size % MB) / KB > 0,
     } else if (size >= KB) .{
-        'K', size / KB,
-        @intCast((size % KB) * 10 / KB),
-        !is_nice,
+        'K',                             size / KB,
+        @intCast((size % KB) * 10 / KB), !is_nice,
     } else .{
         'B', size, 0, false,
     };
@@ -1175,8 +1176,7 @@ fn generate_short_alias(name: []const u8, out: *[11]u8) void {
     while (i < name.len and out_idx < 6) {
         const c = name[i];
         if (c == '.') break;
-        if (is_valid_fat_char(c, true))
-        {
+        if (is_valid_fat_char(c, true)) {
             out[out_idx] = toUpper(c);
             out_idx += 1;
         }
@@ -1191,8 +1191,7 @@ fn generate_short_alias(name: []const u8, out: *[11]u8) void {
         var ext_idx: usize = 8;
         while (i < name.len and ext_idx < 11) : (i += 1) {
             const c = name[i];
-            if (c != '.' and is_valid_fat_char(c, true))
-            {
+            if (c != '.' and is_valid_fat_char(c, true)) {
                 out[ext_idx] = toUpper(c);
                 ext_idx += 1;
             }
@@ -1216,12 +1215,18 @@ pub fn add_directory_entry(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: [
     const slots_needed = if (needs_alias) (name.len + 12) / 13 + 1 else 1;
 
     if (config.ENABLE_FAT_DEBUG) {
-        common.printZ("DBG add_dir: dir_cluster="); common.printNum(@intCast(dir_cluster));
-        common.printZ(" ft="); common.printNum(@intCast(@intFromEnum(bpb.fat_type)));
-        common.printZ(" rfs="); common.printNum(@intCast(bpb.first_root_dir_sector));
-        common.printZ(" fds="); common.printNum(@intCast(bpb.first_data_sector));
-        common.printZ(" slots="); common.printNum(@intCast(slots_needed));
-        common.printZ(" lfn="); common.printZ(if (needs_alias) "Y" else "N");
+        common.printZ("DBG add_dir: dir_cluster=");
+        common.printNum(@intCast(dir_cluster));
+        common.printZ(" ft=");
+        common.printNum(@intCast(@intFromEnum(bpb.fat_type)));
+        common.printZ(" rfs=");
+        common.printNum(@intCast(bpb.first_root_dir_sector));
+        common.printZ(" fds=");
+        common.printNum(@intCast(bpb.first_data_sector));
+        common.printZ(" slots=");
+        common.printNum(@intCast(slots_needed));
+        common.printZ(" lfn=");
+        common.printZ(if (needs_alias) "Y" else "N");
         common.printZ("\n");
     }
 

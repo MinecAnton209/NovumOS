@@ -117,7 +117,10 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
 
     // boot jump & OEM (same for all FAT variants)
     boot_sector[0] = 0xEB;
-    boot_sector[1] = comptime switch (ft) { .Fat32 => 0x34, else => 0x3C };
+    boot_sector[1] = comptime switch (ft) {
+        .Fat32 => 0x34,
+        else => 0x3C,
+    };
     boot_sector[2] = 0x90;
     const oem = "NOVUMOS ";
     for (oem, 0..) |c, i| boot_sector[3 + i] = c;
@@ -285,7 +288,7 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
     var i: u32 = 0;
     while (i < fat_size * 2) : (i += 1) {
         const write_sector = switch (ft) {
-            .Fat12 => 1 + i,                     // FAT12 ignores fat_size scaling
+            .Fat12 => 1 + i, // FAT12 ignores fat_size scaling
             .Fat16, .Fat32 => reserved_sectors + i, // FAT16/32 respect reserved_sectors
         };
         if (i == 0 or i == fat_size) {
@@ -300,9 +303,15 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
             var j: u32 = 1;
             while (j < media_byte) : (j += 1) fs[j] = 0xFF;
             if (ft == .Fat32) {
-                fs[3] = 0x0F; fs[4] = 0xFF; fs[5] = 0xFF;
-                fs[6] = 0x0F; fs[7] = 0xFF; fs[8] = 0xFF;
-                fs[9] = 0x0F; fs[10] = 0xFF; fs[11] = 0x0F; // Root EOC
+                fs[3] = 0x0F;
+                fs[4] = 0xFF;
+                fs[5] = 0xFF;
+                fs[6] = 0x0F;
+                fs[7] = 0xFF;
+                fs[8] = 0xFF;
+                fs[9] = 0x0F;
+                fs[10] = 0xFF;
+                fs[11] = 0x0F; // Root EOC
             }
             ata.write_sector(drive, write_sector, &fs);
         } else {
@@ -340,6 +349,12 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
 }
 
 /// Thin wrapper so existing call sites stay stable.
-pub fn mkfs_fat12(drive_num: u8) void { mkfs(drive_num, .Fat12); }
-pub fn mkfs_fat16(drive_num: u8) void { mkfs(drive_num, .Fat16); }
-pub fn mkfs_fat32(drive_num: u8) void { mkfs(drive_num, .Fat32); }
+pub fn mkfs_fat12(drive_num: u8) void {
+    mkfs(drive_num, .Fat12);
+}
+pub fn mkfs_fat16(drive_num: u8) void {
+    mkfs(drive_num, .Fat16);
+}
+pub fn mkfs_fat32(drive_num: u8) void {
+    mkfs(drive_num, .Fat32);
+}

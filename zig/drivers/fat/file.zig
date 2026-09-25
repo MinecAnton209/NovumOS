@@ -250,10 +250,10 @@ fn sector_window(handle: *FileHandle) SectorWindow {
 fn advance_cluster(handle: *FileHandle) bool {
     const next_cluster = get_fat_entry(handle.drive, handle.bpb, handle.cluster);
     const eof_val: u32 = switch (handle.bpb.fat_type) {
-        .FAT12  => 0xFF8,
-        .FAT16  => 0xFFF8,
-        .FAT32  => 0x0FFFFFF8,
-        else   => 0xFFF8,
+        .FAT12 => 0xFF8,
+        .FAT16 => 0xFFF8,
+        .FAT32 => 0x0FFFFFF8,
+        else => 0xFFF8,
     };
     if (next_cluster >= eof_val) return false;
     handle.cluster = next_cluster;
@@ -265,10 +265,10 @@ fn advance_cluster(handle: *FileHandle) bool {
 fn allocate_next_cluster(handle: *FileHandle) bool {
     const new_cluster = find_free_cluster(handle.drive, handle.bpb) orelse return false;
     const eof_val: u32 = switch (handle.bpb.fat_type) {
-        .FAT12  => 0xFF8,
-        .FAT16  => 0xFFF8,
-        .FAT32  => 0x0FFFFFF8,
-        else   => 0xFFF8,
+        .FAT12 => 0xFF8,
+        .FAT16 => 0xFFF8,
+        .FAT32 => 0x0FFFFFF8,
+        else => 0xFFF8,
     };
     set_fat_entry(handle.drive, handle.bpb, handle.cluster, new_cluster);
     set_fat_entry(handle.drive, handle.bpb, new_cluster, eof_val);
@@ -600,18 +600,31 @@ fn write_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []cons
 
     if (config.ENABLE_FAT_DEBUG) {
         common.printZ("DBG wfl: exists=");
-        if (exists) |_| { common.printZ("Y"); } else { common.printZ("N"); }
-        common.printZ(" dir_cluster="); common.printNum(@intCast(dir_cluster));
-        common.printZ(" name=\""); common.printZ(name); common.printZ("\"");
-        common.printZ(" root_ent="); common.printNum(@intCast(bpb.root_entries));
-        common.printZ(" root_sec="); common.printNum(@intCast(bpb.root_dir_sectors));
-        common.printZ(" frs="); common.printNum(@intCast(bpb.first_root_dir_sector));
-        common.printZ(" fds="); common.printNum(@intCast(bpb.first_data_sector));
-        common.printZ(" nfat="); common.printNum(@intCast(bpb.num_fats));
-        common.printZ(" spf="); common.printNum(@intCast(bpb.sectors_per_fat));
-        common.printZ(" spc="); common.printNum(@intCast(bpb.sectors_per_cluster));
+        if (exists) |_| {
+            common.printZ("Y");
+        } else {
+            common.printZ("N");
+        }
+        common.printZ(" dir_cluster=");
+        common.printNum(@intCast(dir_cluster));
+        common.printZ(" name=\"");
+        common.printZ(name);
+        common.printZ("\"");
+        common.printZ(" root_ent=");
+        common.printNum(@intCast(bpb.root_entries));
+        common.printZ(" root_sec=");
+        common.printNum(@intCast(bpb.root_dir_sectors));
+        common.printZ(" frs=");
+        common.printNum(@intCast(bpb.first_root_dir_sector));
+        common.printZ(" fds=");
+        common.printNum(@intCast(bpb.first_data_sector));
+        common.printZ(" nfat=");
+        common.printNum(@intCast(bpb.num_fats));
+        common.printZ(" spf=");
+        common.printNum(@intCast(bpb.sectors_per_fat));
+        common.printZ(" spc=");
+        common.printNum(@intCast(bpb.sectors_per_cluster));
         common.printZ("\n");
-
     }
     if (exists) |entry| {
         if ((entry.attr & 0x04) != 0) {

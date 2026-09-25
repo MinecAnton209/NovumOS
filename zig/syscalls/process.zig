@@ -1,7 +1,3 @@
-// zig/syscalls/process.zig
-// Process control syscalls: Exit, Execve, JumpToUser, Yield.
-// Also hosts per-process alloc tracking for Nova Ring 3 protection.
-
 const user = @import("../arch/mod.zig").user;
 const memory = @import("../kernel/memory.zig");
 const logger = @import("../kernel/logger.zig");
@@ -140,7 +136,10 @@ const Utsname = extern struct {
 
 /// Syscall 112: getpid() -> EAX=pid
 pub fn getpid(regs: *user.Registers) void {
-    const p = scheduler.current_process() orelse { regs.eax = 0; return; };
+    const p = scheduler.current_process() orelse {
+        regs.eax = 0;
+        return;
+    };
     regs.eax = p.id;
 }
 
@@ -152,7 +151,8 @@ pub fn getppid(regs: *user.Registers) void {
 /// Syscall 114: uname(EBX=utsname_ptr) -> EAX=0 or -1
 pub fn uname(regs: *user.Registers) void {
     if (!syscalls.is_safe_user_range(regs.ebx, @sizeOf(Utsname))) {
-        regs.eax = 0xFFFFFFFF; return;
+        regs.eax = 0xFFFFFFFF;
+        return;
     }
     const uts = @as(*Utsname, @ptrFromInt(regs.ebx));
     @memset(@as([*]u8, @ptrCast(&uts.sysname))[0..65], 0);

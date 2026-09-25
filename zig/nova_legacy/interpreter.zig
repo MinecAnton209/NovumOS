@@ -22,18 +22,17 @@ const REPL_BUFFER_SIZE: usize = 4096;
 const HISTORY_SIZE: usize = 20;
 
 const NOVA_KEYWORDS = [_][]const u8{
-    "print(",       "set ",             "exit();",         "import \"",       "if (",            "else {",
-    "while (",      "import \"math\";", "import \"sys\";", "math.",           "sys.",            "math.sin(",
-    "math.cos(",    "math.abs(",        "math.min(",       "math.max(",       "math.rad(",       "math.deg(",
-    "math.random(", "math.set_angles(", "math.pi()",       "math.sqrt(",      "math.pow(",       "math.floor(",
-    "math.ceil(",   "math.round(",      "sys.get_mem()",   "sys.get_temp()",  "sys.delay(",      "sys.sleep(",
-    "sys.exec(",    "sys.shell(",       "sys.color(",      "sys.key()",       "sys.reboot();",   "sys.shutdown();",
-    "sys.whoami()", "sys.uname()",      "sys.uptime()",    "sys.get_res_x()", "sys.get_res_y()", "sys.cls()",
-    "import \"quantum\"", "quantum.rand()", "quantum.entangle()", "quantum.info()",
-    "len(",         "int(",             "str(",            "split(",          "format(",         "convert(",
-    "input(",       "read(",            "write(",          "delete(",         "rename(",         "copy(",
-    "exists(",      "size(",            "mkdir(",          "argc()",          "args(",           "break;",
-    "continue;",
+    "print(",             "set ",             "exit();",            "import \"",       "if (",            "else {",
+    "while (",            "import \"math\";", "import \"sys\";",    "math.",           "sys.",            "math.sin(",
+    "math.cos(",          "math.abs(",        "math.min(",          "math.max(",       "math.rad(",       "math.deg(",
+    "math.random(",       "math.set_angles(", "math.pi()",          "math.sqrt(",      "math.pow(",       "math.floor(",
+    "math.ceil(",         "math.round(",      "sys.get_mem()",      "sys.get_temp()",  "sys.delay(",      "sys.sleep(",
+    "sys.exec(",          "sys.shell(",       "sys.color(",         "sys.key()",       "sys.reboot();",   "sys.shutdown();",
+    "sys.whoami()",       "sys.uname()",      "sys.uptime()",       "sys.get_res_x()", "sys.get_res_y()", "sys.cls()",
+    "import \"quantum\"", "quantum.rand()",   "quantum.entangle()", "quantum.info()",  "len(",            "int(",
+    "str(",               "split(",           "format(",            "convert(",        "input(",          "read(",
+    "write(",             "delete(",          "rename(",            "copy(",           "exists(",         "size(",
+    "mkdir(",             "argc()",           "args(",              "break;",          "continue;",
 };
 
 // Interpreter state

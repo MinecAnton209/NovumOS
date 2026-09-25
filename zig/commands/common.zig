@@ -204,28 +204,30 @@ pub const fs_write = fs.fs_write;
 /// Returns the read value (truncated to width), or null when is_out.
 fn io_port(comptime width: u6, comptime is_out: bool, port: u16, value: ?u32) ?u32 {
     const sys_in: u32, const sys_out: u32, const ret_ty: type = switch (width) {
-        8  => .{ 6, 7, u8 },
+        8 => .{ 6, 7, u8 },
         16 => .{ 8, 9, u16 },
         32 => .{ 16, 17, u32 },
         else => unreachable,
     };
 
     var cs: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]" : [cs] "=r" (cs));
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs),
+    );
     if ((cs & 3) == 3) {
         if (is_out) {
             asm volatile ("int $0x80"
                 :
                 : [sys] "{eax}" (@as(u32, sys_out)),
-                  [p]   "{ebx}" (@as(u32, port)),
-                  [v]   "{ecx}" (@as(u32, value orelse 0)),
+                  [p] "{ebx}" (@as(u32, port)),
+                  [v] "{ecx}" (@as(u32, value orelse 0)),
             );
             return null;
         }
         return asm volatile ("int $0x80"
             : [ret] "={eax}" (-> ret_ty),
             : [sys] "{eax}" (@as(u32, sys_in)),
-              [p]   "{ebx}" (@as(u32, port)),
+              [p] "{ebx}" (@as(u32, port)),
         );
     }
 
@@ -235,18 +237,39 @@ fn io_port(comptime width: u6, comptime is_out: bool, port: u16, value: ?u32) ?u
         const v8: u8 = @intCast(val);
         const v16: u16 = @intCast(val);
         switch (width) {
-            8  => asm volatile ("outb %[v], %[p]" :: [v] "{al}" (v8), [p] "{dx}" (port)),
-            16 => asm volatile ("outw %[v], %[p]" :: [v] "{ax}" (v16), [p] "{dx}" (port)),
-            32 => asm volatile ("outl %[v], %[p]" :: [v] "{eax}" (val), [p] "{dx}" (port)),
+            8 => asm volatile ("outb %[v], %[p]"
+                :
+                : [v] "{al}" (v8),
+                  [p] "{dx}" (port),
+            ),
+            16 => asm volatile ("outw %[v], %[p]"
+                :
+                : [v] "{ax}" (v16),
+                  [p] "{dx}" (port),
+            ),
+            32 => asm volatile ("outl %[v], %[p]"
+                :
+                : [v] "{eax}" (val),
+                  [p] "{dx}" (port),
+            ),
             else => unreachable,
         }
         return null;
     }
 
     return switch (width) {
-        8  => asm volatile ("inb %[p], %[r]" : [r] "={al}" (-> u8),  : [p] "{dx}" (port)),
-        16 => asm volatile ("inw %[p], %[r]" : [r] "={ax}" (-> u16),  : [p] "{dx}" (port)),
-        32 => asm volatile ("inl %[p], %[r]" : [r] "={eax}" (-> u32), : [p] "{dx}" (port)),
+        8 => asm volatile ("inb %[p], %[r]"
+            : [r] "={al}" (-> u8),
+            : [p] "{dx}" (port),
+        ),
+        16 => asm volatile ("inw %[p], %[r]"
+            : [r] "={ax}" (-> u16),
+            : [p] "{dx}" (port),
+        ),
+        32 => asm volatile ("inl %[p], %[r]"
+            : [r] "={eax}" (-> u32),
+            : [p] "{dx}" (port),
+        ),
         else => unreachable,
     };
 }

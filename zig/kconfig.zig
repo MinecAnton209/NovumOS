@@ -160,7 +160,7 @@ pub fn validate(comptime schema: []const Field, text: []const u8) ?Diagnostic {
         if (!std.mem.startsWith(u8, key, "CONFIG_")) {
             return .{ .kind = .missing_prefix, .line = line_no, .key = key, .detail = line };
         }
-        const bare = key["CONFIG_".len ..];
+        const bare = key["CONFIG_".len..];
         const field = findField(schema, bare) orelse
             return .{ .kind = .unknown_key, .line = line_no, .key = bare, .detail = val };
         if (earlierKeyLine(text, key, line_no)) |first| {
@@ -250,9 +250,18 @@ pub fn value(comptime T: type, comptime schema: []const Field, comptime text: []
         const field = findField(schema, name) orelse
             @compileError("kconfig.value: no schema field named " ++ name);
         switch (T) {
-            bool => switch (field.default) { .bool => {}, else => @compileError("schema type mismatch for " ++ name) },
-            u32 => switch (field.default) { .int => {}, else => @compileError("schema type mismatch for " ++ name) },
-            []const u8 => switch (field.default) { .str => {}, else => @compileError("schema type mismatch for " ++ name) },
+            bool => switch (field.default) {
+                .bool => {},
+                else => @compileError("schema type mismatch for " ++ name),
+            },
+            u32 => switch (field.default) {
+                .int => {},
+                else => @compileError("schema type mismatch for " ++ name),
+            },
+            []const u8 => switch (field.default) {
+                .str => {},
+                else => @compileError("schema type mismatch for " ++ name),
+            },
             else => @compileError("unsupported config type " ++ @typeName(T)),
         }
         if (get(T, schema, text, name)) |v| break :blk v;

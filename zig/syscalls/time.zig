@@ -1,6 +1,3 @@
-// zig/syscalls/time.zig
-// Time-related syscalls: sleep, ticks, datetime.
-
 const common = @import("../commands/common.zig");
 const timer = @import("../drivers/timer.zig");
 const rtc = @import("../drivers/time/time.zig");
@@ -39,7 +36,8 @@ const Timespec = extern struct {
 /// Syscall 110: clock_gettime(EBX=clock_id, ECX=ts_ptr) -> EAX=0 or -1
 pub fn clock_gettime(regs: *user.Registers) void {
     if (!syscalls.is_safe_user_range(regs.ecx, @sizeOf(Timespec))) {
-        regs.eax = 0xFFFFFFFF; return;
+        regs.eax = 0xFFFFFFFF;
+        return;
     }
     const ts = @as(*Timespec, @ptrFromInt(regs.ecx));
     if (regs.ebx == CLOCK_MONOTONIC) {
@@ -65,7 +63,8 @@ pub fn clock_gettime(regs: *user.Registers) void {
 /// Syscall 111: nanosleep(EBX=req_ptr, ECX=rem_ptr) -> EAX=0 or -1
 pub fn nanosleep(regs: *user.Registers) void {
     if (!syscalls.is_safe_user_range(regs.ebx, @sizeOf(Timespec))) {
-        regs.eax = 0xFFFFFFFF; return;
+        regs.eax = 0xFFFFFFFF;
+        return;
     }
     const req = @as(*const Timespec, @ptrFromInt(regs.ebx));
     const total_ms = @as(u32, @intCast(req.tv_sec)) * 1000 + @as(u32, @intCast(req.tv_nsec)) / 1_000_000;

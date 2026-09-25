@@ -12,7 +12,6 @@ var bpb_cache: struct {
 } = .{};
 
 pub const FatType = enum {
-
     None,
     FAT12,
     FAT16,
@@ -48,7 +47,7 @@ pub fn read_bpb(drive: ata.Drive) ?BPB {
     // Fast path: check cache
     const cached: ?BPB = switch (drive) {
         .Master => bpb_cache.master,
-        .Slave  => bpb_cache.slave,
+        .Slave => bpb_cache.slave,
     };
     if (cached) |bpb| if (bpb_cache.valid) return bpb else {};
 
@@ -61,13 +60,20 @@ pub fn read_bpb(drive: ata.Drive) ?BPB {
     if (config.ENABLE_FAT_DEBUG) {
         common.printZ("DBG read_bpb: bytes_per_sec=");
         common.printNum(@intCast(@as(u16, buffer[11]) | (@as(u16, buffer[12]) << 8)));
-        common.printZ(" spc="); common.printNum(@intCast(buffer[13]));
-        common.printZ(" reserved="); common.printNum(@intCast(@as(u16, buffer[14]) | (@as(u16, buffer[15]) << 8)));
-        common.printZ(" num_fats="); common.printNum(@intCast(buffer[16]));
-        common.printZ(" root_ent="); common.printNum(@intCast(@as(u16, buffer[17]) | (@as(u16, buffer[18]) << 8)));
-        common.printZ(" tot16="); common.printNum(@intCast(@as(u16, buffer[19]) | (@as(u16, buffer[20]) << 8)));
-        common.printZ(" media="); common.printNum(@intCast(buffer[21]));
-        common.printZ(" spf="); common.printNum(@intCast(@as(u16, buffer[22]) | (@as(u16, buffer[23]) << 8)));
+        common.printZ(" spc=");
+        common.printNum(@intCast(buffer[13]));
+        common.printZ(" reserved=");
+        common.printNum(@intCast(@as(u16, buffer[14]) | (@as(u16, buffer[15]) << 8)));
+        common.printZ(" num_fats=");
+        common.printNum(@intCast(buffer[16]));
+        common.printZ(" root_ent=");
+        common.printNum(@intCast(@as(u16, buffer[17]) | (@as(u16, buffer[18]) << 8)));
+        common.printZ(" tot16=");
+        common.printNum(@intCast(@as(u16, buffer[19]) | (@as(u16, buffer[20]) << 8)));
+        common.printZ(" media=");
+        common.printNum(@intCast(buffer[21]));
+        common.printZ(" spf=");
+        common.printNum(@intCast(@as(u16, buffer[22]) | (@as(u16, buffer[23]) << 8)));
         common.printZ("\n");
     }
 
@@ -122,7 +128,7 @@ pub fn read_bpb(drive: ata.Drive) ?BPB {
     bpb_cache.valid = true;
     switch (drive) {
         .Master => bpb_cache.master = bpb,
-        .Slave  => bpb_cache.slave = bpb,
+        .Slave => bpb_cache.slave = bpb,
     }
     return bpb;
 }
@@ -131,7 +137,7 @@ pub fn read_bpb(drive: ata.Drive) ?BPB {
 pub fn invalidate_bpb_cache(drive: ata.Drive) void {
     switch (drive) {
         .Master => bpb_cache.master = null,
-        .Slave  => bpb_cache.slave = null,
+        .Slave => bpb_cache.slave = null,
     }
     cache.invalidate_fat_cache();
 }

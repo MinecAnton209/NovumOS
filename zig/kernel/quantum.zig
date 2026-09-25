@@ -55,8 +55,7 @@ fn detect_rdrand() void {
         : [eax_out] "={eax}" (eax),
           [ecx_out] "={ecx}" (ecx),
         : [eax_in] "{eax}" (eax),
-        : .{ .ebx = true, .edx = true }
-    );
+        : .{ .ebx = true, .edx = true });
     has_rdrand_feature = (ecx & (1 << 30)) != 0;
     if (!has_rdrand_feature) return;
 
@@ -68,8 +67,7 @@ fn detect_rdrand() void {
           [ecx_out] "={ecx}" (ecx7),
         : [eax_in] "{eax}" (leaf),
           [ecx_in] "{ecx}" (subleaf),
-        : .{ .ebx = true, .edx = true }
-    );
+        : .{ .ebx = true, .edx = true });
     has_rdseed_feature = (ecx7 & (1 << 18)) != 0;
 }
 
@@ -81,10 +79,9 @@ fn try_rdseed() ?u32 {
         var carry: u8 = undefined;
         asm volatile ("rdseed %[val]\n\tsetc %[carry]"
             : [val] "=r" (val),
-              [carry] "=qm" (carry)
+              [carry] "=qm" (carry),
             :
-            : .{ .cc = true }
-        );
+            : .{ .cc = true });
         if (carry != 0) return val;
     }
     return null;
@@ -116,10 +113,9 @@ fn try_rdrand() ?u32 {
         var carry: u8 = undefined;
         asm volatile ("rdrand %[val]\n\tsetc %[carry]"
             : [val] "=r" (val),
-              [carry] "=qm" (carry)
+              [carry] "=qm" (carry),
             :
-            : .{ .cc = true }
-        );
+            : .{ .cc = true });
         if (carry != 0) return val;
     }
     return null;

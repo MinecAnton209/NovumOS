@@ -47,10 +47,10 @@ const HISTORY_SIZE = if (build_config.history_size) |h| h else config.HISTORY_SI
 
 // Command dispatcher kinds — eliminates 50+ thin wrapper functions
 const CmdKind = enum {
-    direct_args,   // handler(args.ptr, args.len)
-    no_args,       // handler()
-    guarded_args,  // handler(args.ptr, len) if args.len > 0, else print usage
-    custom,        // handler(args) with custom logic
+    direct_args, // handler(args.ptr, args.len)
+    no_args, // handler()
+    guarded_args, // handler(args.ptr, len) if args.len > 0, else print usage
+    custom, // handler(args) with custom logic
 };
 
 const Command = struct {
@@ -89,15 +89,25 @@ fn cmd_handler_mouse(_: []const u8) void {
 // Generic handlers that eliminate per-command wrapper functions
 // via comptime dispatch on the underlying shell_cmds function.
 fn direct_handler(comptime f: anytype) fn ([]const u8) void {
-    return struct { fn h(args: []const u8) void { f(args.ptr, @intCast(args.len)); } }.h;
+    return struct {
+        fn h(args: []const u8) void {
+            f(args.ptr, @intCast(args.len));
+        }
+    }.h;
 }
 fn no_args_handler(comptime f: anytype) fn ([]const u8) void {
-    return struct { fn h(_: []const u8) void { f(); } }.h;
+    return struct {
+        fn h(_: []const u8) void {
+            f();
+        }
+    }.h;
 }
 fn guarded_handler(comptime f: anytype, comptime usage: []const u8) fn ([]const u8) void {
-    return struct { fn h(args: []const u8) void {
-        if (args.len > 0) f(args.ptr, @intCast(args.len)) else common.printZ(usage);
-    } }.h;
+    return struct {
+        fn h(args: []const u8) void {
+            if (args.len > 0) f(args.ptr, @intCast(args.len)) else common.printZ(usage);
+        }
+    }.h;
 }
 
 const SHELL_COMMANDS = [_]Command{
@@ -308,22 +318,22 @@ fn handle_input_char(char: u8) void {
         return;
     }
 
-    if (char == 1) {    // Ctrl+A — jump to beginning
+    if (char == 1) { // Ctrl+A — jump to beginning
         cmd_pos = 0;
         move_screen_cursor();
         return;
     }
-    if (char == 5) {    // Ctrl+E — jump to end
+    if (char == 5) { // Ctrl+E — jump to end
         cmd_pos = cmd_len;
         move_screen_cursor();
         return;
     }
 
-    if (char == 23) {   // Ctrl+W — delete word backwards
+    if (char == 23) { // Ctrl+W — delete word backwards
         handle_delete_word();
         return;
     }
-    if (char == 21) {   // Ctrl+U — clear line
+    if (char == 21) { // Ctrl+U — clear line
         for (&cmd_buffer) |*b| b.* = 0;
         cmd_len = 0;
         cmd_pos = 0;
@@ -331,13 +341,21 @@ fn handle_input_char(char: u8) void {
         return;
     }
 
-    if (char == 8 or char == 127) { handle_backspace(); return; } // Backspace
-    if (char == keyboard.KEY_DELETE) { handle_delete(); return; }
+    if (char == 8 or char == 127) {
+        handle_backspace();
+        return;
+    } // Backspace
+    if (char == keyboard.KEY_DELETE) {
+        handle_delete();
+        return;
+    }
 
     if (handle_navigation_key(char)) return;
     if (handle_history_key(char)) return;
 
-    if (char >= 32 and char <= 126) { handle_printable(char); }
+    if (char >= 32 and char <= 126) {
+        handle_printable(char);
+    }
 }
 
 fn handle_printable(char: u8) void {
@@ -395,19 +413,31 @@ fn handle_delete_word() void {
 /// Returns true if char was a recognized arrow-key (navigation handled).
 fn handle_navigation_key(char: u8) bool {
     if (char == keyboard.KEY_LEFT) {
-        if (cmd_pos > 0) { cmd_pos -= 1; move_screen_cursor(); }
+        if (cmd_pos > 0) {
+            cmd_pos -= 1;
+            move_screen_cursor();
+        }
         return true;
     }
     if (char == keyboard.KEY_RIGHT) {
-        if (cmd_pos < cmd_len) { cmd_pos += 1; move_screen_cursor(); }
+        if (cmd_pos < cmd_len) {
+            cmd_pos += 1;
+            move_screen_cursor();
+        }
         return true;
     }
     if (char == keyboard.KEY_HOME) {
-        if (cmd_pos != 0) { cmd_pos = 0; move_screen_cursor(); }
+        if (cmd_pos != 0) {
+            cmd_pos = 0;
+            move_screen_cursor();
+        }
         return true;
     }
     if (char == keyboard.KEY_END) {
-        if (cmd_pos != cmd_len) { cmd_pos = cmd_len; move_screen_cursor(); }
+        if (cmd_pos != cmd_len) {
+            cmd_pos = cmd_len;
+            move_screen_cursor();
+        }
         return true;
     }
     return false;
@@ -996,7 +1026,10 @@ fn try_nova_script(name: []const u8, argv: [8][]const u8, argc: usize) bool {
     // Relative/absolute path scripts (containing /)
     var contains_slash = false;
     for (name) |c| {
-        if (c == '/' or c == '\\') { contains_slash = true; break; }
+        if (c == '/' or c == '\\') {
+            contains_slash = true;
+            break;
+        }
     }
 
     if (contains_slash) {

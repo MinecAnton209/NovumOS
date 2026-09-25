@@ -74,7 +74,11 @@ pub fn init() void {
 
     // Wait for controller ready
     init_debug = 1;
-    if (!wait_input_empty()) { init_debug = 10; if (config.MOUSE_DEBUG) common.printZ("mouse: wait empty fail\n"); return; }
+    if (!wait_input_empty()) {
+        init_debug = 10;
+        if (config.MOUSE_DEBUG) common.printZ("mouse: wait empty fail\n");
+        return;
+    }
 
     // Enable the auxiliary device (mouse) — controller command, no ACK
     init_debug = 2;
@@ -84,28 +88,60 @@ pub fn init() void {
     // Set PS/2 controller command byte directly: enable both devices, IRQ12, standard translation
     // 0x47 = bit 0 (keyboard IRQ) | bit 1 (mouse IRQ) | bit 2 (system) | bit 6 (translate)
     init_debug = 3;
-    if (!wait_input_empty()) { init_debug = 30; if (config.MOUSE_DEBUG) common.printZ("mouse: wait empty before cmd byte\n"); return; }
+    if (!wait_input_empty()) {
+        init_debug = 30;
+        if (config.MOUSE_DEBUG) common.printZ("mouse: wait empty before cmd byte\n");
+        return;
+    }
     outb(0x64, 0x60);
-    if (!wait_input_empty()) { init_debug = 31; if (config.MOUSE_DEBUG) common.printZ("mouse: wait empty before data\n"); return; }
+    if (!wait_input_empty()) {
+        init_debug = 31;
+        if (config.MOUSE_DEBUG) common.printZ("mouse: wait empty before data\n");
+        return;
+    }
     outb(0x60, 0x47);
 
     // Set default settings
     init_debug = 5;
-    if (!mouse_write(0xF6)) { init_debug = 50; if (config.MOUSE_DEBUG) common.printZ("mouse: 0xF6 no ack\n"); return; }
+    if (!mouse_write(0xF6)) {
+        init_debug = 50;
+        if (config.MOUSE_DEBUG) common.printZ("mouse: 0xF6 no ack\n");
+        return;
+    }
 
     // Set resolution: 8 counts/mm
     init_debug = 6;
-    if (!mouse_write(0xE8)) { init_debug = 60; if (config.MOUSE_DEBUG) common.printZ("mouse: 0xE8 no ack\n"); return; }
-    if (!mouse_write(0x03)) { init_debug = 61; if (config.MOUSE_DEBUG) common.printZ("mouse: 0x03 no ack\n"); return; }
+    if (!mouse_write(0xE8)) {
+        init_debug = 60;
+        if (config.MOUSE_DEBUG) common.printZ("mouse: 0xE8 no ack\n");
+        return;
+    }
+    if (!mouse_write(0x03)) {
+        init_debug = 61;
+        if (config.MOUSE_DEBUG) common.printZ("mouse: 0x03 no ack\n");
+        return;
+    }
 
     // Set sample rate: 40 reports/sec
     init_debug = 7;
-    if (!mouse_write(0xF3)) { init_debug = 70; if (config.MOUSE_DEBUG) common.printZ("mouse: 0xF3 no ack\n"); return; }
-    if (!mouse_write(0x28)) { init_debug = 71; if (config.MOUSE_DEBUG) common.printZ("mouse: 0x28 no ack\n"); return; }
+    if (!mouse_write(0xF3)) {
+        init_debug = 70;
+        if (config.MOUSE_DEBUG) common.printZ("mouse: 0xF3 no ack\n");
+        return;
+    }
+    if (!mouse_write(0x28)) {
+        init_debug = 71;
+        if (config.MOUSE_DEBUG) common.printZ("mouse: 0x28 no ack\n");
+        return;
+    }
 
     // Enable data reporting
     init_debug = 8;
-    if (!mouse_write(0xF4)) { init_debug = 80; if (config.MOUSE_DEBUG) common.printZ("mouse: 0xF4 no ack\n"); return; }
+    if (!mouse_write(0xF4)) {
+        init_debug = 80;
+        if (config.MOUSE_DEBUG) common.printZ("mouse: 0xF4 no ack\n");
+        return;
+    }
 
     init_debug = 9;
     if (config.MOUSE_DEBUG) common.printZ("mouse: initialized!\n");

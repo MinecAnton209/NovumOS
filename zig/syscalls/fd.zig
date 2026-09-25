@@ -61,12 +61,17 @@ fn read_raw(handle: *fat.FileHandle, buf: [*]u8, count: u32) i32 {
         const offset_in_sector = offset_in_cluster % 512;
         const avail = @min(512 - offset_in_sector, count - bytes_read);
         const actual = @min(avail, handle.size - handle.offset);
-        @memcpy(buf[bytes_read..bytes_read + actual], sector_buf[offset_in_sector..offset_in_sector + actual]);
+        @memcpy(buf[bytes_read .. bytes_read + actual], sector_buf[offset_in_sector .. offset_in_sector + actual]);
         bytes_read += actual;
         handle.offset += actual;
         if (actual < avail) break;
         const next = fat.get_fat_entry(handle.drive, handle.bpb, handle.cluster);
-        const eof_val: u32 = switch (handle.bpb.fat_type) { .FAT12 => 0xFF8, .FAT16 => 0xFFF8, .FAT32 => 0x0FFFFFF8, else => 0xFFF8 };
+        const eof_val: u32 = switch (handle.bpb.fat_type) {
+            .FAT12 => 0xFF8,
+            .FAT16 => 0xFFF8,
+            .FAT32 => 0x0FFFFFF8,
+            else => 0xFFF8,
+        };
         if (next >= eof_val) break;
         handle.cluster = next;
     }
@@ -76,19 +81,29 @@ fn read_raw(handle: *fat.FileHandle, buf: [*]u8, count: u32) i32 {
 /// Syscall 100: open(EBX=path, ECX=flags, EDX=mode) -> EAX=fd or -1
 pub fn open(regs: *user.Registers) void {
     const path = syscalls.safe_str_from_user(regs.ebx, syscalls.MAX_SYSCALL_PATH_LEN) orelse {
-        regs.eax = 0xFFFFFFFF; return;
+        regs.eax = 0xFFFFFFFF;
+        return;
     };
     if (path.len == 0 or (path[0] != '/' and path[0] != '\\') or !path_policy.is_path_allowed(path)) {
-        regs.eax = 0xFFFFFFFF; return;
+        regs.eax = 0xFFFFFFFF;
+        return;
     }
-    const state = resolve_fat_state() orelse { regs.eax = 0xFFFFFFFF; return; };
-    const p = scheduler.current_process() orelse { regs.eax = 0xFFFFFFFF; return; };
+    const state = resolve_fat_state() orelse {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    };
+    const p = scheduler.current_process() orelse {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    };
     const cwd_cluster: u32 = 0;
     const handle = fat.fat_open(state[0], state[1], cwd_cluster, path) orelse {
-        regs.eax = 0xFFFFFFFF; return;
+        regs.eax = 0xFFFFFFFF;
+        return;
     };
     const gi = alloc_global_handle(handle) orelse {
-        regs.eax = 0xFFFFFFFF; return;
+        regs.eax = 0xFFFFFFFF;
+        return;
     };
     for (&p.fd_table, 0..) |*slot, i| {
         if (slot.* == -1) {
@@ -103,10 +118,19 @@ pub fn open(regs: *user.Registers) void {
 
 /// Syscall 101: close(EBX=fd) -> EAX=0 or -1
 pub fn close(regs: *user.Registers) void {
-    const p = scheduler.current_process() orelse { regs.eax = 0xFFFFFFFF; return; };
-    if (regs.ebx >= MAX_FD) { regs.eax = 0xFFFFFFFF; return; }
+    const p = scheduler.current_process() orelse {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    };
+    if (regs.ebx >= MAX_FD) {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    }
     const gi = p.fd_table[regs.ebx];
-    if (gi < 0) { regs.eax = 0xFFFFFFFF; return; }
+    if (gi < 0) {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    }
     free_global_handle(@intCast(gi));
     p.fd_table[regs.ebx] = -1;
     regs.eax = 0;
@@ -114,15 +138,27 @@ pub fn close(regs: *user.Registers) void {
 
 /// Syscall 102: read(EBX=fd, ECX=buf, EDX=count) -> EAX=bytes_read or -1
 pub fn read(regs: *user.Registers) void {
-    const handle = get_handle(regs.ebx) orelse { regs.eax = 0xFFFFFFFF; return; };
-    if (!syscalls.is_safe_user_range(regs.ecx, regs.edx)) { regs.eax = 0xFFFFFFFF; return; }
+    const handle = get_handle(regs.ebx) orelse {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    };
+    if (!syscalls.is_safe_user_range(regs.ecx, regs.edx)) {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    }
     regs.eax = @as(u32, @bitCast(read_raw(handle, @ptrFromInt(regs.ecx), regs.edx)));
 }
 
 /// Syscall 103: write(EBX=fd, ECX=buf, EDX=count) -> EAX=bytes_written or -1
 pub fn write(regs: *user.Registers) void {
-    const handle = get_handle(regs.ebx) orelse { regs.eax = 0xFFFFFFFF; return; };
-    if (!syscalls.is_safe_user_range(regs.ecx, regs.edx)) { regs.eax = 0xFFFFFFFF; return; }
+    const handle = get_handle(regs.ebx) orelse {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    };
+    if (!syscalls.is_safe_user_range(regs.ecx, regs.edx)) {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    }
     const data = @as([*]const u8, @ptrFromInt(regs.ecx))[0..regs.edx];
     const ret = fat.fat_puts(handle, data.ptr, @intCast(data.len));
     regs.eax = @as(u32, @bitCast(ret));
@@ -130,7 +166,10 @@ pub fn write(regs: *user.Registers) void {
 
 /// Syscall 104: lseek(EBX=fd, ECX=offset, EDX=whence) -> EAX=new_pos or -1
 pub fn lseek(regs: *user.Registers) void {
-    const handle = get_handle(regs.ebx) orelse { regs.eax = 0xFFFFFFFF; return; };
+    const handle = get_handle(regs.ebx) orelse {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    };
     const result = fat.fat_lseek(handle, @as(i64, @intCast(regs.ecx)), @intCast(regs.edx));
     regs.eax = @as(u32, @bitCast(@as(i32, @intCast(result))));
 }
@@ -165,10 +204,14 @@ fn stat_impl(path_ptr: u32, stat_ptr: u32) bool {
         .mode = if ((entry.attr & 0x10) != 0) 0x41ED else 0x81A4,
         .uid = 0,
         .gid = 0,
-        .atime_sec = 0, .atime_nsec = 0,
-        .mtime_sec = 0, .mtime_nsec = 0,
-        .ctime_sec = 0, .ctime_nsec = 0,
-        .dev = 0, .ino = 0,
+        .atime_sec = 0,
+        .atime_nsec = 0,
+        .mtime_sec = 0,
+        .mtime_nsec = 0,
+        .ctime_sec = 0,
+        .ctime_nsec = 0,
+        .dev = 0,
+        .ino = 0,
         .nlink = 1,
         .blksize = 512,
         .blocks = (entry.file_size + 511) / 512,
@@ -183,17 +226,28 @@ pub fn stat(regs: *user.Registers) void {
 
 /// Syscall 106: fstat(EBX=fd, ECX=stat_buf) -> EAX=0 or -1
 pub fn fstat(regs: *user.Registers) void {
-    const handle = get_handle(regs.ebx) orelse { regs.eax = 0xFFFFFFFF; return; };
-    if (!syscalls.is_safe_user_range(regs.ecx, @sizeOf(KernelStat))) { regs.eax = 0xFFFFFFFF; return; }
+    const handle = get_handle(regs.ebx) orelse {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    };
+    if (!syscalls.is_safe_user_range(regs.ecx, @sizeOf(KernelStat))) {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    }
     const s = @as(*KernelStat, @ptrFromInt(regs.ecx));
     s.* = .{
         .size = handle.size,
         .mode = 0x81A4,
-        .uid = 0, .gid = 0,
-        .atime_sec = 0, .atime_nsec = 0,
-        .mtime_sec = 0, .mtime_nsec = 0,
-        .ctime_sec = 0, .ctime_nsec = 0,
-        .dev = 0, .ino = 0,
+        .uid = 0,
+        .gid = 0,
+        .atime_sec = 0,
+        .atime_nsec = 0,
+        .mtime_sec = 0,
+        .mtime_nsec = 0,
+        .ctime_sec = 0,
+        .ctime_nsec = 0,
+        .dev = 0,
+        .ino = 0,
         .nlink = 1,
         .blksize = 512,
         .blocks = (handle.size + 511) / 512,

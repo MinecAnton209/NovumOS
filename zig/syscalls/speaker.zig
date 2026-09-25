@@ -1,6 +1,3 @@
-// zig/syscalls/speaker.zig
-// Speaker syscalls (beep, async beep, patterns).
-
 const common = @import("../commands/common.zig");
 const user = @import("../arch/mod.zig").user;
 const speaker = @import("../drivers/speaker.zig");

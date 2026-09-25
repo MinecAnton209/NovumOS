@@ -60,7 +60,6 @@ pub fn panic(msg: []const u8, _: ?*@import("std").builtin.StackTrace, _: ?usize)
 }
 const scheduler = @import("scheduler.zig");
 
-
 /// Main Kernel Loop - Exported for re-entry from User Mode
 pub export fn kernel_loop() noreturn {
     while (true) {
@@ -148,7 +147,9 @@ fn init_disk_check() void {
 fn init_scheduler() void {
     scheduler.init();
     var current_esp: u32 = undefined;
-    asm volatile ("mov %%esp, %[esp]" : [esp] "=r" (current_esp));
+    asm volatile ("mov %%esp, %[esp]"
+        : [esp] "=r" (current_esp),
+    );
     scheduler.bootstrap(current_esp);
 }
 

@@ -133,28 +133,28 @@ pub const Parser = struct {
         self.expect(.R_PAREN);
         const then_block = self.parseBlock();
 
-    var else_block: ?*ast.Node = null;
-    if (self.peek().ttype == .ELSE) {
-        self.ip += 1;
-        else_block = self.parseBlock();
-    }
+        var else_block: ?*ast.Node = null;
+        if (self.peek().ttype == .ELSE) {
+            self.ip += 1;
+            else_block = self.parseBlock();
+        }
 
-    const node = self.arena.alloc(ast.Node);
-    node.* = .{
-        .node_type = .if_stmt,
-        .line = if_token.line,
-        .left = cond,
-        .right = then_block,
-        .stmt_count = 0,
-    };
-    if (else_block) |eb| {
-        const mem = self.arena.allocBytes(@sizeOf(*ast.Node));
-        const ptr: [*]*ast.Node = @ptrCast(@alignCast(mem.ptr));
-        ptr[0] = eb;
-        node.stmts = ptr;
-        node.stmt_count = 1;
-    }
-    return node;
+        const node = self.arena.alloc(ast.Node);
+        node.* = .{
+            .node_type = .if_stmt,
+            .line = if_token.line,
+            .left = cond,
+            .right = then_block,
+            .stmt_count = 0,
+        };
+        if (else_block) |eb| {
+            const mem = self.arena.allocBytes(@sizeOf(*ast.Node));
+            const ptr: [*]*ast.Node = @ptrCast(@alignCast(mem.ptr));
+            ptr[0] = eb;
+            node.stmts = ptr;
+            node.stmt_count = 1;
+        }
+        return node;
     }
 
     fn parseWhile(self: *Parser) ?*ast.Node {

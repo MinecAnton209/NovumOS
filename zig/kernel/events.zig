@@ -39,8 +39,11 @@ pub fn push(event_type: u32, code: u32, value: i32, value2: i32, value3: i32) vo
     const next = (head + 1) & (QUEUE_SIZE - 1);
     if (next == tail) return;
     queue[head] = .{
-        .event_type = event_type, .code = code,
-        .value = value, .value2 = value2, .value3 = value3,
+        .event_type = event_type,
+        .code = code,
+        .value = value,
+        .value2 = value2,
+        .value3 = value3,
     };
     head = next;
 }

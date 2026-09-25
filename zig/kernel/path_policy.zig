@@ -55,7 +55,7 @@ fn canonicalize(path: []const u8, out: []u8) ?[]const u8 {
             len += 1;
         }
         if (len + comp.len > out.len) return null;
-        @memcpy(out[len..len + comp.len], comp);
+        @memcpy(out[len .. len + comp.len], comp);
         len += comp.len;
     }
 

@@ -14,9 +14,15 @@ pub const math_max = str_util.math_max;
 pub const math_min = str_util.math_min;
 
 // Thin wrappers for callers that reference common.syscall0/1/2
-pub fn syscall0(n: u32) u32 { return syscall.syscall0(n); }
-pub fn syscall1(n: u32, a1: u32) u32 { return syscall.syscall1(n, a1); }
-pub fn syscall2(n: u32, a1: u32, a2: u32) u32 { return syscall.syscall2(n, a1, a2); }
+pub fn syscall0(n: u32) u32 {
+    return syscall.syscall0(n);
+}
+pub fn syscall1(n: u32, a1: u32) u32 {
+    return syscall.syscall1(n, a1);
+}
+pub fn syscall2(n: u32, a1: u32, a2: u32) u32 {
+    return syscall.syscall2(n, a1, a2);
+}
 
 // VGA/console
 pub var current_color: u16 = 0x07;
