@@ -19,4 +19,10 @@ pub const schema = [_]kconfig.Field{
     .{ .name = "NOVA_PATH_POLICY_ENABLED", .default = .{ .bool = true }, .help = "Kill-switch for path policy (CVE-2026-40573 mitigation)" },
     .{ .name = "NOVA_DEBUG", .default = .{ .bool = true }, .help = "Nova debug logging" },
     .{ .name = "MOUSE_DEBUG", .default = .{ .bool = true }, .help = "Enable mouse debug output during init" },
+    .{ .name = "ENABLE_QUANTUM", .default = .{ .bool = true }, .help = "Kernel quantum simulator and q* commands" },
+    .{ .name = "ENABLE_DOOMFIRE", .default = .{ .bool = true }, .help = "DOOM fire shell command" },
+    .{ .name = "ENABLE_BUILTIN_SCRIPTS", .default = .{ .bool = true }, .help = "Embedded nova scripts hello/syscheck" },
+    .{ .name = "ENABLE_MOUSE", .default = .{ .bool = true }, .help = "PS/2 mouse driver and command" },
+    .{ .name = "ENABLE_SMP", .default = .{ .bool = true }, .help = "SMP AP bring-up and multicore tests" },
+    .{ .name = "ENABLE_NOVA", .default = .{ .bool = true }, .help = "Nova language: interpreter, embedded ELF, script commands" },
 };

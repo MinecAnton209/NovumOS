@@ -29,7 +29,9 @@ const config = @import("../config.zig");
 comptime {
     _ = shell_cmds;
     _ = keyboard_isr;
-    _ = nova;
+    if (config.ENABLE_NOVA) {
+        _ = nova;
+    }
     _ = shell;
     _ = messages;
     _ = timer;
@@ -41,7 +43,9 @@ comptime {
     _ = @import("../drivers/vga.zig");
     _ = speaker;
     _ = mouse;
-    _ = quantum;
+    if (config.ENABLE_QUANTUM) {
+        _ = quantum;
+    }
     _ = libc_stubs;
 }
 
@@ -154,11 +158,13 @@ fn init_scheduler() void {
 }
 
 fn init_peripherals() void {
-    speaker.init();
-    timer.set_tick_callback(&speaker.beep_async_tick);
-    if (config.ENABLE_BOOT_BEEP) speaker.beep(1000, 100);
-    mouse.init();
-    quantum.init();
+    if (config.ENABLE_SPEAKER) {
+        speaker.init();
+        timer.set_tick_callback(&speaker.beep_async_tick);
+        if (config.ENABLE_BOOT_BEEP) speaker.beep(1000, 100);
+    }
+    if (config.ENABLE_MOUSE) mouse.init();
+    if (config.ENABLE_QUANTUM) quantum.init();
 }
 
 /// Kernel entry point.

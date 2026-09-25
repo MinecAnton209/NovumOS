@@ -37,10 +37,10 @@ const EmbeddedScript = struct {
     source: []const u8,
 };
 
-const BUILTIN_SCRIPTS = [_]EmbeddedScript{
+const BUILTIN_SCRIPTS = if (config.ENABLE_BUILTIN_SCRIPTS) [_]EmbeddedScript{
     .{ .name = "hello", .source = @embedFile("../nova_legacy/scripts/hello.nv") },
     .{ .name = "syscheck", .source = @embedFile("../nova_legacy/scripts/syscheck.nv") },
-};
+} else [_]EmbeddedScript{};
 
 // Shell configuration
 const build_config = @import("build_config");
@@ -117,11 +117,8 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "clear", .help = "Clear screen and reset console state", .handler = cmd_handler_clear, .kind = .custom },
     .{ .name = "cls", .help = "Alias for clear", .handler = cmd_handler_clear, .kind = .custom },
     .{ .name = "about", .help = "Show legal information & credits", .handler = cmd_handler_about, .kind = .custom },
-    .{ .name = "nova", .help = "Start Nova Scripting Interpreter", .handler = cmd_handler_nova_legacy, .kind = .custom },
-    .{ .name = "nova_legacy", .help = "Alias for nova", .handler = cmd_handler_nova_legacy, .kind = .custom },
     .{ .name = "top", .help = "Real-time CPU and Task Monitor", .handler = no_args_handler(&top_cmd.cmd_top), .kind = .no_args },
     .{ .name = "ps", .help = "List active system processes", .handler = no_args_handler(&shell_cmds.cmd_ps), .kind = .no_args },
-    .{ .name = "mouse", .help = "Show PS/2 mouse status and statistics", .handler = cmd_handler_mouse, .kind = .custom },
     .{ .name = "kill", .help = "kill <pid> - Terminate a running process", .handler = cmd_handler_kill, .kind = .custom },
     .{ .name = "uptime", .help = "Show system runtime and RTC time", .handler = no_args_handler(&shell_cmds.cmd_uptime), .kind = .no_args },
     .{ .name = "reboot", .help = "Safely restart the system", .handler = no_args_handler(&shell_cmds.cmd_reboot), .kind = .no_args },
@@ -163,25 +160,15 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "codename", .help = "Show current release codename", .handler = cmd_handler_codename, .kind = .custom },
     .{ .name = "fetch", .help = "Show stylish system info summary", .handler = no_args_handler(&shell_cmds.cmd_fetch), .kind = .no_args },
     .{ .name = "matrix", .help = "Enter the NovumOS Matrix (fun!)", .handler = cmd_handler_matrix, .kind = .custom },
-    .{ .name = "doomfire", .help = "Quantum-ignited DOOM fire on the framebuffer", .handler = no_args_handler(&doomfire_cmd.cmd_doomfire), .kind = .no_args },
     .{ .name = "mv", .help = "mv <src> <dest> - Move or rename file/folder", .handler = direct_handler(&shell_cmds.cmd_mv), .kind = .direct_args },
     .{ .name = "ren", .help = "Alias for mv (rename file/folder)", .handler = direct_handler(&shell_cmds.cmd_rename), .kind = .direct_args },
     .{ .name = "format", .help = "Low-level drive formatting tool", .handler = direct_handler(&shell_cmds.cmd_format), .kind = .direct_args },
     .{ .name = "mkfs", .help = "Create filesystem on current drive", .handler = direct_handler(&shell_cmds.cmd_mkfs), .kind = .direct_args },
-    .{ .name = "install", .help = "install <src> [name] - Install Nova script", .handler = cmd_handler_install, .kind = .custom },
-    .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall, .kind = .custom },
     .{ .name = "ring3", .help = "Switch to Ring 3 (User Mode) test", .handler = no_args_handler(&shell_cmds.cmd_ring3), .kind = .no_args },
     .{ .name = "run", .help = "run <elf> - Execute an ELF (RAM FS or disk)", .handler = guarded_handler(&shell_cmds.cmd_run, "Usage: run <elf>\n"), .kind = .guarded_args, .usage = "Usage: run <elf>\n" },
     .{ .name = "exec", .help = "Alias for run", .handler = guarded_handler(&shell_cmds.cmd_run, "Usage: run <elf>\n"), .kind = .guarded_args, .usage = "Usage: run <elf>\n" },
     .{ .name = "calc", .help = "Evaluate math & bitwise expressions (e.g. 1 << 8)", .handler = direct_handler(&shell_cmds.cmd_calc), .kind = .direct_args },
     .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = direct_handler(&shell_cmds.cmd_res), .kind = .direct_args },
-    .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep, .kind = .custom },
-    .{ .name = "qrand", .help = "qrand [N | --hex N | --entangle N | --info] - Quantum random numbers", .handler = cmd_handler_qrand, .kind = .custom },
-    .{ .name = "qinit", .help = "qinit [N] - Init quantum register (RAM-checked, 32 MB reserved)", .handler = cmd_handler_qinit, .kind = .custom },
-    .{ .name = "qh", .help = "qh <qubit> - Hadamard gate", .handler = cmd_handler_qh, .kind = .custom },
-    .{ .name = "qcnot", .help = "qcnot <control> <target> - CNOT gate", .handler = cmd_handler_qcnot, .kind = .custom },
-    .{ .name = "qmeasure", .help = "qmeasure <qubit> - Measure qubit (collapses state)", .handler = cmd_handler_qmeasure, .kind = .custom },
-    .{ .name = "qtest", .help = "qtest - Bell state and Pauli-X self test", .handler = cmd_handler_qtest, .kind = .custom },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
     .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = no_args_handler(&shell_cmds.cmd_panic), .kind = .no_args },
     .{ .name = "crash", .help = "Alias for panic - trigger a CPU exception", .handler = no_args_handler(&shell_cmds.cmd_panic), .kind = .no_args },
@@ -191,13 +178,32 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "page_fault", .help = "Trigger a Page Fault exception", .handler = no_args_handler(&shell_cmds.cmd_page_fault), .kind = .no_args },
     .{ .name = "gpf", .help = "Trigger a General Protection Fault", .handler = no_args_handler(&shell_cmds.cmd_gpf), .kind = .no_args },
 } else [_]Command{}) ++ (if (config.ENABLE_DEBUG_COMMANDS) [_]Command{
-    .{ .name = "smp-test", .help = "Test global task queue across cores", .handler = no_args_handler(&shell_cmds.cmd_smp_test), .kind = .no_args },
-    .{ .name = "stress-test", .help = "Run heavy math on AP cores while BSP stays free", .handler = no_args_handler(&shell_cmds.cmd_stress_test), .kind = .no_args },
     .{ .name = "idt-check", .help = "Verify IDT integrity against saved snapshot", .handler = no_args_handler(&idt_watchdog.cmd_idt_check), .kind = .no_args },
     .{ .name = "idt-modify", .help = "Test IDT modification (for watchdog testing)", .handler = cmd_handler_idt_modify, .kind = .custom },
     .{ .name = "idt-move", .help = "Test IDTR relocation (detected by watchdog)", .handler = no_args_handler(&common.idt_move), .kind = .no_args },
     .{ .name = "fbinfo", .help = "Display framebuffer info", .handler = cmd_handler_fbinfo, .kind = .custom },
     .{ .name = "fbtest", .help = "Draw test pattern to framebuffer", .handler = cmd_handler_fbtest, .kind = .custom },
+} else [_]Command{}) ++ (if (config.ENABLE_QUANTUM) [_]Command{
+    .{ .name = "qrand", .help = "qrand [N | --hex N | --entangle N | --info] - Quantum random numbers", .handler = cmd_handler_qrand, .kind = .custom },
+    .{ .name = "qinit", .help = "qinit [N] - Init quantum register (RAM-checked, 32 MB reserved)", .handler = cmd_handler_qinit, .kind = .custom },
+    .{ .name = "qh", .help = "qh <qubit> - Hadamard gate", .handler = cmd_handler_qh, .kind = .custom },
+    .{ .name = "qcnot", .help = "qcnot <control> <target> - CNOT gate", .handler = cmd_handler_qcnot, .kind = .custom },
+    .{ .name = "qmeasure", .help = "qmeasure <qubit> - Measure qubit (collapses state)", .handler = cmd_handler_qmeasure, .kind = .custom },
+    .{ .name = "qtest", .help = "qtest - Bell state and Pauli-X self test", .handler = cmd_handler_qtest, .kind = .custom },
+} else [_]Command{}) ++ (if (config.ENABLE_DOOMFIRE) [_]Command{
+    .{ .name = "doomfire", .help = "Quantum-ignited DOOM fire on the framebuffer", .handler = no_args_handler(&doomfire_cmd.cmd_doomfire), .kind = .no_args },
+} else [_]Command{}) ++ (if (config.ENABLE_MOUSE) [_]Command{
+    .{ .name = "mouse", .help = "Show PS/2 mouse status and statistics", .handler = cmd_handler_mouse, .kind = .custom },
+} else [_]Command{}) ++ (if (config.ENABLE_SPEAKER) [_]Command{
+    .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep, .kind = .custom },
+} else [_]Command{}) ++ (if (config.ENABLE_DEBUG_COMMANDS and config.ENABLE_SMP) [_]Command{
+    .{ .name = "smp-test", .help = "Test global task queue across cores", .handler = no_args_handler(&shell_cmds.cmd_smp_test), .kind = .no_args },
+    .{ .name = "stress-test", .help = "Run heavy math on AP cores while BSP stays free", .handler = no_args_handler(&shell_cmds.cmd_stress_test), .kind = .no_args },
+} else [_]Command{}) ++ (if (config.ENABLE_NOVA) [_]Command{
+    .{ .name = "nova", .help = "Start Nova Scripting Interpreter", .handler = cmd_handler_nova_legacy, .kind = .custom },
+    .{ .name = "nova_legacy", .help = "Alias for nova", .handler = cmd_handler_nova_legacy, .kind = .custom },
+    .{ .name = "install", .help = "install <src> [name] - Install Nova script", .handler = cmd_handler_install, .kind = .custom },
+    .{ .name = "uninstall", .help = "uninstall <name> - Remove installed command", .handler = cmd_handler_uninstall, .kind = .custom },
 } else [_]Command{});
 
 // Local command buffer
@@ -1024,6 +1030,7 @@ fn try_builtin(cmd_raw: []const u8, name: []const u8) bool {
 /// Returns true if a script was dispatched (or error reported), false if
 /// the command was not recognized as a script.
 fn try_nova_script(name: []const u8, argv: [8][]const u8, argc: usize) bool {
+    if (!config.ENABLE_NOVA) return false;
     // Relative/absolute path scripts (containing /)
     var contains_slash = false;
     for (name) |c| {
@@ -1157,7 +1164,7 @@ pub fn shell_execute_literal(cmd: []const u8) void {
         common.printError("shell: command not found: ");
         common.printError(cmd_name);
         common.printError("\n");
-        if (config.ENABLE_ERROR_BEEP) {
+        if (config.ENABLE_SPEAKER and config.ENABLE_ERROR_BEEP) {
             speaker.beep_pattern_async(200, 80, 50);
         }
     }

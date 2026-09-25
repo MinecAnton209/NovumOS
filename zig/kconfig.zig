@@ -128,6 +128,7 @@ const test_schema = [_]Field{
     .{ .name = "ENABLE_SERIAL_DEBUG", .default = .{ .bool = false }, .help = "serial" },
     .{ .name = "HEAP_INITIAL_SIZE", .default = .{ .int = 1024 * 1024 }, .help = "heap" },
     .{ .name = "TARGET_NAME", .default = .{ .str = "x86" }, .help = "str field" },
+    .{ .name = "ENABLE_TEST_DEFAULT_ON", .default = .{ .bool = true }, .help = "default-on flag test field" },
 };
 
 fn trim(s: []const u8) []const u8 {
@@ -287,6 +288,26 @@ fn nasmDefineChecked(buf: []u8, comptime schema: []const Field, text: []const u8
     if (validate(schema, text) != null) return error.InvalidConfig;
     const v = get(bool, schema, text, name) orelse field.default.bool;
     return std.fmt.bufPrint(buf, "{s}={d}", .{ name, @intFromBool(v) }) catch unreachable;
+}
+
+pub fn flag(comptime schema: []const Field, text: []const u8, comptime name: []const u8) bool {
+    if (get(bool, schema, text, name)) |v| return v;
+    const field = comptime findField(schema, name) orelse
+        @compileError("kconfig.flag: no schema field named " ++ name);
+    return switch (field.default) {
+        .bool => |b| b,
+        else => @compileError("kconfig.flag: field " ++ name ++ " is not bool"),
+    };
+}
+
+test "flag returns schema default when key absent" {
+    try testing.expect(flag(&test_schema, "", "ENABLE_SERIAL_DEBUG") == false);
+    try testing.expect(flag(&test_schema, "", "ENABLE_TEST_DEFAULT_ON") == true);
+}
+
+test "flag honors y and n overrides" {
+    try testing.expect(flag(&test_schema, "CONFIG_ENABLE_SERIAL_DEBUG=y", "ENABLE_SERIAL_DEBUG") == true);
+    try testing.expect(!flag(&test_schema, "CONFIG_ENABLE_SERIAL_DEBUG=n", "ENABLE_SERIAL_DEBUG"));
 }
 
 test "empty config text validates clean" {

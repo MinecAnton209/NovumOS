@@ -188,15 +188,35 @@ qemu-system-i386 -cdrom NovumOS.iso -serial stdio -s -S
 
 ## Development
 
-### Debug Flags
+### Configuration (.config)
 
-Copy the defaults once (`cp defconfig .config`), edit `.config`, and
-rebuild — `zig build` parses it and passes flags on:
+Compile-time options live in `.config` at the repo root (git-ignored).
+Initialize and edit:
 
-- `ENABLE_SERIAL_DEBUG` / `ENABLE_EARLY_LFB_DEBUG` — read from `.config`
-  by `build.zig` and passed to nasm as `-D` defines.
-- `ENABLE_FAT_DEBUG` — FAT traces (BPB, writes, directory ops) to serial.
-- `ENABLE_SPEAKER` / `ENABLE_BOOT_BEEP` / `ENABLE_ERROR_BEEP` — audio.
+```bash
+cp defconfig .config        # Windows: copy defconfig .config
+```
+
+Edit `CONFIG_<NAME>=y|n|<decimal>` lines in any editor and rebuild —
+there is no runtime/CLI config command; the file is parsed at build
+time by the kconfig engine. Resolution order: `.config` → `defconfig`
+→ schema defaults. Invalid lines fail the build with the exact line
+number. Full flag reference and workflow: [DOCS/CONFIG.md](DOCS/CONFIG.md).
+
+- Debug output: `ENABLE_SERIAL_DEBUG` / `ENABLE_EARLY_LFB_DEBUG`
+  (passed to nasm as `-D` defines), `ENABLE_FAT_DEBUG`,
+  `ENABLE_KERNEL_LOGGING`, `MOUSE_DEBUG`, `NOVA_DEBUG`.
+- Compile-out gates (default `y`): `ENABLE_QUANTUM`, `ENABLE_DOOMFIRE`,
+  `ENABLE_BUILTIN_SCRIPTS`, `ENABLE_MOUSE`, `ENABLE_SPEAKER`,
+  `ENABLE_SMP`, `ENABLE_NOVA` — set `=n` to exclude the subsystem from
+  the binary entirely.
+- Audio: `ENABLE_BOOT_BEEP` / `ENABLE_ERROR_BEEP` (honored only with
+  `ENABLE_SPEAKER=y`).
+- Shell/system: `ENABLE_DEBUG_COMMANDS`, `ENABLE_DEBUG_CRASH_COMMANDS`,
+  `ENABLE_IDT_WATCHDOG`, `ENABLE_RSOD_REBOOT`, `ENABLE_EMBEDDED_ELFS`,
+  `HISTORY_SIZE` (overridable per-build via `-Dhistory_size`),
+  `HEAP_INITIAL_SIZE`.
+- Security: `NOVA_PATH_POLICY_ENABLED` — keep `=y` (CVE-2026-40573).
 
 ### IDE Setup
 

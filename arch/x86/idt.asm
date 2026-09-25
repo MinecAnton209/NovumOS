@@ -1,5 +1,9 @@
 [bits 32]
 
+%ifndef ENABLE_MOUSE
+%define ENABLE_MOUSE 1
+%endif
+
 global idt_init
 global enable_interrupts
 global disable_interrupts
@@ -8,7 +12,9 @@ global double_fault_handler_task
 
 ; External Zig ISR handlers
 extern isr_keyboard
+%if ENABLE_MOUSE
 extern isr_mouse
+%endif
 extern isr_timer
 extern handle_exception
 extern handle_double_fault
@@ -73,10 +79,12 @@ idt_init:
     mov ebx, 0x21
     call idt_set_gate
 
+%if ENABLE_MOUSE
     ; 6b. Set Mouse ISR (IRQ12 -> 0x2C)
     mov eax, isr_mouse_wrapper
     mov ebx, 0x2C
     call idt_set_gate
+%endif
 
     ; 7. Set Syscall Gate (0x80) with DPL 3
     mov eax, syscall_handler
@@ -94,10 +102,12 @@ idt_init:
     and al, 0xf8        ; 11111000b - Unmask IRQ0, IRQ1, IRQ2
     out 0x21, al
 
+%if ENABLE_MOUSE
     ; 8b. Unmask IRQ12 (Mouse) on slave PIC
     in al, 0xA1
     and al, 0xEF        ; 11101111b - Clear bit 4 (IRQ12)
     out 0xA1, al
+%endif
 
     popa
     ret
@@ -298,6 +308,7 @@ isr_keyboard_wrapper:
     pop gs
     iretd
 
+%if ENABLE_MOUSE
 ; ISR Wrapper: Mouse (IRQ12)
 isr_mouse_wrapper:
     push gs
@@ -335,6 +346,7 @@ isr_mouse_wrapper:
     pop fs
     pop gs
     iretd
+%endif
 
 ; ISR Wrapper: Timer (IRQ0)
 isr_timer_wrapper:

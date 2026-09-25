@@ -310,7 +310,7 @@ pub fn panic(msg: []const u8) noreturn {
 
 fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]const u8, fault_addr: ?u32) noreturn {
     asm volatile ("cli");
-    speaker.silence();
+    if (config.ENABLE_SPEAKER) speaker.silence();
 
     // Disable Write Protect to allow kernel to write to protected pages (like VGA)
     var cr0: u32 = undefined;
