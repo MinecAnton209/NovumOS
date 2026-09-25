@@ -153,6 +153,27 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run config facade tests");
     test_step.dependOn(&run_config_tests.step);
 
+    // menuconfig TUI: host dev tool, deliberately not part of default_step
+    const vaxis_dep = b.dependency("vaxis", .{
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const menuconfig_mod = b.createModule(.{
+        .root_source_file = b.path("tools/menuconfig.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    menuconfig_mod.addImport("vaxis", vaxis_dep.module("vaxis"));
+    const menuconfig_exe = b.addExecutable(.{
+        .name = "menuconfig",
+        .root_module = menuconfig_mod,
+    });
+    const run_menuconfig = b.addRunArtifact(menuconfig_exe);
+    run_menuconfig.stdio = .inherit;
+    run_menuconfig.setCwd(b.path(".."));
+    const menuconfig_step = b.step("menuconfig", "Edit .config in an interactive TUI");
+    menuconfig_step.dependOn(&run_menuconfig.step);
+
     // Nova User-Space ELF
     if (nova_on) {
         const nova_mod = b.createModule(.{
