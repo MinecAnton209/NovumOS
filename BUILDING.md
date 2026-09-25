@@ -88,15 +88,9 @@ script skips ISO creation with a hint.
 
 Sources are laid out per architecture (see [Repository Layout](#repository-layout)):
 
-- `ARCH` environment variable picks asm/include/linker paths
-  (default `x86`, used by both build scripts):
-  ```powershell
-  set ARCH=x86
-  .\build.bat
-  ```
-  ```bash
-  ARCH=x86 ./build.sh
-  ```
+- The build scripts assemble and link the `arch/x86/` sources directly —
+  there is no `ARCH` environment variable to set (the Zig side is picked
+  by `-Darch` below).
 - `zig build -Darch=x86` selects the compiler target and the
   `arch/mod.zig` facade branch (`x86` is the only supported value today;
   anything else fails fast with a clear error). The scripts currently run
@@ -124,6 +118,7 @@ From the `zig/` directory:
 ```bash
 zig build mkdisk --disk-size=2G   # create ../disk.img (needs qemu-img; default 32M)
 zig build -Dhistory_size=100      # shell history depth
+zig build test                 # config facade tests (kconfig engine: zig test kconfig.zig)
 ```
 
 Known gap: `zig build run` and `zig build run-disk` still reference
@@ -184,16 +179,18 @@ qemu-system-i386 -cdrom NovumOS.iso -serial stdio -s -S
 | `zig/syscalls/` | `int 0x80` dispatch and handlers |
 | `zig/nova_user/` | modern nova (Ring 3, AST) |
 | `zig/nova_legacy/` | frozen legacy nova (Ring 0) |
-| `zig/config.zig` | feature flags (build root) |
+| `.config` / `defconfig` | local overrides / committed defaults (repo root) |
+| `zig/config.zig` | config facade + derived constants (build root) |
 
 ## Development
 
 ### Debug Flags
 
-Edit `zig/config.zig` and rebuild:
+Copy the defaults once (`cp defconfig .config`), edit `.config`, and
+rebuild — `zig build` parses it and passes flags on:
 
-- `ENABLE_SERIAL_DEBUG` / `ENABLE_EARLY_LFB_DEBUG` — detected
-  automatically by the build scripts and passed to nasm as `-D` defines.
+- `ENABLE_SERIAL_DEBUG` / `ENABLE_EARLY_LFB_DEBUG` — read from `.config`
+  by `build.zig` and passed to nasm as `-D` defines.
 - `ENABLE_FAT_DEBUG` — FAT traces (BPB, writes, directory ops) to serial.
 - `ENABLE_SPEAKER` / `ENABLE_BOOT_BEEP` / `ENABLE_ERROR_BEEP` — audio.
 
