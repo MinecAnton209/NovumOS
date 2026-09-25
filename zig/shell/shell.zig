@@ -121,7 +121,6 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "nova_legacy", .help = "Alias for nova", .handler = cmd_handler_nova_legacy, .kind = .custom },
     .{ .name = "top", .help = "Real-time CPU and Task Monitor", .handler = no_args_handler(&top_cmd.cmd_top), .kind = .no_args },
     .{ .name = "ps", .help = "List active system processes", .handler = no_args_handler(&shell_cmds.cmd_ps), .kind = .no_args },
-    .{ .name = "mouse", .help = "Show PS/2 mouse status and statistics", .handler = cmd_handler_mouse, .kind = .custom },
     .{ .name = "kill", .help = "kill <pid> - Terminate a running process", .handler = cmd_handler_kill, .kind = .custom },
     .{ .name = "uptime", .help = "Show system runtime and RTC time", .handler = no_args_handler(&shell_cmds.cmd_uptime), .kind = .no_args },
     .{ .name = "reboot", .help = "Safely restart the system", .handler = no_args_handler(&shell_cmds.cmd_reboot), .kind = .no_args },
@@ -200,6 +199,8 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "qtest", .help = "qtest - Bell state and Pauli-X self test", .handler = cmd_handler_qtest, .kind = .custom },
 } else [_]Command{}) ++ (if (config.ENABLE_DOOMFIRE) [_]Command{
     .{ .name = "doomfire", .help = "Quantum-ignited DOOM fire on the framebuffer", .handler = no_args_handler(&doomfire_cmd.cmd_doomfire), .kind = .no_args },
+} else [_]Command{}) ++ (if (config.ENABLE_MOUSE) [_]Command{
+    .{ .name = "mouse", .help = "Show PS/2 mouse status and statistics", .handler = cmd_handler_mouse, .kind = .custom },
 } else [_]Command{});
 
 // Local command buffer

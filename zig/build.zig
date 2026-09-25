@@ -95,6 +95,9 @@ pub fn build(b: *std.Build) void {
     const serial_flag = kconfig.nasmDefine(&flag_buf1, &cfg_schema.schema, cfg.text, "ENABLE_SERIAL_DEBUG");
     const lfb_flag = kconfig.nasmDefine(&flag_buf2, &cfg_schema.schema, cfg.text, "ENABLE_EARLY_LFB_DEBUG");
 
+    var flag_buf3: [64]u8 = undefined;
+    const mouse_flag = kconfig.nasmDefine(&flag_buf3, &cfg_schema.schema, cfg.text, "ENABLE_MOUSE");
+
     const nasm_k32 = b.addSystemCommand(&.{ "nasm", "-f", "elf32" });
     nasm_k32.addPrefixedDirectoryArg("-i", b.path("../arch/x86"));
     // The -i directory arg is hashed by path only, so content-track every
@@ -104,6 +107,7 @@ pub fn build(b: *std.Build) void {
     nasm_k32.addFileArg(b.path("../arch/x86/kernel32.asm"));
     nasm_k32.addArg(b.fmt("-D{s}", .{serial_flag}));
     nasm_k32.addArg(b.fmt("-D{s}", .{lfb_flag}));
+    nasm_k32.addArg(b.fmt("-D{s}", .{mouse_flag}));
     nasm_k32.addArg("-o");
     const k32_o = nasm_k32.addOutputFileArg("kernel32.o");
 
