@@ -182,8 +182,6 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "page_fault", .help = "Trigger a Page Fault exception", .handler = no_args_handler(&shell_cmds.cmd_page_fault), .kind = .no_args },
     .{ .name = "gpf", .help = "Trigger a General Protection Fault", .handler = no_args_handler(&shell_cmds.cmd_gpf), .kind = .no_args },
 } else [_]Command{}) ++ (if (config.ENABLE_DEBUG_COMMANDS) [_]Command{
-    .{ .name = "smp-test", .help = "Test global task queue across cores", .handler = no_args_handler(&shell_cmds.cmd_smp_test), .kind = .no_args },
-    .{ .name = "stress-test", .help = "Run heavy math on AP cores while BSP stays free", .handler = no_args_handler(&shell_cmds.cmd_stress_test), .kind = .no_args },
     .{ .name = "idt-check", .help = "Verify IDT integrity against saved snapshot", .handler = no_args_handler(&idt_watchdog.cmd_idt_check), .kind = .no_args },
     .{ .name = "idt-modify", .help = "Test IDT modification (for watchdog testing)", .handler = cmd_handler_idt_modify, .kind = .custom },
     .{ .name = "idt-move", .help = "Test IDTR relocation (detected by watchdog)", .handler = no_args_handler(&common.idt_move), .kind = .no_args },
@@ -202,7 +200,11 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "mouse", .help = "Show PS/2 mouse status and statistics", .handler = cmd_handler_mouse, .kind = .custom },
 } else [_]Command{}) ++ (if (config.ENABLE_SPEAKER) [_]Command{
     .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep, .kind = .custom },
+} else [_]Command{}) ++ (if (config.ENABLE_DEBUG_COMMANDS and config.ENABLE_SMP) [_]Command{
+    .{ .name = "smp-test", .help = "Test global task queue across cores", .handler = no_args_handler(&shell_cmds.cmd_smp_test), .kind = .no_args },
+    .{ .name = "stress-test", .help = "Run heavy math on AP cores while BSP stays free", .handler = no_args_handler(&shell_cmds.cmd_stress_test), .kind = .no_args },
 } else [_]Command{});
+
 
 // Local command buffer
 var cmd_buffer: [1024]u8 = [_]u8{0} ** 1024;

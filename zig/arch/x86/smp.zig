@@ -390,12 +390,6 @@ pub fn get_cpu_info() CpuInfo {
 pub fn init() void {
     logger.info("SMP: Initializing Balancing SMP...");
 
-    const tramp_ptr = @as([*]u8, @ptrFromInt(TRAMPOLINE_ADDR));
-    @memcpy(tramp_ptr[0..trampoline_bin.len], trampoline_bin);
-
-    const flag_ptr = @as(*volatile u32, @ptrFromInt(FLAG_ADDR));
-    flag_ptr.* = 0;
-
     // Initialize detected_map with current LAPIC IDs
     // First, find the current core (BSP)
     var eax_bsp: u32 = 1;
@@ -411,6 +405,18 @@ pub fn init() void {
     const bsp_lapic_id = @as(u8, @intCast(ebx_bsp >> 24));
     detected_map[bsp_lapic_id] = 0;
     cores[0].id = bsp_lapic_id;
+
+    if (!config.ENABLE_SMP) {
+        detected_cores = 1;
+        online_cores = 1;
+        return;
+    }
+
+    const tramp_ptr = @as([*]u8, @ptrFromInt(TRAMPOLINE_ADDR));
+    @memcpy(tramp_ptr[0..trampoline_bin.len], trampoline_bin);
+
+    const flag_ptr = @as(*volatile u32, @ptrFromInt(FLAG_ADDR));
+    flag_ptr.* = 0;
 
     const mailbox_stack = @as(*volatile u32, @ptrFromInt(MAILBOX_STACK));
     const mailbox_entry = @as(*volatile u32, @ptrFromInt(MAILBOX_ENTRY));
