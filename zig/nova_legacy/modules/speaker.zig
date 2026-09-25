@@ -1,8 +1,10 @@
 const common = @import("../common.zig");
+const config = @import("../../config.zig");
 const speaker = @import("../../drivers/speaker.zig");
 const hash_table = @import("../hash_table.zig");
 
 pub fn handleSpeaker(vm: anytype, name: []const u8) ?hash_table.VariableValue {
+    if (!config.ENABLE_SPEAKER) return null;
     if (common.streq(name, "speaker.beep")) {
         const freq_val = vm.evaluateExpression();
         if (vm.ip < vm.tokens.len and vm.tokens.tokens[vm.ip].ttype == .COMMA) {

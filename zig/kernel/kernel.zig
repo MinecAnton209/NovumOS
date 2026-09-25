@@ -156,9 +156,11 @@ fn init_scheduler() void {
 }
 
 fn init_peripherals() void {
-    speaker.init();
-    timer.set_tick_callback(&speaker.beep_async_tick);
-    if (config.ENABLE_BOOT_BEEP) speaker.beep(1000, 100);
+    if (config.ENABLE_SPEAKER) {
+        speaker.init();
+        timer.set_tick_callback(&speaker.beep_async_tick);
+        if (config.ENABLE_BOOT_BEEP) speaker.beep(1000, 100);
+    }
     if (config.ENABLE_MOUSE) mouse.init();
     if (config.ENABLE_QUANTUM) quantum.init();
 }

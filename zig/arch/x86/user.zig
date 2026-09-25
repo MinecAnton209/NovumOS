@@ -9,7 +9,6 @@ const logger = @import("../../kernel/logger.zig");
 const ata = @import("../../drivers/ata.zig");
 const rtc = @import("../../drivers/time/time.zig");
 const config = @import("../../config.zig");
-const speaker = @import("../../drivers/speaker.zig");
 const syscalls = @import("../../syscalls/mod.zig");
 
 // External jump target to return to kernel shell

@@ -81,7 +81,6 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     const process_mod = @import("process.zig");
     const control_mod = @import("control.zig");
     const storage_mod = @import("storage.zig");
-    const speaker_mod = @import("speaker.zig");
     const debug_mod = @import("debug.zig");
     const file_mod = @import("file.zig");
     const nova_mod = @import("nova.zig");
@@ -125,7 +124,10 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     table[21] = &storage_mod.ataReadSector;
     table[22] = &storage_mod.ataWriteSector;
     // Speaker
-    table[42] = &speaker_mod.speakerOp;
+    if (config.ENABLE_SPEAKER) {
+        const speaker_mod = @import("speaker.zig");
+        table[42] = &speaker_mod.speakerOp;
+    }
     // Debug
     table[32] = &debug_mod.checkCtrlC;
     table[33] = &debug_mod.idtCheck;

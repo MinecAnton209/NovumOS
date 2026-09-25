@@ -173,7 +173,6 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "exec", .help = "Alias for run", .handler = guarded_handler(&shell_cmds.cmd_run, "Usage: run <elf>\n"), .kind = .guarded_args, .usage = "Usage: run <elf>\n" },
     .{ .name = "calc", .help = "Evaluate math & bitwise expressions (e.g. 1 << 8)", .handler = direct_handler(&shell_cmds.cmd_calc), .kind = .direct_args },
     .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = direct_handler(&shell_cmds.cmd_res), .kind = .direct_args },
-    .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep, .kind = .custom },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
     .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = no_args_handler(&shell_cmds.cmd_panic), .kind = .no_args },
     .{ .name = "crash", .help = "Alias for panic - trigger a CPU exception", .handler = no_args_handler(&shell_cmds.cmd_panic), .kind = .no_args },
@@ -201,6 +200,8 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "doomfire", .help = "Quantum-ignited DOOM fire on the framebuffer", .handler = no_args_handler(&doomfire_cmd.cmd_doomfire), .kind = .no_args },
 } else [_]Command{}) ++ (if (config.ENABLE_MOUSE) [_]Command{
     .{ .name = "mouse", .help = "Show PS/2 mouse status and statistics", .handler = cmd_handler_mouse, .kind = .custom },
+} else [_]Command{}) ++ (if (config.ENABLE_SPEAKER) [_]Command{
+    .{ .name = "beep", .help = "beep [freq|note] [dur] - Play a tone via PC speaker", .handler = cmd_handler_beep, .kind = .custom },
 } else [_]Command{});
 
 // Local command buffer
@@ -1160,7 +1161,7 @@ pub fn shell_execute_literal(cmd: []const u8) void {
         common.printError("shell: command not found: ");
         common.printError(cmd_name);
         common.printError("\n");
-        if (config.ENABLE_ERROR_BEEP) {
+        if (config.ENABLE_SPEAKER and config.ENABLE_ERROR_BEEP) {
             speaker.beep_pattern_async(200, 80, 50);
         }
     }

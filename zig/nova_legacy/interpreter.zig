@@ -10,6 +10,7 @@ const fat = @import("../drivers/fat.zig");
 const ata = @import("../drivers/ata.zig");
 const shell = @import("../shell/shell.zig");
 const speaker = @import("../drivers/speaker.zig");
+const config = @import("../config.zig");
 const lexer = @import("lexer.zig");
 const vm_mod = @import("vm.zig");
 const hash_table = @import("hash_table.zig");
@@ -370,7 +371,7 @@ fn readLine() void {
     refreshLine(); // Initial draw of status bar
 
     while (true) {
-        speaker.beep_async_check();
+        if (config.ENABLE_SPEAKER) speaker.beep_async_check();
         const key = common.get_char();
 
         if (key == 3) {
