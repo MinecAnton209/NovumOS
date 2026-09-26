@@ -126,6 +126,7 @@ const col_input_fg = vaxis.Cell.Color{ .rgb = .{ 0, 0, 0 } }; // Input text blac
 
 const Event = union(enum) {
     key_press: vaxis.Key,
+    mouse: vaxis.Mouse,
     winsize: vaxis.Winsize,
 };
 
@@ -1268,6 +1269,295 @@ fn handleKey(key: vaxis.Key) void {
     }
 }
 
+fn handleNavMouse(mouse: vaxis.Mouse, win: vaxis.Window) void {
+    if (mouse.button == .wheel_up) {
+        status = "";
+        if (cursor > 0) cursor -= 1;
+        return;
+    }
+    if (mouse.button == .wheel_down) {
+        status = "";
+        if (cursor + 1 < currentCount()) cursor += 1;
+        return;
+    }
+
+    if (win.height < 6 or win.width < 20) return;
+
+    const dw: u16 = if (win.width > 8) @min(win.width - 4, 88) else win.width;
+    const dh: u16 = if (win.height > 3) @min(win.height - 2, 32) else win.height;
+    const dx: i16 = @intCast((win.width -| dw) / 2);
+    const dy: i16 = 1 + @as(i16, @intCast((win.height -| 1 -| dh) / 2));
+
+    const inner_top: i16 = if (dh >= 10) 3 else 1;
+    const inner_h: u16 = if (dh > 7) dh - 6 else 2;
+    const inner_w: u16 = if (dw > 4) dw - 4 else dw;
+
+    const list_y_start: i16 = dy + inner_top + 2;
+    const list_h: i16 = @intCast(if (inner_h > 2) inner_h - 2 else 0);
+    const list_x_start: i16 = dx + 3;
+    const list_x_end: i16 = dx + @as(i16, @intCast(inner_w));
+
+    const is_in_list = (mouse.col >= list_x_start and mouse.col <= list_x_end and
+        mouse.row >= list_y_start and mouse.row < list_y_start + list_h);
+
+    const btn_y: i16 = dy + @as(i16, @intCast(dh)) - 2;
+    const btn_str_len: u16 = 48;
+    const btn_start: u16 = if (dw > btn_str_len) (dw - btn_str_len) / 2 else 1;
+    const btn_x: i16 = dx + 1 + @as(i16, @intCast(btn_start));
+
+    // Hover / motion tracking
+    if (mouse.type == .motion or mouse.type == .drag) {
+        if (is_in_list) {
+            const r: usize = @intCast(mouse.row - list_y_start);
+            const item_idx = scroll + r;
+            if (item_idx < currentCount()) {
+                cursor = item_idx;
+            }
+        } else if (dh >= 6 and mouse.row == btn_y) {
+            if (mouse.col >= btn_x and mouse.col < btn_x + 10) {
+                active_btn = .select;
+            } else if (mouse.col >= btn_x + 10 and mouse.col < btn_x + 22) {
+                active_btn = .exit;
+            } else if (mouse.col >= btn_x + 22 and mouse.col < btn_x + 34) {
+                active_btn = .help;
+            } else if (mouse.col >= btn_x + 34 and mouse.col < btn_x + 48) {
+                active_btn = .save;
+            }
+        }
+        return;
+    }
+
+    if (mouse.button != .left or mouse.type != .press) return;
+
+    // Check click on item list
+    if (is_in_list) {
+        const r: usize = @intCast(mouse.row - list_y_start);
+        const item_idx = scroll + r;
+        if (item_idx < currentCount()) {
+            status = "";
+            if (cursor == item_idx) {
+                performSelectAction();
+            } else {
+                cursor = item_idx;
+            }
+        }
+        return;
+    }
+
+    // Check click on bottom buttons
+    if (dh >= 6 and mouse.row == btn_y) {
+        if (mouse.col >= btn_x and mouse.col < btn_x + 10) {
+            status = "";
+            active_btn = .select;
+            performSelectAction();
+            return;
+        }
+        if (mouse.col >= btn_x + 10 and mouse.col < btn_x + 22) {
+            status = "";
+            active_btn = .exit;
+            performExitAction();
+            return;
+        }
+        if (mouse.col >= btn_x + 22 and mouse.col < btn_x + 34) {
+            status = "";
+            active_btn = .help;
+            mode = .help;
+            return;
+        }
+        if (mouse.col >= btn_x + 34 and mouse.col < btn_x + 48) {
+            status = "";
+            active_btn = .save;
+            save_modal_btn = .ok;
+            mode = .save_dialog;
+            return;
+        }
+    }
+}
+
+fn handleHelpMouse(mouse: vaxis.Mouse, _: vaxis.Window) void {
+    if (mouse.button == .left and mouse.type == .press) {
+        mode = .nav;
+    }
+}
+
+fn handleEditMouse(mouse: vaxis.Mouse, win: vaxis.Window) void {
+    const mw: u16 = @min(win.width -| 4, 56);
+    const mh: u16 = @min(win.height -| 2, 10);
+    const mx: i16 = @intCast((win.width -| mw) / 2);
+    const my: i16 = @intCast((win.height -| mh) / 2);
+
+    const btn_y: i16 = my + @as(i16, @intCast(mh)) - 2;
+    const btn_x: i16 = mx + 1 + 12;
+
+    if (mouse.type == .motion or mouse.type == .drag) {
+        if (mouse.row == btn_y) {
+            if (mouse.col >= btn_x and mouse.col < btn_x + 10) {
+                edit_modal_btn = .ok;
+            } else if (mouse.col >= btn_x + 10 and mouse.col < btn_x + 24) {
+                edit_modal_btn = .cancel;
+            }
+        }
+        return;
+    }
+
+    if (mouse.button != .left or mouse.type != .press) return;
+
+    if (mouse.row == btn_y) {
+        if (mouse.col >= btn_x and mouse.col < btn_x + 10) {
+            // <  Ok  >
+            if (parseEdit(edit_buf[0..edit_len])) |v| {
+                values[edit_target] = .{ .int = v };
+                mode = .nav;
+                status = "";
+            } else {
+                status = "not a valid u32";
+            }
+            return;
+        }
+        if (mouse.col >= btn_x + 10 and mouse.col < btn_x + 24) {
+            // < Cancel >
+            mode = .nav;
+            status = "";
+            return;
+        }
+    }
+    // Clicking outside modal dismisses
+    if (mouse.col < mx or mouse.col >= mx + @as(i16, @intCast(mw)) or
+        mouse.row < my or mouse.row >= my + @as(i16, @intCast(mh)))
+    {
+        mode = .nav;
+        status = "";
+    }
+}
+
+fn handleSaveMouse(mouse: vaxis.Mouse, win: vaxis.Window) void {
+    const mw: u16 = @min(win.width -| 4, 56);
+    const mh: u16 = 9;
+    const mx: i16 = @intCast((win.width -| mw) / 2);
+    const my: i16 = @intCast((win.height -| mh) / 2);
+
+    const btn_y: i16 = my + @as(i16, @intCast(mh)) - 3;
+    const btn_x: i16 = mx + 1 + 12;
+
+    if (mouse.type == .motion or mouse.type == .drag) {
+        if (mouse.row == btn_y) {
+            if (mouse.col >= btn_x and mouse.col < btn_x + 10) {
+                save_modal_btn = .ok;
+            } else if (mouse.col >= btn_x + 10 and mouse.col < btn_x + 24) {
+                save_modal_btn = .cancel;
+            }
+        }
+        return;
+    }
+
+    if (mouse.button != .left or mouse.type != .press) return;
+
+    if (mouse.row == btn_y) {
+        if (mouse.col >= btn_x and mouse.col < btn_x + 10) {
+            // < Ok >
+            _ = doSave();
+            mode = .nav;
+            return;
+        }
+        if (mouse.col >= btn_x + 10 and mouse.col < btn_x + 24) {
+            // < Cancel >
+            mode = .nav;
+            return;
+        }
+    }
+    // Clicking outside modal dismisses
+    if (mouse.col < mx or mouse.col >= mx + @as(i16, @intCast(mw)) or
+        mouse.row < my or mouse.row >= my + @as(i16, @intCast(mh)))
+    {
+        mode = .nav;
+    }
+}
+
+fn handleConfirmMouse(mouse: vaxis.Mouse, win: vaxis.Window) void {
+    const mw: u16 = @min(win.width -| 4, 52);
+    const mh: u16 = 8;
+    const mx: i16 = @intCast((win.width -| mw) / 2);
+    const my: i16 = @intCast((win.height -| mh) / 2);
+
+    const btn_y: i16 = my + @as(i16, @intCast(mh)) - 3;
+
+    if (mouse.type == .motion or mouse.type == .drag) {
+        if (mouse.row == btn_y) {
+            if (isDirty()) {
+                const btn_x: i16 = mx + 1 + 6;
+                if (mouse.col >= btn_x and mouse.col < btn_x + 9) {
+                    confirm_modal_btn = .yes;
+                } else if (mouse.col >= btn_x + 9 and mouse.col < btn_x + 19) {
+                    confirm_modal_btn = .no;
+                } else if (mouse.col >= btn_x + 19 and mouse.col < btn_x + 32) {
+                    confirm_modal_btn = .cancel;
+                }
+            } else {
+                const btn_x: i16 = mx + 1 + 14;
+                if (mouse.col >= btn_x and mouse.col < btn_x + 11) {
+                    confirm_modal_btn = .yes;
+                } else if (mouse.col >= btn_x + 11 and mouse.col < btn_x + 24) {
+                    confirm_modal_btn = .no;
+                }
+            }
+        }
+        return;
+    }
+
+    if (mouse.button != .left or mouse.type != .press) return;
+
+    if (isDirty()) {
+        const btn_x: i16 = mx + 1 + 6;
+        if (mouse.row == btn_y) {
+            if (mouse.col >= btn_x and mouse.col < btn_x + 9) {
+                // < Yes >
+                if (doSave()) should_quit = true else mode = .nav;
+                return;
+            }
+            if (mouse.col >= btn_x + 9 and mouse.col < btn_x + 19) {
+                // < No >
+                should_quit = true;
+                return;
+            }
+            if (mouse.col >= btn_x + 19 and mouse.col < btn_x + 32) {
+                // < Cancel >
+                mode = .nav;
+                return;
+            }
+        }
+    } else {
+        const btn_x: i16 = mx + 1 + 14;
+        if (mouse.row == btn_y) {
+            if (mouse.col >= btn_x and mouse.col < btn_x + 11) {
+                // < Yes >
+                should_quit = true;
+                return;
+            }
+            if (mouse.col >= btn_x + 11 and mouse.col < btn_x + 24) {
+                // < No >
+                mode = .nav;
+                return;
+            }
+        }
+    }
+    // Clicking outside modal cancels
+    if (mouse.col < mx or mouse.col >= mx + @as(i16, @intCast(mw)) or
+        mouse.row < my or mouse.row >= my + @as(i16, @intCast(mh)))
+    {
+        mode = .nav;
+    }
+}
+
+fn handleMouse(mouse: vaxis.Mouse, win: vaxis.Window) void {
+    switch (mode) {
+        .nav => handleNavMouse(mouse, win),
+        .edit => handleEditMouse(mouse, win),
+        .help => handleHelpMouse(mouse, win),
+        .save_dialog => handleSaveMouse(mouse, win),
+        .confirm => handleConfirmMouse(mouse, win),
+    }
+}
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const alloc = init.gpa;
@@ -1322,6 +1612,7 @@ pub fn main(init: std.process.Init) !void {
 
     try vx.enterAltScreen(tty.writer());
     try vx.queryTerminal(tty.writer(), .fromSeconds(1));
+    try vx.setMouseMode(tty.writer(), true);
 
     render(vx.window());
     try vx.render(tty.writer());
@@ -1330,6 +1621,7 @@ pub fn main(init: std.process.Init) !void {
         const event = try loop.nextEvent();
         switch (event) {
             .key_press => |key| handleKey(key),
+            .mouse => |mouse| handleMouse(mouse, vx.window()),
             .winsize => |ws| try vx.resize(alloc, tty.writer(), ws),
         }
         render(vx.window());
