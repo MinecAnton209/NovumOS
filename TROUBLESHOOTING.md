@@ -39,11 +39,10 @@ Or download from https://ziglang.org/
 
 **Cause:** Zig version too old.
 
-**Solution:** Use Zig master (0.12+):
+**Solution:** Use Zig 0.16.0 (see [BUILDING.md](BUILDING.md)):
 ```bash
-# Windows
-choco install zig --version=latest
-# or download from ziglang.org
+# Download from https://ziglang.org/download/ and add to PATH
+zig version  # must print 0.16.0
 ```
 
 ### "cannot find linker.ld"
@@ -52,7 +51,7 @@ choco install zig --version=latest
 
 **Solution:**
 ```bash
-cd E:\NewOS
+cd NovumOS
 .\build.bat
 ```
 
@@ -162,7 +161,7 @@ qemu-system-i386 -cdrom build/NovumOS.iso -d int
 1. Try different resolution: `res 800 600`
 2. Use serial console to debug:
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso -nographic
+qemu-system-i386 -cdrom build/NovumOS.iso -nographic
 ```
 3. Check QEMU log: `-d debug`
 
@@ -172,8 +171,7 @@ qemu-system-i386 -cdrom NovumOS.iso -nographic
 
 **Solutions:**
 1. Click on QEMU window first
-2. Try: `setkeycodes`
-3. Restart QEMU
+2. Restart QEMU
 
 ---
 
@@ -190,7 +188,7 @@ qemu-system-i386 -cdrom NovumOS.iso -nographic
 
 **Cause:** Memory leak or large heap.
 
-**Solution:** Check `[mem]` command in OS.
+**Solution:** Check `mem` command in OS.
 
 ---
 
@@ -241,7 +239,7 @@ When reporting, include:
 ### Environment
 - OS: Windows 11 / Ubuntu 22.04 / macOS 14
 - QEMU: version 8.x
-- Zig: version 0.x.x
+- Zig: version 0.16.0
 - NASM: version 2.x.x
 
 ### Steps to Reproduce
