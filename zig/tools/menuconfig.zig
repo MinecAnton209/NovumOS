@@ -20,7 +20,8 @@ const root_opt_keys = [_][]const u8{
 const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8 }{
     .{ .name = "Debug output", .keys = &.{
         "ENABLE_SERIAL_DEBUG",   "ENABLE_EARLY_LFB_DEBUG", "ENABLE_FAT_DEBUG",
-        "ENABLE_KERNEL_LOGGING", "MOUSE_DEBUG",            "NOVA_DEBUG",
+        "ENABLE_KERNEL_LOGGING", "ENABLE_BOOT_TRACE",      "MOUSE_DEBUG",
+        "NOVA_DEBUG",
     } },
     .{ .name = "Audio", .keys = &.{ "ENABLE_BOOT_BEEP", "ENABLE_ERROR_BEEP" } },
     .{ .name = "Shell / System", .keys = &.{
@@ -187,6 +188,75 @@ fn readText(io: std.Io, alloc: std.mem.Allocator, path: []const u8) ?[]const u8 
             std.process.exit(1);
         },
     };
+}
+
+/// True when text contains an active CONFIG_<name>= line.
+/// Comments, blank lines and "# CONFIG_X is not set" lines do not count.
+fn hasKey(text: []const u8, name: []const u8) bool {
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |raw| {
+        var line = raw;
+        while (line.len > 0 and (line[line.len - 1] == '\r' or line[line.len - 1] == ' ' or line[line.len - 1] == '\t')) line = line[0 .. line.len - 1];
+        while (line.len > 0 and (line[0] == ' ' or line[0] == '\t')) line = line[1..];
+        if (line.len == 0 or line[0] == '#') continue;
+        const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        const key = std.mem.trim(u8, line[0..eq], " \t");
+        if (!std.mem.startsWith(u8, key, "CONFIG_")) continue;
+        if (std.mem.eql(u8, key["CONFIG_".len..], name)) return true;
+    }
+    return false;
+}
+
+/// Fill vals for schema fields missing from config_text, preferring
+/// values from defconfig_text and falling back to schema defaults.
+/// Returns the number of fields filled. Pure (no I/O): the caller
+/// decides whether to persist the result.
+fn resolveMissing(
+    comptime s: []const kconfig.Field,
+    config_text: []const u8,
+    defconfig_text: []const u8,
+    vals: []kconfig.Option,
+) usize {
+    var added: usize = 0;
+    inline for (s, 0..) |f, i| {
+        if (!hasKey(config_text, f.name)) {
+            vals[i] = switch (f.default) {
+                .bool => .{ .bool = kconfig.flag(s, defconfig_text, f.name) },
+                .int => .{ .int = kconfig.get(u32, s, defconfig_text, f.name) orelse f.default.int },
+                .str => .{ .str = kconfig.get([]const u8, s, defconfig_text, f.name) orelse f.default.str },
+            };
+            added += 1;
+        }
+    }
+    return added;
+}
+
+/// Append schema fields missing from the loaded .config, taking values
+/// from defconfig (schema defaults when defconfig lacks them too).
+/// Never changes effective configuration: the build already resolves
+/// missing keys through defconfig into schema defaults. Writes .config
+/// immediately so quitting without saving keeps the file complete.
+fn syncNewKeys(alloc: std.mem.Allocator, defconfig_text: []const u8) usize {
+    const added = resolveMissing(schema, original, defconfig_text, &values);
+    if (added == 0) return 0;
+    const merged = cfg_write.merge(alloc, schema, original, &values) catch {
+        status = "out of memory";
+        return 0;
+    };
+    if (kconfig.validate(schema, merged) != null) {
+        alloc.free(merged);
+        status = "sync failed: merged config invalid";
+        return 0;
+    }
+    std.Io.Dir.cwd().writeFile(g_io, .{ .sub_path = ".config", .data = merged }) catch |err| {
+        alloc.free(merged);
+        status = std.fmt.bufPrint(&status_buf, "sync write .config failed: {s}", .{@errorName(err)}) catch "sync write failed";
+        return 0;
+    };
+    alloc.free(original);
+    original = merged;
+    saved_values = values;
+    return added;
 }
 
 fn currentCount() usize {
@@ -1634,6 +1704,20 @@ pub fn main(init: std.process.Init) !void {
     saved_values = values;
     cursor = 0;
 
+    // A stale .config may predate newly added options: append them now so
+    // the file stays complete. Values come from defconfig (schema defaults
+    // when defconfig lacks them too). Effective configuration is unchanged.
+    // defconfig_text outlives main so str values aliasing it stay valid.
+    if (config_file_exists) {
+        const defconfig_text: []const u8 = readText(io, alloc, "defconfig") orelse "";
+        defer if (defconfig_text.len > 0) alloc.free(defconfig_text);
+        const added = syncNewKeys(alloc, defconfig_text);
+        if (added > 0) {
+            const origin: []const u8 = if (defconfig_text.len > 0) "defconfig" else "schema defaults";
+            status = std.fmt.bufPrint(&status_buf, "added {d} new option(s) from {s} to .config", .{ added, origin }) catch "synced new options";
+        }
+    }
+
     var buffer: [1024]u8 = undefined;
     var tty = try vaxis.Tty.init(io, &buffer);
     defer tty.deinit();
@@ -1702,6 +1786,53 @@ test "parseEdit accepts plain u32s and rejects empty or overflowing input" {
     try std.testing.expectEqual(@as(?u32, null), parseEdit(""));
     try std.testing.expectEqual(@as(?u32, null), parseEdit("4294967296"));
 }
+
+test "hasKey detects active keys and ignores comments" {
+    const text = "# header\nCONFIG_A=y\n  CONFIG_B = 2 \n# CONFIG_C is not set\nCONFIG_AB=y\nCONFIG_NOPREFIX\n";
+    try std.testing.expect(hasKey(text, "A"));
+    try std.testing.expect(hasKey(text, "B"));
+    try std.testing.expect(!hasKey(text, "C"));
+    try std.testing.expect(hasKey(text, "AB"));
+    try std.testing.expect(!hasKey(text, "A_B"));
+    try std.testing.expect(!hasKey(text, "NOPREFIX"));
+    try std.testing.expect(!hasKey(text, "MISSING"));
+}
+
+test "hasKey handles CRLF and exact-name matching" {
+    try std.testing.expect(hasKey("CONFIG_A=y\r\n", "A"));
+    try std.testing.expect(!hasKey("CONFIG_AB=y", "A"));
+    try std.testing.expect(!hasKey("", "A"));
+}
+
+test "resolveMissing prefers defconfig, falls back to schema defaults" {
+    const config_text = "CONFIG_OPT_OLD=n\n";
+    const defconfig_text = "CONFIG_OPT_BOOL=y\nCONFIG_OPT_STR=\"hi\"\n";
+    var vals: [sync_mini.len]kconfig.Option = undefined;
+    vals[3] = .{ .bool = false };
+    const added = resolveMissing(&sync_mini, config_text, defconfig_text, vals[0..]);
+    try std.testing.expectEqual(@as(usize, 3), added);
+    try std.testing.expectEqual(true, vals[0].bool);
+    try std.testing.expectEqual(@as(u32, 7), vals[1].int);
+    try std.testing.expectEqualStrings("hi", vals[2].str);
+    try std.testing.expectEqual(false, vals[3].bool);
+}
+
+test "resolveMissing returns zero when nothing is missing" {
+    var vals: [sync_mini_single.len]kconfig.Option = undefined;
+    const added = resolveMissing(&sync_mini_single, "CONFIG_OPT_BOOL=n\n", "", vals[0..]);
+    try std.testing.expectEqual(@as(usize, 0), added);
+}
+
+const sync_mini = [_]kconfig.Field{
+    .{ .name = "OPT_BOOL", .default = .{ .bool = false }, .help = "b" },
+    .{ .name = "OPT_INT", .default = .{ .int = 7 }, .help = "i" },
+    .{ .name = "OPT_STR", .default = .{ .str = "dflt" }, .help = "s" },
+    .{ .name = "OPT_OLD", .default = .{ .bool = true }, .help = "o" },
+};
+
+const sync_mini_single = [_]kconfig.Field{
+    .{ .name = "OPT_BOOL", .default = .{ .bool = false }, .help = "b" },
+};
 
 test "isDirty accurately detects modifications and reversions" {
     config_file_exists = true;
