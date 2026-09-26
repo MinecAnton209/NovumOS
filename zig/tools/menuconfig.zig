@@ -6,89 +6,96 @@ const cfg_write = @import("cfg_write.zig");
 
 const schema = &config_schema.schema;
 
-const group_defs = [_]struct { name: []const u8, keys: []const []const u8 }{
-    .{ .name = "Compile-out gates", .keys = &.{
-        "ENABLE_QUANTUM",   "ENABLE_DOOMFIRE",  "ENABLE_BUILTIN_SCRIPTS",
-        "ENABLE_MOUSE",     "ENABLE_SPEAKER",   "ENABLE_SMP",
-        "ENABLE_NOVA",
-    } },
+const root_opt_keys = [_][]const u8{
+    "USE_GARBAGE_COLLECTOR",
+    "ENABLE_QUANTUM",
+    "ENABLE_DOOMFIRE",
+    "ENABLE_BUILTIN_SCRIPTS",
+    "ENABLE_MOUSE",
+    "ENABLE_SPEAKER",
+    "ENABLE_SMP",
+    "ENABLE_NOVA",
+};
+
+const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8 }{
     .{ .name = "Debug output", .keys = &.{
         "ENABLE_SERIAL_DEBUG",   "ENABLE_EARLY_LFB_DEBUG", "ENABLE_FAT_DEBUG",
         "ENABLE_KERNEL_LOGGING", "MOUSE_DEBUG",             "NOVA_DEBUG",
     } },
     .{ .name = "Audio", .keys = &.{ "ENABLE_BOOT_BEEP", "ENABLE_ERROR_BEEP" } },
-    .{ .name = "Shell/system", .keys = &.{
-        "ENABLE_DEBUG_COMMANDS",    "ENABLE_DEBUG_CRASH_COMMANDS", "HISTORY_SIZE",
-        "ENABLE_EMBEDDED_ELFS",     "ENABLE_IDT_WATCHDOG",         "ENABLE_RSOD_REBOOT",
-        "USE_GARBAGE_COLLECTOR",
+    .{ .name = "Shell / System", .keys = &.{
+        "ENABLE_DEBUG_COMMANDS", "ENABLE_DEBUG_CRASH_COMMANDS", "HISTORY_SIZE",
+        "ENABLE_EMBEDDED_ELFS",  "ENABLE_IDT_WATCHDOG",         "ENABLE_RSOD_REBOOT",
     } },
     .{ .name = "Security", .keys = &.{"NOVA_PATH_POLICY_ENABLED"} },
-    .{ .name = "Sizes", .keys = &.{"HEAP_INITIAL_SIZE"} },
+    .{ .name = "Memory / Sizes", .keys = &.{"HEAP_INITIAL_SIZE"} },
 };
 
-const Row = union(enum) { group: []const u8, opt: usize };
-
 fn schemaIndex(comptime name: []const u8) usize {
+    @setEvalBranchQuota(10000);
     for (schema, 0..) |f, i| {
         if (std.mem.eql(u8, f.name, name)) return i;
     }
-    @compileError("menuconfig: group key not in schema: " ++ name);
+    @compileError("menuconfig: key not in schema: " ++ name);
 }
 
-const rows: [schema.len + group_defs.len]Row = blk: {
-    var r: [schema.len + group_defs.len]Row = undefined;
-    var n: usize = 0;
-    var seen: [schema.len]bool = .{false} ** schema.len;
-    for (group_defs) |g| {
-        r[n] = .{ .group = g.name };
-        n += 1;
-        for (g.keys) |k| {
-            const idx = schemaIndex(k);
-            if (seen[idx]) @compileError("menuconfig: duplicate schema key in group_defs: " ++ k);
-            seen[idx] = true;
-            r[n] = .{ .opt = idx };
-            n += 1;
-        }
-    }
-    if (n != r.len) @compileError("menuconfig: group_defs must cover every schema key exactly once");
-    for (seen, 0..) |was_seen, i| {
-        if (!was_seen) @compileError("menuconfig: schema key missing from group_defs: " ++ schema[i].name);
-    }
-    break :blk r;
+const MenuItem = union(enum) {
+    opt: usize,
+    submenu: usize,
 };
 
-fn nextOpt(from: usize) ?usize {
-    var i = from + 1;
-    while (i < rows.len) : (i += 1) {
-        if (std.meta.activeTag(rows[i]) == .opt) return i;
+const root_items: [root_opt_keys.len + submenu_defs.len]MenuItem = blk: {
+    var items: [root_opt_keys.len + submenu_defs.len]MenuItem = undefined;
+    var n: usize = 0;
+    for (root_opt_keys) |k| {
+        items[n] = .{ .opt = schemaIndex(k) };
+        n += 1;
     }
-    return null;
+    for (0..submenu_defs.len) |si| {
+        items[n] = .{ .submenu = si };
+        n += 1;
+    }
+    break :blk items;
+};
+
+const Group = struct {
+    name: []const u8,
+    opt_indices: []const usize,
+};
+
+fn groupKeyIndices(comptime keys: []const []const u8) []const usize {
+    var arr: [keys.len]usize = undefined;
+    for (keys, 0..) |k, i| {
+        arr[i] = schemaIndex(k);
+    }
+    const final_arr = arr;
+    return &final_arr;
 }
 
-fn prevOpt(from: usize) ?usize {
-    var i = from;
-    while (i > 0) {
-        i -= 1;
-        if (std.meta.activeTag(rows[i]) == .opt) return i;
+const submenus: [submenu_defs.len]Group = blk: {
+    var s_arr: [submenu_defs.len]Group = undefined;
+    var seen: [schema.len]bool = .{false} ** schema.len;
+    for (root_opt_keys) |k| {
+        const idx = schemaIndex(k);
+        if (seen[idx]) @compileError("menuconfig: duplicate key in root_opt_keys: " ++ k);
+        seen[idx] = true;
     }
-    return null;
-}
-
-fn firstOpt() usize {
-    for (rows, 0..) |row, i| {
-        if (std.meta.activeTag(row) == .opt) return i;
+    for (submenu_defs, 0..) |sd, i| {
+        for (sd.keys) |k| {
+            const idx = schemaIndex(k);
+            if (seen[idx]) @compileError("menuconfig: duplicate schema key: " ++ k);
+            seen[idx] = true;
+        }
+        s_arr[i] = .{
+            .name = sd.name,
+            .opt_indices = groupKeyIndices(sd.keys),
+        };
     }
-    return 0;
-}
-
-fn lastOpt() usize {
-    var i = rows.len;
-    while (i > 0) {
-        i -= 1;
-        if (std.meta.activeTag(rows[i]) == .opt) return i;
+    for (seen, 0..) |was_seen, i| {
+        if (!was_seen) @compileError("menuconfig: missing key in menuconfig: " ++ schema[i].name);
     }
-    return 0;
-}
+    break :blk s_arr;
+};
 
 fn clampScroll(cursor_row: usize, view: usize, cur_scroll: usize) usize {
     if (view == 0) return cur_scroll;
@@ -124,11 +131,42 @@ const Event = union(enum) {
 
 var original: []const u8 = "";
 var values: [schema.len]kconfig.Option = undefined;
+var saved_values: [schema.len]kconfig.Option = undefined;
+
+fn isDirty() bool {
+    for (0..schema.len) |i| {
+        switch (values[i]) {
+            .bool => |bv| {
+                if (bv != saved_values[i].bool) return true;
+            },
+            .int => |iv| {
+                if (iv != saved_values[i].int) return true;
+            },
+            .str => |sv| {
+                if (!std.mem.eql(u8, sv, saved_values[i].str)) return true;
+            },
+        }
+    }
+    return false;
+}
+
+var current_menu: ?usize = null;
+var menu_cursor_stack: usize = 0;
 var cursor: usize = 0;
 var scroll: usize = 0;
-var dirty = false;
 var should_quit = false;
-var mode: enum { nav, edit, help, confirm } = .nav;
+const Button = enum(u2) {
+    select = 0,
+    exit = 1,
+    help = 2,
+    save = 3,
+};
+var active_btn: Button = .select;
+var save_modal_btn: enum(u1) { ok = 0, cancel = 1 } = .ok;
+var confirm_modal_btn: enum(u2) { yes = 0, no = 1, cancel = 2 } = .yes;
+var edit_modal_btn: enum(u1) { ok = 0, cancel = 1 } = .ok;
+
+var mode: enum { nav, edit, help, save_dialog, confirm } = .nav;
 var edit_target: usize = 0;
 var edit_buf: [16]u8 = undefined;
 var edit_len: usize = 0;
@@ -148,11 +186,25 @@ fn readText(io: std.Io, alloc: std.mem.Allocator, path: []const u8) ?[]const u8 
     };
 }
 
+fn currentCount() usize {
+    if (current_menu) |g| {
+        return submenus[g].opt_indices.len;
+    } else {
+        return root_items.len;
+    }
+}
+
 fn optUnderCursor() ?usize {
-    if (cursor < rows.len) {
-        switch (rows[cursor]) {
-            .opt => |idx| return idx,
-            .group => return null,
+    if (current_menu) |g| {
+        if (cursor < submenus[g].opt_indices.len) {
+            return submenus[g].opt_indices[cursor];
+        }
+    } else {
+        if (cursor < root_items.len) {
+            switch (root_items[cursor]) {
+                .opt => |idx| return idx,
+                .submenu => return null,
+            }
         }
     }
     return null;
@@ -181,6 +233,43 @@ fn drawShadow(win: vaxis.Window, x: i17, y: i17, w: u16, h: u16) void {
     }
 }
 
+fn renderOptRow(win: vaxis.Window, arena: std.mem.Allocator, r: usize, opt_idx: usize, is_cursor: bool) void {
+    const f = schema[opt_idx];
+    const bg_color = if (is_cursor) col_sel_bg else col_dialog_bg;
+    const fg_color = if (is_cursor) col_sel_fg else col_dialog_fg;
+    const tag_color = if (is_cursor) col_sel_tag else col_tag;
+
+    switch (values[opt_idx]) {
+        .bool => |bv| {
+            const tag = if (bv) "[*]" else "[ ]";
+            const help_text = std.fmt.allocPrint(arena, " {s}", .{f.help}) catch f.help;
+            _ = win.print(&[_]vaxis.Segment{
+                .{ .text = "  ", .style = .{ .bg = bg_color } },
+                .{ .text = tag, .style = .{ .fg = tag_color, .bg = bg_color, .bold = true } },
+                .{ .text = help_text, .style = .{ .fg = fg_color, .bg = bg_color, .bold = is_cursor } },
+            }, .{ .row_offset = @intCast(r), .col_offset = 0, .wrap = .none });
+        },
+        .int => |iv| {
+            const tag = std.fmt.allocPrint(arena, "({d})", .{iv}) catch "(?)";
+            const help_text = std.fmt.allocPrint(arena, " {s}", .{f.help}) catch f.help;
+            _ = win.print(&[_]vaxis.Segment{
+                .{ .text = "  ", .style = .{ .bg = bg_color } },
+                .{ .text = tag, .style = .{ .fg = tag_color, .bg = bg_color, .bold = true } },
+                .{ .text = help_text, .style = .{ .fg = fg_color, .bg = bg_color, .bold = is_cursor } },
+            }, .{ .row_offset = @intCast(r), .col_offset = 0, .wrap = .none });
+        },
+        .str => |sv| {
+            const tag = std.fmt.allocPrint(arena, "({s})", .{sv}) catch "(?)";
+            const help_text = std.fmt.allocPrint(arena, " {s}", .{f.help}) catch f.help;
+            _ = win.print(&[_]vaxis.Segment{
+                .{ .text = "  ", .style = .{ .bg = bg_color } },
+                .{ .text = tag, .style = .{ .fg = tag_color, .bg = bg_color, .bold = true } },
+                .{ .text = help_text, .style = .{ .fg = fg_color, .bg = bg_color, .bold = is_cursor } },
+            }, .{ .row_offset = @intCast(r), .col_offset = 0, .wrap = .none });
+        },
+    }
+}
+
 fn render(win: vaxis.Window) void {
     _ = frame_arena.reset(.retain_capacity);
     const arena = frame_arena.allocator();
@@ -194,7 +283,7 @@ fn render(win: vaxis.Window) void {
     if (win.height < 6 or win.width < 20) return;
 
     // 2. Top title banner: .config - NovumOS Kernel Configuration
-    const banner_text = if (dirty)
+    const banner_text = if (isDirty())
         " .config - NovumOS Kernel Configuration [modified]"
     else
         " .config - NovumOS Kernel Configuration";
@@ -233,7 +322,11 @@ fn render(win: vaxis.Window) void {
     });
 
     // Dialog title in top border
-    const title_str = " NovumOS Kernel Configuration ";
+    const title_str = if (current_menu) |g|
+        std.fmt.allocPrint(arena, " NovumOS: {s} ", .{submenus[g].name}) catch " NovumOS Kernel Configuration "
+    else
+        " NovumOS Kernel Configuration ";
+
     const title_x: u16 = if (dw > title_str.len) @intCast((dw - @as(u16, @intCast(title_str.len))) / 2) else 1;
     _ = win.print(&[_]vaxis.Segment{.{
         .text = title_str,
@@ -242,28 +335,47 @@ fn render(win: vaxis.Window) void {
 
     // Dialog instructions
     if (dh >= 10) {
-        _ = dialog_box.print(&[_]vaxis.Segment{
-            .{ .text = "Arrow keys navigate the menu. ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-            .{ .text = "<Enter>", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
-            .{ .text = " edits/selects, ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-            .{ .text = "<Space>", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
-            .{ .text = " toggles.", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-        }, .{ .row_offset = 0, .col_offset = 1, .wrap = .none });
+        if (current_menu == null) {
+            _ = dialog_box.print(&[_]vaxis.Segment{
+                .{ .text = "Arrow keys navigate the menu. ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+                .{ .text = "<Enter>", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
+                .{ .text = " selects submenus ---> or edits.", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            }, .{ .row_offset = 0, .col_offset = 1, .wrap = .none });
 
-        _ = dialog_box.print(&[_]vaxis.Segment{
-            .{ .text = "<s>", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } },
-            .{ .text = " to save, ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-            .{ .text = "<Esc>", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
-            .{ .text = " / ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-            .{ .text = "<q>", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } },
-            .{ .text = " to exit, ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-            .{ .text = "<?>", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
-            .{ .text = " for Help. Legend: ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-            .{ .text = "[*]", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
-            .{ .text = " enabled  ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-            .{ .text = "[ ]", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
-            .{ .text = " disabled", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-        }, .{ .row_offset = 1, .col_offset = 1, .wrap = .none });
+            _ = dialog_box.print(&[_]vaxis.Segment{
+                .{ .text = "<s>", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } },
+                .{ .text = " to save, ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+                .{ .text = "<Esc>", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
+                .{ .text = " / ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+                .{ .text = "<q>", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } },
+                .{ .text = " to exit, ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+                .{ .text = "<?>", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
+                .{ .text = " for Help.", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            }, .{ .row_offset = 1, .col_offset = 1, .wrap = .none });
+        } else {
+            _ = dialog_box.print(&[_]vaxis.Segment{
+                .{ .text = "Arrow keys navigate the menu. ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+                .{ .text = "<Enter>", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
+                .{ .text = " edits, ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+                .{ .text = "<Space>", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
+                .{ .text = " toggles.", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            }, .{ .row_offset = 0, .col_offset = 1, .wrap = .none });
+
+            _ = dialog_box.print(&[_]vaxis.Segment{
+                .{ .text = "<s>", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } },
+                .{ .text = " to save, ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+                .{ .text = "<Esc>", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
+                .{ .text = " / ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+                .{ .text = "<q>", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } },
+                .{ .text = " to go back, ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+                .{ .text = "<?>", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
+                .{ .text = " for Help. Legend: ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+                .{ .text = "[*]", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
+                .{ .text = " enabled  ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+                .{ .text = "[ ]", .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true } },
+                .{ .text = " disabled", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            }, .{ .row_offset = 1, .col_offset = 1, .wrap = .none });
+        }
     }
 
     // Inner Menu Box
@@ -288,6 +400,7 @@ fn render(win: vaxis.Window) void {
     });
 
     const list_h: usize = inner_box.height;
+    const total_items: usize = currentCount();
     scroll = clampScroll(cursor, list_h, scroll);
 
     // Scroll indicators on inner box top / bottom border
@@ -297,19 +410,18 @@ fn render(win: vaxis.Window) void {
             .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true },
         }}, .{ .row_offset = @intCast(inner_top), .col_offset = @intCast(inner_w - 5), .wrap = .none });
     }
-    if (scroll + list_h < rows.len) {
+    if (scroll + list_h < total_items) {
         _ = dialog_box.print(&[_]vaxis.Segment{.{
             .text = "(+)",
             .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true },
         }}, .{ .row_offset = @intCast(inner_top + @as(i17, @intCast(inner_h)) - 1), .col_offset = @intCast(inner_w - 5), .wrap = .none });
     }
 
-    // Render option rows
+    // Render rows
     var r: usize = 0;
-    while (r < list_h and scroll + r < rows.len) : (r += 1) {
-        const row_idx = scroll + r;
-        const row = rows[row_idx];
-        const is_cursor = (row_idx == cursor);
+    while (r < list_h and scroll + r < total_items) : (r += 1) {
+        const item_idx = scroll + r;
+        const is_cursor = (item_idx == cursor);
 
         // Selection highlight across full inner width
         if (is_cursor) {
@@ -322,53 +434,27 @@ fn render(win: vaxis.Window) void {
             }
         }
 
-        switch (row) {
-            .group => |name| {
-                const group_text = std.fmt.allocPrint(arena, "    {s}  --->", .{name}) catch name;
-                _ = inner_box.print(&[_]vaxis.Segment{.{
-                    .text = group_text,
-                    .style = if (is_cursor)
-                        .{ .fg = col_sel_tag, .bg = col_sel_bg, .bold = true }
-                    else
-                        .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true },
-                }}, .{ .row_offset = @intCast(r), .col_offset = 0, .wrap = .none });
-            },
-            .opt => |i| {
-                const f = schema[i];
-                const bg_color = if (is_cursor) col_sel_bg else col_dialog_bg;
-                const fg_color = if (is_cursor) col_sel_fg else col_dialog_fg;
-                const tag_color = if (is_cursor) col_sel_tag else col_tag;
-
-                switch (values[i]) {
-                    .bool => |bv| {
-                        const tag = if (bv) "[*]" else "[ ]";
-                        const help_text = std.fmt.allocPrint(arena, " {s}", .{f.help}) catch f.help;
-                        _ = inner_box.print(&[_]vaxis.Segment{
-                            .{ .text = "  ", .style = .{ .bg = bg_color } },
-                            .{ .text = tag, .style = .{ .fg = tag_color, .bg = bg_color, .bold = true } },
-                            .{ .text = help_text, .style = .{ .fg = fg_color, .bg = bg_color, .bold = is_cursor } },
-                        }, .{ .row_offset = @intCast(r), .col_offset = 0, .wrap = .none });
-                    },
-                    .int => |iv| {
-                        const tag = std.fmt.allocPrint(arena, "({d})", .{iv}) catch "(?)";
-                        const help_text = std.fmt.allocPrint(arena, " {s}", .{f.help}) catch f.help;
-                        _ = inner_box.print(&[_]vaxis.Segment{
-                            .{ .text = "  ", .style = .{ .bg = bg_color } },
-                            .{ .text = tag, .style = .{ .fg = tag_color, .bg = bg_color, .bold = true } },
-                            .{ .text = help_text, .style = .{ .fg = fg_color, .bg = bg_color, .bold = is_cursor } },
-                        }, .{ .row_offset = @intCast(r), .col_offset = 0, .wrap = .none });
-                    },
-                    .str => |sv| {
-                        const tag = std.fmt.allocPrint(arena, "({s})", .{sv}) catch "(?)";
-                        const help_text = std.fmt.allocPrint(arena, " {s}", .{f.help}) catch f.help;
-                        _ = inner_box.print(&[_]vaxis.Segment{
-                            .{ .text = "  ", .style = .{ .bg = bg_color } },
-                            .{ .text = tag, .style = .{ .fg = tag_color, .bg = bg_color, .bold = true } },
-                            .{ .text = help_text, .style = .{ .fg = fg_color, .bg = bg_color, .bold = is_cursor } },
-                        }, .{ .row_offset = @intCast(r), .col_offset = 0, .wrap = .none });
-                    },
-                }
-            },
+        if (current_menu) |g| {
+            // Inside submenu: list of options for group `g`
+            const opt_idx = submenus[g].opt_indices[item_idx];
+            renderOptRow(inner_box, arena, r, opt_idx, is_cursor);
+        } else {
+            // Root menu: options on top, followed by submenus
+            switch (root_items[item_idx]) {
+                .opt => |opt_idx| {
+                    renderOptRow(inner_box, arena, r, opt_idx, is_cursor);
+                },
+                .submenu => |si| {
+                    const group_text = std.fmt.allocPrint(arena, "    {s}  --->", .{submenus[si].name}) catch submenus[si].name;
+                    _ = inner_box.print(&[_]vaxis.Segment{.{
+                        .text = group_text,
+                        .style = if (is_cursor)
+                            .{ .fg = col_sel_tag, .bg = col_sel_bg, .bold = true }
+                        else
+                            .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true },
+                    }}, .{ .row_offset = @intCast(r), .col_offset = 0, .wrap = .none });
+                },
+            }
         }
     }
 
@@ -378,29 +464,62 @@ fn render(win: vaxis.Window) void {
         const btn_str_len: u16 = 48;
         const btn_start: u16 = if (dw > btn_str_len) (dw - btn_str_len) / 2 else 1;
 
+        const is_sel = (active_btn == .select);
+        const is_exit = (active_btn == .exit);
+        const is_help = (active_btn == .help);
+        const is_save = (active_btn == .save);
+
         _ = dialog_box.print(&[_]vaxis.Segment{
-            // <Select> (Active focused button)
-            .{ .text = "<", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } },
-            .{ .text = "Select", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } },
-            .{ .text = ">", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } },
+            // <Select>
+            if (is_sel)
+                .{ .text = "<Select>", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } }
+            else
+                .{ .text = "<S", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            if (!is_sel)
+                .{ .text = "e", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } }
+            else
+                .{ .text = "" },
+            if (!is_sel)
+                .{ .text = "lect>", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } }
+            else
+                .{ .text = "" },
             .{ .text = "    ", .style = .{ .bg = col_dialog_bg } },
 
             // < Exit >
-            .{ .text = "< ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-            .{ .text = "E", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } },
-            .{ .text = "xit >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            if (is_exit)
+                .{ .text = "< Exit >", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } }
+            else
+                .{ .text = "< Exit >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
             .{ .text = "    ", .style = .{ .bg = col_dialog_bg } },
 
             // < Help >
-            .{ .text = "< ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-            .{ .text = "H", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } },
-            .{ .text = "elp >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            if (is_help)
+                .{ .text = "< Help >", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } }
+            else
+                .{ .text = "< ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            if (!is_help)
+                .{ .text = "H", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } }
+            else
+                .{ .text = "" },
+            if (!is_help)
+                .{ .text = "elp >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } }
+            else
+                .{ .text = "" },
             .{ .text = "    ", .style = .{ .bg = col_dialog_bg } },
 
             // < Save >
-            .{ .text = "< ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-            .{ .text = "S", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } },
-            .{ .text = "ave >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            if (is_save)
+                .{ .text = "< Save >", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } }
+            else
+                .{ .text = "< ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            if (!is_save)
+                .{ .text = "S", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } }
+            else
+                .{ .text = "" },
+            if (!is_save)
+                .{ .text = "ave >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } }
+            else
+                .{ .text = "" },
         }, .{ .row_offset = btn_row, .col_offset = btn_start, .wrap = .none });
 
         // Status message if present
@@ -417,14 +536,12 @@ fn render(win: vaxis.Window) void {
         .nav => {},
         .help => renderHelpModal(win, arena),
         .edit => renderEditModal(win, arena),
+        .save_dialog => renderSaveModal(win),
         .confirm => renderConfirmModal(win),
     }
 }
 
 fn renderHelpModal(win: vaxis.Window, arena: std.mem.Allocator) void {
-    const opt_idx = optUnderCursor() orelse return;
-    const f = schema[opt_idx];
-
     const mw: u16 = @min(win.width -| 4, 68);
     const mh: u16 = @min(win.height -| 2, 14);
     const mx: i17 = @intCast((win.width -| mw) / 2);
@@ -448,33 +565,62 @@ fn renderHelpModal(win: vaxis.Window, arena: std.mem.Allocator) void {
         .style = .{ .bg = col_dialog_bg },
     });
 
-    const title_str = std.fmt.allocPrint(arena, " Help: CONFIG_{s} ", .{f.name}) catch " Help ";
-    const tx: u16 = if (mw > title_str.len) @intCast((mw - @as(u16, @intCast(title_str.len))) / 2) else 1;
-    _ = win.print(&[_]vaxis.Segment{.{
-        .text = title_str,
-        .style = .{ .fg = col_title, .bg = col_dialog_bg, .bold = true },
-    }}, .{ .row_offset = @intCast(my), .col_offset = @intCast(mx + @as(i17, @intCast(tx))), .wrap = .none });
+    if (optUnderCursor()) |opt_idx| {
+        const f = schema[opt_idx];
+        const title_str = std.fmt.allocPrint(arena, " Help: CONFIG_{s} ", .{f.name}) catch " Help ";
+        const tx: u16 = if (mw > title_str.len) @intCast((mw - @as(u16, @intCast(title_str.len))) / 2) else 1;
+        _ = win.print(&[_]vaxis.Segment{.{
+            .text = title_str,
+            .style = .{ .fg = col_title, .bg = col_dialog_bg, .bold = true },
+        }}, .{ .row_offset = @intCast(my), .col_offset = @intCast(mx + @as(i17, @intCast(tx))), .wrap = .none });
 
-    const key_str = std.fmt.allocPrint(arena, "Symbol: CONFIG_{s}", .{f.name}) catch "";
-    _ = modal.print(&[_]vaxis.Segment{.{
-        .text = key_str,
-        .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg, .bold = true },
-    }}, .{ .row_offset = 0, .col_offset = 1, .wrap = .none });
+        const key_str = std.fmt.allocPrint(arena, "Symbol: CONFIG_{s}", .{f.name}) catch "";
+        _ = modal.print(&[_]vaxis.Segment{.{
+            .text = key_str,
+            .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg, .bold = true },
+        }}, .{ .row_offset = 0, .col_offset = 1, .wrap = .none });
 
-    _ = modal.print(&[_]vaxis.Segment{.{
-        .text = f.help,
-        .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg },
-    }}, .{ .row_offset = 2, .col_offset = 1, .wrap = .none });
+        _ = modal.print(&[_]vaxis.Segment{.{
+            .text = f.help,
+            .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg },
+        }}, .{ .row_offset = 2, .col_offset = 1, .wrap = .none });
 
-    const val_str = switch (values[opt_idx]) {
-        .bool => |bv| if (bv) "Current: [*] y (enabled)" else "Current: [ ] n (disabled)",
-        .int => |iv| std.fmt.allocPrint(arena, "Current: {d}", .{iv}) catch "",
-        .str => |sv| std.fmt.allocPrint(arena, "Current: \"{s}\"", .{sv}) catch "",
-    };
-    _ = modal.print(&[_]vaxis.Segment{.{
-        .text = val_str,
-        .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true },
-    }}, .{ .row_offset = 4, .col_offset = 1, .wrap = .none });
+        const val_str = switch (values[opt_idx]) {
+            .bool => |bv| if (bv) "Current: [*] y (enabled)" else "Current: [ ] n (disabled)",
+            .int => |iv| std.fmt.allocPrint(arena, "Current: {d}", .{iv}) catch "",
+            .str => |sv| std.fmt.allocPrint(arena, "Current: \"{s}\"", .{sv}) catch "",
+        };
+        _ = modal.print(&[_]vaxis.Segment{.{
+            .text = val_str,
+            .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true },
+        }}, .{ .row_offset = 4, .col_offset = 1, .wrap = .none });
+    } else {
+        // Help on submenu category
+        const si = root_items[cursor].submenu;
+        const grp = submenus[si];
+        const title_str = std.fmt.allocPrint(arena, " Help: {s} ", .{grp.name}) catch " Help ";
+        const tx: u16 = if (mw > title_str.len) @intCast((mw - @as(u16, @intCast(title_str.len))) / 2) else 1;
+        _ = win.print(&[_]vaxis.Segment{.{
+            .text = title_str,
+            .style = .{ .fg = col_title, .bg = col_dialog_bg, .bold = true },
+        }}, .{ .row_offset = @intCast(my), .col_offset = @intCast(mx + @as(i17, @intCast(tx))), .wrap = .none });
+
+        _ = modal.print(&[_]vaxis.Segment{.{
+            .text = "Submenu category.",
+            .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg, .bold = true },
+        }}, .{ .row_offset = 0, .col_offset = 1, .wrap = .none });
+
+        const desc = std.fmt.allocPrint(arena, "Contains {d} options for {s}.", .{ grp.opt_indices.len, grp.name }) catch "";
+        _ = modal.print(&[_]vaxis.Segment{.{
+            .text = desc,
+            .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg },
+        }}, .{ .row_offset = 2, .col_offset = 1, .wrap = .none });
+
+        _ = modal.print(&[_]vaxis.Segment{.{
+            .text = "Press <Enter> or <Space> to open this submenu.",
+            .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true },
+        }}, .{ .row_offset = 4, .col_offset = 1, .wrap = .none });
+    }
 
     const btn_str = "<  OK  >";
     const bx: u16 = if (mw > btn_str.len) @intCast((mw - @as(u16, @intCast(btn_str.len))) / 2) else 1;
@@ -553,16 +699,165 @@ fn renderEditModal(win: vaxis.Window, arena: std.mem.Allocator) void {
         }}, .{ .row_offset = 5, .col_offset = 3, .wrap = .none });
     }
 
+    const is_ok = (edit_modal_btn == .ok);
+    const is_cancel = (edit_modal_btn == .cancel);
+
     _ = modal.print(&[_]vaxis.Segment{
-        .{ .text = "<  Ok  >", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } },
-        .{ .text = "      ", .style = .{ .bg = col_dialog_bg } },
-        .{ .text = "< Cancel >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+        // < Ok >
+        if (is_ok)
+            .{ .text = "<  Ok  >", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } }
+        else
+            .{ .text = "< ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+        if (!is_ok)
+            .{ .text = "O", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } }
+        else
+            .{ .text = "" },
+        if (!is_ok)
+            .{ .text = "k  >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } }
+        else
+            .{ .text = "" },
+        .{ .text = "        ", .style = .{ .bg = col_dialog_bg } },
+
+        // < Cancel >
+        if (is_cancel)
+            .{ .text = "< Cancel >", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } }
+        else
+            .{ .text = "< Cancel >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
     }, .{ .row_offset = modal.height - 1, .col_offset = 12, .wrap = .none });
 }
 
 fn renderConfirmModal(win: vaxis.Window) void {
     const mw: u16 = @min(win.width -| 4, 52);
     const mh: u16 = 8;
+    const mx: i17 = @intCast((win.width -| mw) / 2);
+    const my: i17 = @intCast((win.height -| mh) / 2);
+
+    drawShadow(win, mx, my, mw, mh);
+
+    const modal = win.child(.{
+        .x_off = mx,
+        .y_off = my,
+        .width = mw,
+        .height = mh,
+        .border = .{
+            .where = .all,
+            .glyphs = .single_square,
+            .style = .{ .fg = col_dialog_border, .bg = col_dialog_bg },
+        },
+    });
+    modal.fill(.{
+        .char = .{ .grapheme = " ", .width = 1 },
+        .style = .{ .bg = col_dialog_bg },
+    });
+
+    if (isDirty()) {
+        const title_str = " Save Configuration ";
+        const tx: u16 = if (mw > title_str.len) @intCast((mw - @as(u16, @intCast(title_str.len))) / 2) else 1;
+        _ = win.print(&[_]vaxis.Segment{.{
+            .text = title_str,
+            .style = .{ .fg = col_title, .bg = col_dialog_bg, .bold = true },
+        }}, .{ .row_offset = @intCast(my), .col_offset = @intCast(mx + @as(i17, @intCast(tx))), .wrap = .none });
+
+        _ = modal.print(&[_]vaxis.Segment{.{
+            .text = "Do you wish to save your new configuration?",
+            .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg, .bold = true },
+        }}, .{ .row_offset = 1, .col_offset = 3, .wrap = .none });
+
+        const is_yes = (confirm_modal_btn == .yes);
+        const is_no = (confirm_modal_btn == .no);
+        const is_cancel = (confirm_modal_btn == .cancel);
+
+        _ = modal.print(&[_]vaxis.Segment{
+            // < Yes >
+            if (is_yes)
+                .{ .text = "< Yes >", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } }
+            else
+                .{ .text = "< ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            if (!is_yes)
+                .{ .text = "Y", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } }
+            else
+                .{ .text = "" },
+            if (!is_yes)
+                .{ .text = "es >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } }
+            else
+                .{ .text = "" },
+            .{ .text = "    ", .style = .{ .bg = col_dialog_bg } },
+
+            // < No >
+            if (is_no)
+                .{ .text = "< No >", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } }
+            else
+                .{ .text = "< ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            if (!is_no)
+                .{ .text = "N", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } }
+            else
+                .{ .text = "" },
+            if (!is_no)
+                .{ .text = "o >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } }
+            else
+                .{ .text = "" },
+            .{ .text = "    ", .style = .{ .bg = col_dialog_bg } },
+
+            // < Cancel >
+            if (is_cancel)
+                .{ .text = "< Cancel >", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } }
+            else
+                .{ .text = "< Cancel >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+        }, .{ .row_offset = modal.height - 2, .col_offset = 6, .wrap = .none });
+    } else {
+        const title_str = " Exit Configuration ";
+        const tx: u16 = if (mw > title_str.len) @intCast((mw - @as(u16, @intCast(title_str.len))) / 2) else 1;
+        _ = win.print(&[_]vaxis.Segment{.{
+            .text = title_str,
+            .style = .{ .fg = col_title, .bg = col_dialog_bg, .bold = true },
+        }}, .{ .row_offset = @intCast(my), .col_offset = @intCast(mx + @as(i17, @intCast(tx))), .wrap = .none });
+
+        const prompt_str = "Do you wish to exit?";
+        const px: u16 = if (mw > prompt_str.len) @intCast((mw - @as(u16, @intCast(prompt_str.len))) / 2) else 2;
+        _ = modal.print(&[_]vaxis.Segment{.{
+            .text = prompt_str,
+            .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg, .bold = true },
+        }}, .{ .row_offset = 1, .col_offset = px, .wrap = .none });
+
+        const is_yes = (confirm_modal_btn == .yes);
+        const is_no = (confirm_modal_btn == .no or confirm_modal_btn == .cancel);
+
+        _ = modal.print(&[_]vaxis.Segment{
+            // < Yes >
+            if (is_yes)
+                .{ .text = "< Yes >", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } }
+            else
+                .{ .text = "< ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            if (!is_yes)
+                .{ .text = "Y", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } }
+            else
+                .{ .text = "" },
+            if (!is_yes)
+                .{ .text = "es >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } }
+            else
+                .{ .text = "" },
+            .{ .text = "        ", .style = .{ .bg = col_dialog_bg } },
+
+            // < No >
+            if (is_no)
+                .{ .text = "< No >", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } }
+            else
+                .{ .text = "< ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+            if (!is_no)
+                .{ .text = "N", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } }
+            else
+                .{ .text = "" },
+            if (!is_no)
+                .{ .text = "o >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } }
+            else
+                .{ .text = "" },
+        }, .{ .row_offset = modal.height - 2, .col_offset = 14, .wrap = .none });
+    }
+}
+
+fn renderSaveModal(win: vaxis.Window) void {
+    const mw: u16 = @min(win.width -| 4, 56);
+    const mh: u16 = 9;
     const mx: i17 = @intCast((win.width -| mw) / 2);
     const my: i17 = @intCast((win.height -| mh) / 2);
 
@@ -592,29 +887,68 @@ fn renderConfirmModal(win: vaxis.Window) void {
     }}, .{ .row_offset = @intCast(my), .col_offset = @intCast(mx + @as(i17, @intCast(tx))), .wrap = .none });
 
     _ = modal.print(&[_]vaxis.Segment{.{
-        .text = "Do you wish to save your new configuration?",
+        .text = "Save configuration to .config?",
         .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg, .bold = true },
     }}, .{ .row_offset = 1, .col_offset = 3, .wrap = .none });
 
+    _ = modal.print(&[_]vaxis.Segment{.{
+        .text = "Press <Enter> to commit, <Esc> to cancel.",
+        .style = .{ .fg = col_tag, .bg = col_dialog_bg },
+    }}, .{ .row_offset = 3, .col_offset = 3, .wrap = .none });
+
+    const is_ok = (save_modal_btn == .ok);
+    const is_cancel = (save_modal_btn == .cancel);
+
     _ = modal.print(&[_]vaxis.Segment{
-        .{ .text = "<  ", .style = .{ .bg = col_dialog_bg } },
-        .{ .text = "Y", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } },
-        .{ .text = "es  >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-        .{ .text = "    ", .style = .{ .bg = col_dialog_bg } },
-        .{ .text = "<  ", .style = .{ .bg = col_dialog_bg } },
-        .{ .text = "N", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } },
-        .{ .text = "o  >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-        .{ .text = "    ", .style = .{ .bg = col_dialog_bg } },
-        .{ .text = "< Cancel >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
-    }, .{ .row_offset = modal.height - 2, .col_offset = 6, .wrap = .none });
+        // < Ok >
+        if (is_ok)
+            .{ .text = "<  Ok  >", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } }
+        else
+            .{ .text = "< ", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+        if (!is_ok)
+            .{ .text = "O", .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true } }
+        else
+            .{ .text = "" },
+        if (!is_ok)
+            .{ .text = "k  >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } }
+        else
+            .{ .text = "" },
+        .{ .text = "        ", .style = .{ .bg = col_dialog_bg } },
+
+        // < Cancel >
+        if (is_cancel)
+            .{ .text = "< Cancel >", .style = .{ .fg = col_sel_fg, .bg = col_sel_bg, .bold = true } }
+        else
+            .{ .text = "< Cancel >", .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg } },
+    }, .{ .row_offset = modal.height - 2, .col_offset = 12, .wrap = .none });
+}
+
+fn saveDialogKey(key: vaxis.Key) void {
+    if (key.matches(vaxis.Key.left, .{}) or key.matches(vaxis.Key.right, .{}) or key.matches(vaxis.Key.tab, .{})) {
+        save_modal_btn = if (save_modal_btn == .ok) .cancel else .ok;
+        return;
+    }
+    if (key.matches(vaxis.Key.enter, .{}) or key.matches(vaxis.Key.space, .{})) {
+        if (save_modal_btn == .ok) {
+            _ = doSave();
+        }
+        mode = .nav;
+        return;
+    }
+    if (key.matches('y', .{}) or key.matches('Y', .{}) or key.matches('o', .{}) or key.matches('O', .{})) {
+        _ = doSave();
+        mode = .nav;
+        return;
+    }
+    if (key.matches(vaxis.Key.escape, .{}) or key.matches('n', .{}) or key.matches('N', .{}) or key.matches('c', .{ .ctrl = true })) {
+        mode = .nav;
+        return;
+    }
 }
 
 fn requestQuit() void {
-    if (dirty) {
-        mode = .confirm;
-    } else {
-        should_quit = true;
-    }
+    confirm_modal_btn = .yes;
+    mode = .confirm;
 }
 
 fn doSave() bool {
@@ -636,64 +970,141 @@ fn doSave() bool {
     };
     g_alloc.free(original);
     original = new_text;
-    dirty = false;
+    saved_values = values;
     status = "Configuration saved to .config";
     return true;
 }
 
+fn performSelectAction() void {
+    if (current_menu == null) {
+        switch (root_items[cursor]) {
+            .submenu => |si| {
+                menu_cursor_stack = cursor;
+                current_menu = si;
+                cursor = 0;
+                scroll = 0;
+                status = "";
+            },
+            .opt => |idx| {
+                switch (values[idx]) {
+                    .bool => |bv| {
+                        values[idx] = .{ .bool = !bv };
+                    },
+                    .int => |iv| {
+                        edit_target = idx;
+                        edit_len = (std.fmt.bufPrint(&edit_buf, "{d}", .{iv}) catch unreachable).len;
+                        edit_modal_btn = .ok;
+                        mode = .edit;
+                    },
+                    else => {},
+                }
+            },
+        }
+    } else {
+        if (optUnderCursor()) |idx| {
+            switch (values[idx]) {
+                .bool => |bv| {
+                    values[idx] = .{ .bool = !bv };
+                },
+                .int => |iv| {
+                    edit_target = idx;
+                    edit_len = (std.fmt.bufPrint(&edit_buf, "{d}", .{iv}) catch unreachable).len;
+                    edit_modal_btn = .ok;
+                    mode = .edit;
+                },
+                else => {},
+            }
+        }
+    }
+}
+
+fn performExitAction() void {
+    if (current_menu != null) {
+        current_menu = null;
+        cursor = menu_cursor_stack;
+        scroll = 0;
+        status = "";
+    } else {
+        requestQuit();
+    }
+}
+
 fn navKey(key: vaxis.Key) void {
     if (key.matches('c', .{ .ctrl = true })) return requestQuit();
-    if (key.matches(vaxis.Key.escape, .{}) or key.matches('q', .{})) return requestQuit();
-    if (key.matches('?', .{}) or key.matches('h', .{})) {
+
+    // Left / Right arrow or Tab changes active action button
+    if (key.matches(vaxis.Key.left, .{})) {
+        active_btn = @enumFromInt((@as(u8, @intFromEnum(active_btn)) + 3) % 4);
+        return;
+    }
+    if (key.matches(vaxis.Key.right, .{})) {
+        active_btn = @enumFromInt((@as(u8, @intFromEnum(active_btn)) + 1) % 4);
+        return;
+    }
+    if (key.matches(vaxis.Key.tab, .{})) {
+        active_btn = @enumFromInt((@as(u8, @intFromEnum(active_btn)) + 1) % 4);
+        return;
+    }
+
+    // Esc or q exits current submenu or requests quitting
+    if (key.matches(vaxis.Key.escape, .{}) or key.matches('q', .{})) {
+        performExitAction();
+        return;
+    }
+
+    // e / E triggers Select action
+    if (key.matches('e', .{}) or key.matches('E', .{})) {
+        performSelectAction();
+        return;
+    }
+
+    if (key.matches('?', .{}) or key.matches('h', .{}) or key.matches('H', .{})) {
         mode = .help;
         return;
     }
-    if (key.matches('s', .{})) {
-        _ = doSave();
+    if (key.matches('s', .{}) or key.matches('S', .{})) {
+        save_modal_btn = .ok;
+        mode = .save_dialog;
         return;
     }
+
     if (key.matches(vaxis.Key.down, .{}) or key.matches('j', .{})) {
         status = "";
-        if (nextOpt(cursor)) |n| cursor = n;
+        if (cursor + 1 < currentCount()) cursor += 1;
         return;
     }
     if (key.matches(vaxis.Key.up, .{}) or key.matches('k', .{})) {
         status = "";
-        if (prevOpt(cursor)) |n| cursor = n;
+        if (cursor > 0) cursor -= 1;
         return;
     }
     if (key.matches(vaxis.Key.page_down, .{})) {
         status = "";
-        var i: usize = 0;
-        while (i < 10) : (i += 1) {
-            cursor = nextOpt(cursor) orelse break;
-        }
+        cursor = @min(cursor + 10, currentCount() -| 1);
         return;
     }
     if (key.matches(vaxis.Key.page_up, .{})) {
         status = "";
-        var i: usize = 0;
-        while (i < 10) : (i += 1) {
-            cursor = prevOpt(cursor) orelse break;
-        }
+        cursor = cursor -| 10;
         return;
     }
     if (key.matches(vaxis.Key.home, .{})) {
         status = "";
-        cursor = firstOpt();
+        cursor = 0;
         return;
     }
     if (key.matches(vaxis.Key.end, .{})) {
         status = "";
-        cursor = lastOpt();
+        cursor = currentCount() -| 1;
         return;
     }
+
+    // Direct hotkeys for bool toggle: y / n
     if (key.matches('y', .{}) or key.matches('Y', .{})) {
         if (optUnderCursor()) |idx| {
             switch (values[idx]) {
                 .bool => {
                     values[idx] = .{ .bool = true };
-                    dirty = true;
                     status = "";
                 },
                 else => {},
@@ -706,7 +1117,6 @@ fn navKey(key: vaxis.Key) void {
             switch (values[idx]) {
                 .bool => {
                     values[idx] = .{ .bool = false };
-                    dirty = true;
                     status = "";
                 },
                 else => {},
@@ -714,39 +1124,25 @@ fn navKey(key: vaxis.Key) void {
         }
         return;
     }
+
+    // Space toggles the item directly under cursor (authentic menuconfig behavior)
     if (key.matches(vaxis.Key.space, .{})) {
         status = "";
-        if (optUnderCursor()) |idx| {
-            switch (values[idx]) {
-                .bool => |bv| {
-                    values[idx] = .{ .bool = !bv };
-                    dirty = true;
-                },
-                .int => |iv| {
-                    edit_target = idx;
-                    edit_len = (std.fmt.bufPrint(&edit_buf, "{d}", .{iv}) catch unreachable).len;
-                    mode = .edit;
-                },
-                else => {},
-            }
-        }
+        performSelectAction();
         return;
     }
+
+    // Enter executes the selected bottom action button
     if (key.matches(vaxis.Key.enter, .{})) {
         status = "";
-        if (optUnderCursor()) |idx| {
-            switch (values[idx]) {
-                .int => |iv| {
-                    edit_target = idx;
-                    edit_len = (std.fmt.bufPrint(&edit_buf, "{d}", .{iv}) catch unreachable).len;
-                    mode = .edit;
-                },
-                .bool => |bv| {
-                    values[idx] = .{ .bool = !bv };
-                    dirty = true;
-                },
-                else => {},
-            }
+        switch (active_btn) {
+            .select => performSelectAction(),
+            .exit => performExitAction(),
+            .help => { mode = .help; },
+            .save => {
+                save_modal_btn = .ok;
+                mode = .save_dialog;
+            },
         }
         return;
     }
@@ -758,10 +1154,18 @@ fn editKey(key: vaxis.Key) void {
         status = "";
         return;
     }
+    if (key.matches(vaxis.Key.left, .{}) or key.matches(vaxis.Key.right, .{}) or key.matches(vaxis.Key.tab, .{})) {
+        edit_modal_btn = if (edit_modal_btn == .ok) .cancel else .ok;
+        return;
+    }
     if (key.matches(vaxis.Key.enter, .{})) {
+        if (edit_modal_btn == .cancel) {
+            mode = .nav;
+            status = "";
+            return;
+        }
         if (parseEdit(edit_buf[0..edit_len])) |v| {
             values[edit_target] = .{ .int = v };
-            dirty = true;
             mode = .nav;
             status = "";
         } else {
@@ -795,17 +1199,62 @@ fn helpKey(key: vaxis.Key) void {
 }
 
 fn confirmKey(key: vaxis.Key) void {
-    if (key.matches('y', .{}) or key.matches('Y', .{}) or key.matches(vaxis.Key.enter, .{})) {
-        if (doSave()) should_quit = true else mode = .nav;
-        return;
-    }
-    if (key.matches('n', .{}) or key.matches('N', .{})) {
-        should_quit = true;
-        return;
-    }
-    if (key.matches(vaxis.Key.escape, .{}) or key.matches('c', .{}) or key.matches('C', .{})) {
-        mode = .nav;
-        return;
+    if (isDirty()) {
+        if (key.matches(vaxis.Key.left, .{})) {
+            confirm_modal_btn = @enumFromInt((@as(u8, @intFromEnum(confirm_modal_btn)) + 2) % 3);
+            return;
+        }
+        if (key.matches(vaxis.Key.right, .{}) or key.matches(vaxis.Key.tab, .{})) {
+            confirm_modal_btn = @enumFromInt((@as(u8, @intFromEnum(confirm_modal_btn)) + 1) % 3);
+            return;
+        }
+        if (key.matches(vaxis.Key.enter, .{}) or key.matches(vaxis.Key.space, .{})) {
+            switch (confirm_modal_btn) {
+                .yes => {
+                    if (doSave()) should_quit = true else mode = .nav;
+                },
+                .no => {
+                    should_quit = true;
+                },
+                .cancel => {
+                    mode = .nav;
+                },
+            }
+            return;
+        }
+        if (key.matches('y', .{}) or key.matches('Y', .{})) {
+            if (doSave()) should_quit = true else mode = .nav;
+            return;
+        }
+        if (key.matches('n', .{}) or key.matches('N', .{})) {
+            should_quit = true;
+            return;
+        }
+        if (key.matches(vaxis.Key.escape, .{}) or key.matches('c', .{}) or key.matches('C', .{})) {
+            mode = .nav;
+            return;
+        }
+    } else {
+        if (key.matches(vaxis.Key.left, .{}) or key.matches(vaxis.Key.right, .{}) or key.matches(vaxis.Key.tab, .{})) {
+            confirm_modal_btn = if (confirm_modal_btn == .yes) .no else .yes;
+            return;
+        }
+        if (key.matches(vaxis.Key.enter, .{}) or key.matches(vaxis.Key.space, .{})) {
+            if (confirm_modal_btn == .yes) {
+                should_quit = true;
+            } else {
+                mode = .nav;
+            }
+            return;
+        }
+        if (key.matches('y', .{}) or key.matches('Y', .{})) {
+            should_quit = true;
+            return;
+        }
+        if (key.matches('n', .{}) or key.matches('N', .{}) or key.matches(vaxis.Key.escape, .{}) or key.matches('c', .{}) or key.matches('C', .{})) {
+            mode = .nav;
+            return;
+        }
     }
 }
 
@@ -814,6 +1263,7 @@ fn handleKey(key: vaxis.Key) void {
         .nav => navKey(key),
         .edit => editKey(key),
         .help => helpKey(key),
+        .save_dialog => saveDialogKey(key),
         .confirm => confirmKey(key),
     }
 }
@@ -856,7 +1306,8 @@ pub fn main(init: std.process.Init) !void {
             .str => .{ .str = kconfig.get([]const u8, schema, original, f.name) orelse f.default.str },
         };
     }
-    cursor = firstOpt();
+    saved_values = values;
+    cursor = 0;
 
     var buffer: [1024]u8 = undefined;
     var tty = try vaxis.Tty.init(io, &buffer);
@@ -886,25 +1337,30 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
-test "navigation covers every option and skips group headers" {
-    var forward: usize = 0;
-    var i = firstOpt();
-    while (true) {
-        forward += 1;
-        i = nextOpt(i) orelse break;
+test "menus cover every schema option exactly once" {
+    var total_opts: usize = 0;
+    var seen: [schema.len]bool = .{false} ** schema.len;
+    for (root_items) |item| {
+        switch (item) {
+            .opt => |idx| {
+                try std.testing.expect(!seen[idx]);
+                seen[idx] = true;
+                total_opts += 1;
+            },
+            .submenu => {},
+        }
     }
-    try std.testing.expectEqual(schema.len, forward);
-
-    var backward: usize = 0;
-    var j = lastOpt();
-    while (true) {
-        backward += 1;
-        j = prevOpt(j) orelse break;
+    for (submenus) |s| {
+        for (s.opt_indices) |idx| {
+            try std.testing.expect(!seen[idx]);
+            seen[idx] = true;
+            total_opts += 1;
+        }
     }
-    try std.testing.expectEqual(schema.len, backward);
-
-    try std.testing.expectEqual(@as(?usize, null), nextOpt(rows.len - 1));
-    try std.testing.expectEqual(@as(?usize, null), prevOpt(0));
+    try std.testing.expectEqual(schema.len, total_opts);
+    for (seen) |s| {
+        try std.testing.expect(s);
+    }
 }
 
 test "clampScroll follows the cursor at both edges and survives zero height" {
@@ -918,4 +1374,23 @@ test "parseEdit accepts plain u32s and rejects empty or overflowing input" {
     try std.testing.expectEqual(@as(?u32, 12), parseEdit("12"));
     try std.testing.expectEqual(@as(?u32, null), parseEdit(""));
     try std.testing.expectEqual(@as(?u32, null), parseEdit("4294967296"));
+}
+
+test "isDirty accurately detects modifications and reversions" {
+    for (schema, 0..) |f, i| {
+        values[i] = f.default;
+        saved_values[i] = f.default;
+    }
+    try std.testing.expect(!isDirty());
+
+    // Modify a boolean
+    values[0] = switch (values[0]) {
+        .bool => |b| .{ .bool = !b },
+        else => values[0],
+    };
+    try std.testing.expect(isDirty());
+
+    // Revert it back
+    values[0] = saved_values[0];
+    try std.testing.expect(!isDirty());
 }
