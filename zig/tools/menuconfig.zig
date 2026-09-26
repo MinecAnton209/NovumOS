@@ -133,8 +133,10 @@ const Event = union(enum) {
 var original: []const u8 = "";
 var values: [schema.len]kconfig.Option = undefined;
 var saved_values: [schema.len]kconfig.Option = undefined;
+var config_file_exists: bool = true;
 
 fn isDirty() bool {
+    if (!config_file_exists) return true;
     for (0..schema.len) |i| {
         switch (values[i]) {
             .bool => |bv| {
@@ -986,6 +988,7 @@ fn doSave() bool {
     g_alloc.free(original);
     original = new_text;
     saved_values = values;
+    config_file_exists = true;
     status = "Configuration saved to .config";
     return true;
 }
@@ -1597,8 +1600,10 @@ pub fn main(init: std.process.Init) !void {
     const source: []const u8 = blk: {
         if (readText(io, alloc, ".config")) |t| {
             original = t;
+            config_file_exists = true;
             break :blk ".config";
         }
+        config_file_exists = false;
         if (readText(io, alloc, "defconfig")) |t| {
             original = t;
             break :blk "defconfig";
@@ -1697,11 +1702,17 @@ test "parseEdit accepts plain u32s and rejects empty or overflowing input" {
 }
 
 test "isDirty accurately detects modifications and reversions" {
+    config_file_exists = true;
     for (schema, 0..) |f, i| {
         values[i] = f.default;
         saved_values[i] = f.default;
     }
     try std.testing.expect(!isDirty());
+
+    // When config file does not exist, it is considered dirty even with default values
+    config_file_exists = false;
+    try std.testing.expect(isDirty());
+    config_file_exists = true;
 
     // Modify a boolean
     values[0] = switch (values[0]) {
