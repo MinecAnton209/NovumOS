@@ -182,6 +182,10 @@ pub fn build(b: *std.Build) void {
         .optimize = .Debug,
     });
     menuconfig_mod.addImport("vaxis", vaxis_dep.module("vaxis"));
+    menuconfig_mod.addAnonymousImport("config_schema", .{
+        .root_source_file = b.path("config_schema.zig"),
+        .imports = &.{},
+    });
     const menuconfig_exe = b.addExecutable(.{
         .name = "menuconfig",
         .root_module = menuconfig_mod,
@@ -191,6 +195,22 @@ pub fn build(b: *std.Build) void {
     run_menuconfig.setCwd(b.path(".."));
     const menuconfig_step = b.step("menuconfig", "Edit .config in an interactive TUI");
     menuconfig_step.dependOn(&run_menuconfig.step);
+
+    // menuconfig TUI logic tests (same module graph as the exe, run as a test)
+    const menuconfig_test_mod = b.createModule(.{
+        .root_source_file = b.path("tools/menuconfig.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    menuconfig_test_mod.addImport("vaxis", vaxis_dep.module("vaxis"));
+    menuconfig_test_mod.addAnonymousImport("config_schema", .{
+        .root_source_file = b.path("config_schema.zig"),
+        .imports = &.{},
+    });
+    const menuconfig_tests = b.addTest(.{ .root_module = menuconfig_test_mod });
+    const run_menuconfig_tests = b.addRunArtifact(menuconfig_tests);
+    const menuconfig_test_step = b.step("test-menuconfig", "Run menuconfig TUI tests");
+    menuconfig_test_step.dependOn(&run_menuconfig_tests.step);
 
     // Nova User-Space ELF
     if (nova_on) {
