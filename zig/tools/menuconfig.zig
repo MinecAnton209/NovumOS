@@ -140,7 +140,7 @@ fn optText(i: usize) []const u8 {
         return std.fmt.bufPrint(&row_buf, "[ ] {s} {s}_", .{ f.name, edit_buf[0..edit_len] }) catch "";
     }
     return switch (values[i]) {
-        .bool => |bv| std.fmt.bufPrint(&row_buf, "[{c}] {s}", .{ if (bv) 'x' else ' ', f.name }) catch "",
+        .bool => |bv| std.fmt.bufPrint(&row_buf, "[{c}] {s}", .{ @as(u8, if (bv) 'x' else ' '), f.name }) catch "",
         .int => |iv| std.fmt.bufPrint(&row_buf, "[{d}] {s}", .{ iv, f.name }) catch "",
         .str => |sv| std.fmt.bufPrint(&row_buf, "[{s}] {s}", .{ sv, f.name }) catch "",
     };
