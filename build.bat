@@ -32,15 +32,12 @@ copy limine\BOOTX64.EFI limine-build\
 :: Kernel: Zig modules, NASM objects and link. Flag parsing lives in
 :: build.zig - this script never reads .config content.
 echo Building kernel...
-pushd zig
 zig build %*
 if %errorlevel% neq 0 (
     echo Error building kernel!
-    popd
     pause
     exit /b 1
 )
-popd
 
 :: Copy files to ISO directory
 echo Creating ISO...

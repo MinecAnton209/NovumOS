@@ -1,8 +1,8 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const kconfig = @import("kconfig.zig");
-    const cfg_schema = @import("config_schema.zig");
+    const kconfig = @import("zig/kconfig.zig");
+    const cfg_schema = @import("zig/config_schema.zig");
 
     const Cfg = struct { text: []const u8, source: []const u8 };
     const cfg: Cfg = blk: {
@@ -18,9 +18,9 @@ pub fn build(b: *std.Build) void {
                 };
             }
         }.go;
-        if (read(handle, b.graph.io, "../.config", b.allocator)) |t|
+        if (read(handle, b.graph.io, ".config", b.allocator)) |t|
             break :blk Cfg{ .text = t, .source = ".config" };
-        if (read(handle, b.graph.io, "../defconfig", b.allocator)) |t|
+        if (read(handle, b.graph.io, "defconfig", b.allocator)) |t|
             break :blk Cfg{ .text = t, .source = "defconfig" };
         break :blk Cfg{ .text = "", .source = "(schema defaults)" };
     };
@@ -65,7 +65,7 @@ pub fn build(b: *std.Build) void {
 
     // Create the kernel module first
     const kernel_mod = b.createModule(.{
-        .root_source_file = b.path("kernel.zig"),
+        .root_source_file = b.path("zig/kernel.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -84,9 +84,9 @@ pub fn build(b: *std.Build) void {
         .root_module = kernel_mod,
     });
 
-    // Install the object file to ../build
+    // Install the object file to build/
     const install_kernel = b.addInstallArtifact(kernel, .{
-        .dest_dir = .{ .override = .{ .custom = "../build" } },
+        .dest_dir = .{ .override = .{ .custom = "build" } },
     });
 
     b.default_step.dependOn(&install_kernel.step);
@@ -101,12 +101,12 @@ pub fn build(b: *std.Build) void {
     const mouse_flag = kconfig.nasmDefine(&flag_buf3, &cfg_schema.schema, cfg.text, "ENABLE_MOUSE");
 
     const nasm_k32 = b.addSystemCommand(&.{ "nasm", "-f", "elf32" });
-    nasm_k32.addPrefixedDirectoryArg("-i", b.path("../arch/x86"));
+    nasm_k32.addPrefixedDirectoryArg("-i", b.path("arch/x86"));
     // The -i directory arg is hashed by path only, so content-track every
     // file %included through it: add new entries here when kernel32.asm
     // grows includes, or edits to them build a silently stale kernel.
-    nasm_k32.addFileInput(b.path("../arch/x86/idt.asm"));
-    nasm_k32.addFileArg(b.path("../arch/x86/kernel32.asm"));
+    nasm_k32.addFileInput(b.path("arch/x86/idt.asm"));
+    nasm_k32.addFileArg(b.path("arch/x86/kernel32.asm"));
     nasm_k32.addArg(b.fmt("-D{s}", .{serial_flag}));
     nasm_k32.addArg(b.fmt("-D{s}", .{lfb_flag}));
     nasm_k32.addArg(b.fmt("-D{s}", .{mouse_flag}));
@@ -114,17 +114,17 @@ pub fn build(b: *std.Build) void {
     const k32_o = nasm_k32.addOutputFileArg("kernel32.o");
 
     const nasm_um = b.addSystemCommand(&.{ "nasm", "-f", "elf32" });
-    nasm_um.addFileArg(b.path("../arch/x86/user_mode.asm"));
+    nasm_um.addFileArg(b.path("arch/x86/user_mode.asm"));
     nasm_um.addArg("-o");
     const um_o = nasm_um.addOutputFileArg("user_mode.o");
 
     const nasm_tr = b.addSystemCommand(&.{ "nasm", "-f", "bin" });
-    nasm_tr.addFileArg(b.path("arch/x86/smp_trampoline.asm"));
+    nasm_tr.addFileArg(b.path("zig/arch/x86/smp_trampoline.asm"));
     nasm_tr.addArg("-o");
     const tramp_bin = nasm_tr.addOutputFileArg("trampoline.bin");
 
     const link_cmd = b.addSystemCommand(&.{ "zig", "ld.lld", "-m", "elf_i386", "-T" });
-    link_cmd.addFileArg(b.path("../arch/x86/linker.ld"));
+    link_cmd.addFileArg(b.path("arch/x86/linker.ld"));
     link_cmd.addArg("--strip-all");
     link_cmd.addArg("-o");
     const kernel_elf = link_cmd.addOutputFileArg("kernel32.elf");
@@ -132,14 +132,14 @@ pub fn build(b: *std.Build) void {
     link_cmd.addFileArg(um_o);
     link_cmd.addFileArg(kernel.getEmittedBin());
 
-    const install_elf = b.addInstallFileWithDir(kernel_elf, .{ .custom = "../../build" }, "kernel32.elf");
-    const install_tramp = b.addInstallFileWithDir(tramp_bin, .{ .custom = "../../build" }, "trampoline.bin");
+    const install_elf = b.addInstallFileWithDir(kernel_elf, .{ .custom = "build" }, "kernel32.elf");
+    const install_tramp = b.addInstallFileWithDir(tramp_bin, .{ .custom = "build" }, "trampoline.bin");
     b.default_step.dependOn(&install_elf.step);
     b.default_step.dependOn(&install_tramp.step);
 
     // Config facade tests (build_config with a non-empty override)
     const config_test_mod = b.createModule(.{
-        .root_source_file = b.path("config.zig"),
+        .root_source_file = b.path("zig/config.zig"),
         .target = b.resolveTargetQuery(.{}),
         .optimize = .Debug,
     });
@@ -153,17 +153,14 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run config facade tests");
     test_step.dependOn(&run_config_tests.step);
 
-    // cfg_write merge tests: its ../ imports leave the main module root in
-    // Zig 0.16, so resolve them as named modules. config_schema.zig keeps its
-    // own relative @import("kconfig.zig") and resolves it file-locally, which
-    // is why it must NOT also be wired as a separate "kconfig" module.
+    // cfg_write merge tests: resolved as named module config_schema.
     const cfg_write_mod = b.createModule(.{
-        .root_source_file = b.path("tools/cfg_write.zig"),
+        .root_source_file = b.path("zig/tools/cfg_write.zig"),
         .target = b.graph.host,
         .optimize = .Debug,
     });
     cfg_write_mod.addAnonymousImport("config_schema", .{
-        .root_source_file = b.path("config_schema.zig"),
+        .root_source_file = b.path("zig/config_schema.zig"),
         .imports = &.{},
     });
     const cfg_write_tests = b.addTest(.{ .root_module = cfg_write_mod });
@@ -177,13 +174,13 @@ pub fn build(b: *std.Build) void {
         .optimize = .Debug,
     });
     const menuconfig_mod = b.createModule(.{
-        .root_source_file = b.path("tools/menuconfig.zig"),
+        .root_source_file = b.path("zig/tools/menuconfig.zig"),
         .target = b.graph.host,
         .optimize = .Debug,
     });
     menuconfig_mod.addImport("vaxis", vaxis_dep.module("vaxis"));
     menuconfig_mod.addAnonymousImport("config_schema", .{
-        .root_source_file = b.path("config_schema.zig"),
+        .root_source_file = b.path("zig/config_schema.zig"),
         .imports = &.{},
     });
     const menuconfig_exe = b.addExecutable(.{
@@ -192,19 +189,18 @@ pub fn build(b: *std.Build) void {
     });
     const run_menuconfig = b.addRunArtifact(menuconfig_exe);
     run_menuconfig.stdio = .inherit;
-    run_menuconfig.setCwd(b.path(".."));
     const menuconfig_step = b.step("menuconfig", "Edit .config in an interactive TUI");
     menuconfig_step.dependOn(&run_menuconfig.step);
 
     // menuconfig TUI logic tests (same module graph as the exe, run as a test)
     const menuconfig_test_mod = b.createModule(.{
-        .root_source_file = b.path("tools/menuconfig.zig"),
+        .root_source_file = b.path("zig/tools/menuconfig.zig"),
         .target = b.graph.host,
         .optimize = .Debug,
     });
     menuconfig_test_mod.addImport("vaxis", vaxis_dep.module("vaxis"));
     menuconfig_test_mod.addAnonymousImport("config_schema", .{
-        .root_source_file = b.path("config_schema.zig"),
+        .root_source_file = b.path("zig/config_schema.zig"),
         .imports = &.{},
     });
     const menuconfig_tests = b.addTest(.{ .root_module = menuconfig_test_mod });
@@ -215,21 +211,21 @@ pub fn build(b: *std.Build) void {
     // Nova User-Space ELF
     if (nova_on) {
         const nova_mod = b.createModule(.{
-            .root_source_file = b.path("nova_user/src/main.zig"),
+            .root_source_file = b.path("zig/nova_user/src/main.zig"),
             .target = target,
             .optimize = .ReleaseSmall,
         });
         // Shared string/math helpers used by both kernel and nova_user.
-        nova_mod.addAnonymousImport("str", .{ .root_source_file = b.path("kernel/str.zig") });
+        nova_mod.addAnonymousImport("str", .{ .root_source_file = b.path("zig/kernel/str.zig") });
         const nova_exe = b.addExecutable(.{
             .name = "nova",
             .root_module = nova_mod,
         });
-        nova_exe.setLinkerScript(b.path("nova_user/linker.ld"));
+        nova_exe.setLinkerScript(b.path("zig/nova_user/linker.ld"));
 
         // Install nova.elf next to the kernel
         const install_nova = b.addInstallArtifact(nova_exe, .{
-            .dest_dir = .{ .override = .{ .custom = "../build" } },
+            .dest_dir = .{ .override = .{ .custom = "build" } },
         });
         b.default_step.dependOn(&install_nova.step);
 
@@ -243,7 +239,7 @@ pub fn build(b: *std.Build) void {
     const run_cmd = b.addSystemCommand(&[_][]const u8{
         "qemu-system-i386",
         "-drive",
-        "format=raw,file=../build/os-image.bin",
+        "format=raw,file=build/os-image.bin",
         "-serial",
         "stdio",
         "-vga",
@@ -261,7 +257,7 @@ pub fn build(b: *std.Build) void {
 
     // 2. Create a disk image of configurable size
     const mkdisk_cmd = b.addSystemCommand(&[_][]const u8{
-        "qemu-img", "create", "-f", "raw", "../disk.img", disk_size,
+        "qemu-img", "create", "-f", "raw", "disk.img", disk_size,
     });
     const mkdisk_step = b.step("mkdisk", "Create a raw disk image (size configurable via --disk-size)");
     mkdisk_step.dependOn(&mkdisk_cmd.step);
@@ -270,9 +266,9 @@ pub fn build(b: *std.Build) void {
     const run_disk_cmd = b.addSystemCommand(&[_][]const u8{
         "qemu-system-i386",
         "-drive",
-        "format=raw,file=../build/os-image.bin",
+        "format=raw,file=build/os-image.bin",
         "-drive",
-        "format=raw,file=../disk.img",
+        "format=raw,file=disk.img",
         "-serial",
         "stdio",
         "-vga",

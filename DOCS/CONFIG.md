@@ -17,7 +17,7 @@ CONFIG_ENABLE_MOUSE=n
 ```
 
 ```bash
-./build.sh                  # or .\build.bat, or: cd zig && zig build
+./build.sh                  # or .\build.bat, or: zig build
 ```
 
 `.config` is git-ignored — local tweaks stay local. `defconfig` is the
@@ -53,7 +53,7 @@ linked, and its commands disappear from `help`.
 | `ENABLE_MOUSE` | PS/2 driver, `mouse` command, IDT/IRQ12 asm wiring — passed to nasm as `-DENABLE_MOUSE=0` (−4 KB) |
 | `ENABLE_SPEAKER` | Driver, `beep` command, syscall 42, panic sound. `ENABLE_BOOT_BEEP`/`ENABLE_ERROR_BEEP` apply only while speaker is on |
 | `ENABLE_SMP` | AP bring-up (kernel runs BSP-only), `smp-test`/`stress-test`. Partial by design — locks/per-CPU arrays stay |
-| `ENABLE_NOVA` | `nova`/`nova_legacy`/`install`/`uninstall` commands, `.nv` script dispatch, embedded `nova.elf`, and the nova build step itself (`zig/build/nova` not produced) |
+| `ENABLE_NOVA` | `nova`/`nova_legacy`/`install`/`uninstall` commands, `.nv` script dispatch, embedded `nova.elf`, and the nova build step itself (`build/nova` not produced) |
 
 Measured on `build/kernel32.elf` vs the default build (364920 bytes):
 `QUANTUM=n` 356728, `MOUSE=n` 360824, `NOVA=n` 315768.
@@ -79,10 +79,9 @@ keep `y`), `USE_GARBAGE_COLLECTOR` (default `n`),
 ## Verifying a config change
 
 ```bash
-cd zig
-zig test kconfig.zig   # config engine
-zig build test         # config facade
-zig build              # build with the current .config
+zig test zig/kconfig.zig   # config engine
+zig build test             # config facade
+zig build                  # build with the current .config
 ```
 
 Compile-out proof: `build/kernel32.elf` must shrink vs a default build
@@ -95,4 +94,4 @@ when you disable a gate. In QEMU, `help` no longer lists gated commands.
 3. Mirror the default in `defconfig` as `CONFIG_NAME=y` (or `=n`)
 4. Gate the code: append-chunk in `shell.zig` for commands, a comptime
    call-site guard for modules, `-D` define for asm
-5. Run `zig test kconfig.zig && zig build test && zig build`
+5. Run `zig test zig/kconfig.zig && zig build test && zig build`

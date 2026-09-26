@@ -30,9 +30,7 @@ cp limine/limine limine-build/
 # Kernel: Zig modules, NASM objects and link. Flag parsing lives in
 # build.zig — this script never reads .config content.
 echo "Building kernel..."
-cd zig
 zig build
-cd ..
 
 # Copy Limine files to ISO directory
 cp limine-build/limine-bios.sys iso_root/boot/
