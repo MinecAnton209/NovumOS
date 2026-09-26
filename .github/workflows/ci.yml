@@ -53,10 +53,12 @@ jobs:
         .\build-app.bat examples\hello_world\main.c examples\hello_world\hello.elf
         .\build-app.bat examples\system_test\main.c examples\system_test\test.elf
 
-    - name: Build Zig modules (Validation)
+    - name: Build and Test Zig modules (Validation)
       run: |
-        cd zig
         zig build
+        zig build test
+        zig build test-cfg-write
+        zig build test-menuconfig
 
     - name: Upload OS Image
       uses: actions/upload-artifact@v7
@@ -106,10 +108,12 @@ jobs:
         ./build-app.sh examples/hello_world/main.c examples/hello_world/hello.elf
         ./build-app.sh examples/system_test/main.c examples/system_test/test.elf
 
-    - name: Build Zig modules (Validation)
+    - name: Build and Test Zig modules (Validation)
       run: |
-        cd zig
         zig build
+        zig build test
+        zig build test-cfg-write
+        zig build test-menuconfig
 
     - name: Upload OS Image
       uses: actions/upload-artifact@v7

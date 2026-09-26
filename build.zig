@@ -223,11 +223,15 @@ pub fn build(b: *std.Build) void {
         });
         nova_exe.setLinkerScript(b.path("zig/nova_user/linker.ld"));
 
-        // Install nova.elf next to the kernel
+        // Install nova.elf to zig/build for @embedFile in zig/kernel/elf.zig
         const install_nova = b.addInstallArtifact(nova_exe, .{
+            .dest_dir = .{ .override = .{ .custom = "zig/build" } },
+        });
+        const install_nova_root = b.addInstallArtifact(nova_exe, .{
             .dest_dir = .{ .override = .{ .custom = "build" } },
         });
         b.default_step.dependOn(&install_nova.step);
+        b.default_step.dependOn(&install_nova_root.step);
 
         // Make kernel compile depend on nova install (for @embedFile)
         kernel.step.dependOn(&install_nova.step);
