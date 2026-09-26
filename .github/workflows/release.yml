@@ -76,7 +76,7 @@ jobs:
       - name: Attest ISO build provenance
         uses: actions/attest-build-provenance@v4.2.2
         with:
-          subject-path: NovumOS.iso
+          subject-path: build/NovumOS.iso
 
       - name: Create tag
         run: |
@@ -95,4 +95,4 @@ jobs:
             --title "${{ steps.version.outputs.title }}" \
             --notes-file release-notes.md \
             $PRERELEASE \
-            "NovumOS.iso#NovumOS-$TAG.iso"
+            "build/NovumOS.iso#NovumOS-$TAG.iso"

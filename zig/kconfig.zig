@@ -7,6 +7,7 @@ pub const Field = struct {
     name: []const u8,
     default: Option,
     help: []const u8,
+    desc: []const u8 = "",
 };
 
 pub const ErrorKind = enum {
@@ -218,7 +219,7 @@ fn checkValue(expected: Option, val: []const u8) ?ErrorKind {
     return null;
 }
 
-fn get(comptime T: type, comptime schema: []const Field, text: []const u8, comptime name: []const u8) ?T {
+pub fn get(comptime T: type, comptime schema: []const Field, text: []const u8, comptime name: []const u8) ?T {
     _ = schema;
     var it = std.mem.splitScalar(u8, text, '\n');
     while (it.next()) |raw| {

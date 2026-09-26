@@ -27,13 +27,13 @@ chmod +x build.sh
 
 ```bash
 # BIOS boot
-qemu-system-i386 -cdrom NovumOS.iso
+qemu-system-i386 -cdrom build/NovumOS.iso
 
 # Or boot from disk image
 qemu-system-i386 -hda NovumOS.img -m 128
 
 # Serial console (no graphics)
-qemu-system-i386 -cdrom NovumOS.iso -nographic
+qemu-system-i386 -cdrom build/NovumOS.iso -nographic
 ```
 
 ## Development Workflow

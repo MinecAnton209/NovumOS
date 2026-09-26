@@ -45,11 +45,11 @@ syscalls, an integrated scripting language (Nova) and a user-mode SDK.
 ./build.sh
 
 # run
-qemu-system-i386 -cdrom NovumOS.iso -serial stdio
+qemu-system-i386 -cdrom build/NovumOS.iso -serial stdio
 
 # with a disk (create it once, format with mkfs on first boot)
-cd zig && zig build mkdisk --disk-size=2G && cd ..
-qemu-system-x86_64 -boot d -cdrom NovumOS.iso -hda disk.img -m 2G -serial stdio
+zig build mkdisk --disk-size=2G
+qemu-system-x86_64 -boot d -cdrom build/NovumOS.iso -hda disk.img -m 2G -serial stdio
 ```
 
 ## How It Boots

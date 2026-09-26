@@ -12,6 +12,7 @@ jobs:
   analyze:
     name: Analyze C/C++ (SDK)
     runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, '[skip-ci]') && !contains(github.event.head_commit.message, '[ci skip]') && !contains(github.event.head_commit.message, '[no ci]')"
     permissions:
       actions: read
       contents: read

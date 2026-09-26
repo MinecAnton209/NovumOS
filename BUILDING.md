@@ -98,35 +98,36 @@ Sources are laid out per architecture (see [Repository Layout](#repository-layou
   `zig build` yourself.
 
 Adding an architecture: drop sources in `zig/arch/<name>/`, register the
-name in `zig/build.zig`'s `-Darch` switch, add branches in
+name in `build.zig`'s `-Darch` switch, add branches in
 `zig/arch/mod.zig`, and point `ARCH` at matching asm under `arch/<name>/`.
 
 ### Outputs
 
 | Path | What |
 |------|------|
-| `NovumOS.iso` | Bootable ISO (Limine + kernel) |
+| `build/NovumOS.iso` | Bootable ISO (Limine + kernel) |
 | `build/kernel32.elf` | Linked kernel |
 | `build/trampoline.bin` | SMP AP trampoline (also embedded via `zig/arch/*/trampoline.bin`) |
-| `zig/build/nova` | nova user-space ELF, embedded into the kernel with `@embedFile` |
+| `build/nova` | nova user-space ELF, embedded into the kernel with `@embedFile` |
 | `disk.img` | Raw disk, only after `zig build mkdisk` (optional) |
 
 ### zig build extras
 
-From the `zig/` directory:
+From the repository root:
 
 ```bash
-zig build mkdisk --disk-size=2G   # create ../disk.img (needs qemu-img; default 32M)
+zig build menuconfig              # interactive configuration TUI
+zig build mkdisk --disk-size=2G   # create disk.img (needs qemu-img; default 32M)
 zig build -Dhistory_size=100      # shell history depth
-zig build test                 # config facade tests (kconfig engine: zig test kconfig.zig)
+zig build test                    # config facade tests (kconfig engine: zig test zig/kconfig.zig)
 ```
 
-Bare `zig test config.zig` fails with `no module named build_config` by
-design — use `zig build test` for the facade, `zig test kconfig.zig` for
+Bare `zig test zig/config.zig` fails with `no module named build_config` by
+design — use `zig build test` for the facade, `zig test zig/kconfig.zig` for
 the engine.
 
 Known gap: `zig build run` and `zig build run-disk` still reference
-`../build/os-image.bin`, which the current pipeline does not produce —
+`build/os-image.bin`, which the current pipeline does not produce —
 launch QEMU manually as shown below.
 
 ## Running
@@ -134,14 +135,14 @@ launch QEMU manually as shown below.
 ### Basic
 
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso -serial stdio
+qemu-system-i386 -cdrom build/NovumOS.iso -serial stdio
 ```
 
 ### With Disk Image
 
 ```bash
-zig build mkdisk --disk-size=2G        # from zig/, once
-qemu-system-x86_64 -boot d -cdrom NovumOS.iso -hda disk.img -m 2G -serial stdio
+zig build mkdisk --disk-size=2G        # once
+qemu-system-x86_64 -boot d -cdrom build/NovumOS.iso -hda disk.img -m 2G -serial stdio
 ```
 
 A freshly created `disk.img` is unformatted: on first boot run `mkfs` in
@@ -150,23 +151,23 @@ the shell before `touch`/`cat`/redirects.
 ### Serial Console (No Graphics)
 
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso -nographic
+qemu-system-i386 -cdrom build/NovumOS.iso -nographic
 ```
 
 ### PC Speaker Audio (QEMU)
 
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso -audiodev sdl,id=audio0 -machine pc,pcspk-audiodev=audio0 -serial stdio
+qemu-system-i386 -cdrom build/NovumOS.iso -audiodev sdl,id=audio0 -machine pc,pcspk-audiodev=audio0 -serial stdio
 ```
 
 ### Debugging
 
 ```bash
 # With QEMU monitor
-qemu-system-i386 -cdrom NovumOS.iso -serial stdio -monitor stdio
+qemu-system-i386 -cdrom build/NovumOS.iso -serial stdio -monitor stdio
 
 # With GDB
-qemu-system-i386 -cdrom NovumOS.iso -serial stdio -s -S
+qemu-system-i386 -cdrom build/NovumOS.iso -serial stdio -s -S
 # Then in gdb: target remote localhost:1234
 ```
 

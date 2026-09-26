@@ -21,10 +21,13 @@ tools/mkiso.pdb
 # Zig
 .zig-cache/
 zig-out/
+zig-pkg/
 zig/.zig-cache/
 zig/build/
 zig/zig-out/
+zig/zig-pkg/
 zig/nova
+temp/
 
 # Editor
 .vscode/

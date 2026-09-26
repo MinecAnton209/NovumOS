@@ -82,7 +82,7 @@ cd E:\NewOS
 1. Enable Hyper-V in Windows Features
 2. Or use `-accel tcg` flag:
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso -accel tcg
+qemu-system-i386 -cdrom build/NovumOS.iso -accel tcg
 ```
 
 **Linux:**
@@ -98,7 +98,7 @@ sudo modprobe kvm_intel  # for Intel CPUs
 **Solutions:**
 - Use `-nographic` for serial console:
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso -nographic
+qemu-system-i386 -cdrom build/NovumOS.iso -nographic
 ```
 - Install GUI (GTK/SDL):
 ```bash
@@ -115,7 +115,7 @@ brew install sdl2
 
 **Solution:** Use user mode networking:
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso -net nic -net user
+qemu-system-i386 -cdrom build/NovumOS.iso -net nic -net user
 ```
 
 ### "Serial port not working"
@@ -125,10 +125,10 @@ qemu-system-i386 -cdrom NovumOS.iso -net nic -net user
 **Solution:**
 ```bash
 # Via virtual serial
-qemu-system-i386 -cdrom NovumOS.iso -serial stdio
+qemu-system-i386 -cdrom build/NovumOS.iso -serial stdio
 
 # Via TCP
-qemu-system-i386 -cdrom NovumOS.iso -serial telnet:127.0.0.1:4444,server,nowait
+qemu-system-i386 -cdrom build/NovumOS.iso -serial telnet:127.0.0.1:4444,server,nowait
 # Connect: nc 127.0.0.1 4444
 ```
 
@@ -144,7 +144,7 @@ qemu-system-i386 -cdrom NovumOS.iso -serial telnet:127.0.0.1:4444,server,nowait
 1. Check memory allocation code
 2. Enable debug in QEMU:
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso -d int
+qemu-system-i386 -cdrom build/NovumOS.iso -d int
 ```
 
 ### Kernel Panic: "Double Fault"
@@ -212,7 +212,7 @@ arch -x86_64 qemu-system-i386 ...
 
 **Solution:**
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso -vga std -accel tcg
+qemu-system-i386 -cdrom build/NovumOS.iso -vga std -accel tcg
 ```
 
 ### VirtualBox
@@ -246,7 +246,7 @@ When reporting, include:
 
 ### Steps to Reproduce
 1. Run build
-2. Run qemu-system-i386 -cdrom NovumOS.iso
+2. Run qemu-system-i386 -cdrom build/NovumOS.iso
 3. Type "res 800 600"
 
 ### Expected Behavior

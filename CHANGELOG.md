@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.25-beta.3] - 2026-09-26
+
+### Added
+- Interactive Linux `lxdialog`-style `menuconfig` TUI tool (`zig build menuconfig`) with mouse and keyboard navigation
+- Submenu hierarchy for Debug, Audio, Shell/System, Security, and Memory configuration options
+- Comprehensive descriptions, prompt labels, and help dialogs for all 24 schema configuration options
+- Middle-click (SCM) info shortcut, mouse wheel scrolling, hover highlights, and save/exit confirmation modals
+- Compile-time `.config` engine (`kconfig.zig`) with strict validation and duplicate key detection
+- Format-preserving `.config` serializer and merger (`cfg_write.zig`) retaining comments and ordering
+- Subsystem compile-out gates: `ENABLE_QUANTUM`, `ENABLE_DOOMFIRE`, `ENABLE_BUILTIN_SCRIPTS`, `ENABLE_MOUSE`, `ENABLE_SPEAKER`, `ENABLE_SMP`, and `ENABLE_NOVA`
+- Configurable settings for shell history size, heap initial size, serial/LFB debug, and security path policies
+- Dedicated test suites for configuration engine, facade, serializer, and TUI logic (`test`, `test-cfg-write`, `test-menuconfig`)
+- Auto-dirty detection prompting creation of `.config` from `defconfig` on first `menuconfig` run
+
+### Changed
+- Moved `build.zig` and `build.zig.zon` to the repository root for direct root-level execution
+- Updated `build.bat` and `build.sh` build scripts to invoke `zig build` from repository root
+- Migrated external dependencies to `libvaxis` via root Zig package manager
+
+### Fixed
+- Added NASM include content-tracking for `arch/x86/idt.asm` to prevent stale build artifacts
+- Fixed word-wrapped text margin alignment inside Help modal dialogs
+
 ## [0.25-beta.2] - 2026-09-25
 
 ### Added
