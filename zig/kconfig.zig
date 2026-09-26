@@ -7,6 +7,7 @@ pub const Field = struct {
     name: []const u8,
     default: Option,
     help: []const u8,
+    desc: []const u8 = "",
 };
 
 pub const ErrorKind = enum {

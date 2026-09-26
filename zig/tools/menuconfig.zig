@@ -543,8 +543,8 @@ fn render(win: vaxis.Window) void {
 }
 
 fn renderHelpModal(win: vaxis.Window, arena: std.mem.Allocator) void {
-    const mw: u16 = @min(win.width -| 4, 68);
-    const mh: u16 = @min(win.height -| 2, 14);
+    const mw: u16 = @min(win.width -| 4, 72);
+    const mh: u16 = @min(win.height -| 2, 16);
     const mx: i17 = @intCast((win.width -| mw) / 2);
     const my: i17 = @intCast((win.height -| mh) / 2);
 
@@ -566,6 +566,13 @@ fn renderHelpModal(win: vaxis.Window, arena: std.mem.Allocator) void {
         .style = .{ .bg = col_dialog_bg },
     });
 
+    const text_win = modal.child(.{
+        .x_off = 1,
+        .y_off = 0,
+        .width = if (modal.width > 2) modal.width - 2 else modal.width,
+        .height = modal.height,
+    });
+
     if (optUnderCursor()) |opt_idx| {
         const f = schema[opt_idx];
         const title_str = std.fmt.allocPrint(arena, " Help: CONFIG_{s} ", .{f.name}) catch " Help ";
@@ -576,25 +583,32 @@ fn renderHelpModal(win: vaxis.Window, arena: std.mem.Allocator) void {
         }}, .{ .row_offset = @intCast(my), .col_offset = @intCast(mx + @as(i17, @intCast(tx))), .wrap = .none });
 
         const key_str = std.fmt.allocPrint(arena, "Symbol: CONFIG_{s}", .{f.name}) catch "";
-        _ = modal.print(&[_]vaxis.Segment{.{
+        _ = text_win.print(&[_]vaxis.Segment{.{
             .text = key_str,
             .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg, .bold = true },
-        }}, .{ .row_offset = 0, .col_offset = 1, .wrap = .none });
+        }}, .{ .row_offset = 0, .col_offset = 0, .wrap = .none });
 
-        _ = modal.print(&[_]vaxis.Segment{.{
-            .text = f.help,
+        const prompt_str = std.fmt.allocPrint(arena, "Prompt: {s}", .{f.help}) catch "";
+        _ = text_win.print(&[_]vaxis.Segment{.{
+            .text = prompt_str,
+            .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg, .bold = true },
+        }}, .{ .row_offset = 1, .col_offset = 0, .wrap = .none });
+
+        const desc_text = if (f.desc.len > 0) f.desc else f.help;
+        _ = text_win.print(&[_]vaxis.Segment{.{
+            .text = desc_text,
             .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg },
-        }}, .{ .row_offset = 2, .col_offset = 1, .wrap = .none });
+        }}, .{ .row_offset = 3, .col_offset = 0, .wrap = .word });
 
         const val_str = switch (values[opt_idx]) {
-            .bool => |bv| if (bv) "Current: [*] y (enabled)" else "Current: [ ] n (disabled)",
-            .int => |iv| std.fmt.allocPrint(arena, "Current: {d}", .{iv}) catch "",
-            .str => |sv| std.fmt.allocPrint(arena, "Current: \"{s}\"", .{sv}) catch "",
+            .bool => |bv| if (bv) "Current value: [*] y (enabled)" else "Current value: [ ] n (disabled)",
+            .int => |iv| std.fmt.allocPrint(arena, "Current value: {d}", .{iv}) catch "",
+            .str => |sv| std.fmt.allocPrint(arena, "Current value: \"{s}\"", .{sv}) catch "",
         };
-        _ = modal.print(&[_]vaxis.Segment{.{
+        _ = text_win.print(&[_]vaxis.Segment{.{
             .text = val_str,
             .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true },
-        }}, .{ .row_offset = 4, .col_offset = 1, .wrap = .none });
+        }}, .{ .row_offset = text_win.height -| 3, .col_offset = 0, .wrap = .none });
     } else {
         // Help on submenu category
         const si = root_items[cursor].submenu;
@@ -606,21 +620,21 @@ fn renderHelpModal(win: vaxis.Window, arena: std.mem.Allocator) void {
             .style = .{ .fg = col_title, .bg = col_dialog_bg, .bold = true },
         }}, .{ .row_offset = @intCast(my), .col_offset = @intCast(mx + @as(i17, @intCast(tx))), .wrap = .none });
 
-        _ = modal.print(&[_]vaxis.Segment{.{
+        _ = text_win.print(&[_]vaxis.Segment{.{
             .text = "Submenu category.",
             .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg, .bold = true },
-        }}, .{ .row_offset = 0, .col_offset = 1, .wrap = .none });
+        }}, .{ .row_offset = 0, .col_offset = 0, .wrap = .none });
 
         const desc = std.fmt.allocPrint(arena, "Contains {d} options for {s}.", .{ grp.opt_indices.len, grp.name }) catch "";
-        _ = modal.print(&[_]vaxis.Segment{.{
+        _ = text_win.print(&[_]vaxis.Segment{.{
             .text = desc,
             .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg },
-        }}, .{ .row_offset = 2, .col_offset = 1, .wrap = .none });
+        }}, .{ .row_offset = 2, .col_offset = 0, .wrap = .word });
 
-        _ = modal.print(&[_]vaxis.Segment{.{
+        _ = text_win.print(&[_]vaxis.Segment{.{
             .text = "Press <Enter> or <Space> to open this submenu.",
             .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true },
-        }}, .{ .row_offset = 4, .col_offset = 1, .wrap = .none });
+        }}, .{ .row_offset = 4, .col_offset = 0, .wrap = .none });
     }
 
     const btn_str = "<  OK  >";
@@ -1324,6 +1338,20 @@ fn handleNavMouse(mouse: vaxis.Mouse, win: vaxis.Window) void {
                 active_btn = .save;
             }
         }
+        return;
+    }
+
+    // Middle click (СКМ) opens Help/Info
+    if (mouse.button == .middle and mouse.type == .press) {
+        if (is_in_list) {
+            const r: usize = @intCast(mouse.row - list_y_start);
+            const item_idx = scroll + r;
+            if (item_idx < currentCount()) {
+                cursor = item_idx;
+            }
+        }
+        status = "";
+        mode = .help;
         return;
     }
 
