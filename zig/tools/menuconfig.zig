@@ -38,15 +38,22 @@ fn schemaIndex(comptime name: []const u8) usize {
 const rows: [schema.len + group_defs.len]Row = blk: {
     var r: [schema.len + group_defs.len]Row = undefined;
     var n: usize = 0;
+    var seen: [schema.len]bool = .{false} ** schema.len;
     for (group_defs) |g| {
         r[n] = .{ .group = g.name };
         n += 1;
         for (g.keys) |k| {
-            r[n] = .{ .opt = schemaIndex(k) };
+            const idx = schemaIndex(k);
+            if (seen[idx]) @compileError("menuconfig: duplicate schema key in group_defs: " ++ k);
+            seen[idx] = true;
+            r[n] = .{ .opt = idx };
             n += 1;
         }
     }
     if (n != r.len) @compileError("menuconfig: group_defs must cover every schema key exactly once");
+    for (seen, 0..) |was_seen, i| {
+        if (!was_seen) @compileError("menuconfig: schema key missing from group_defs: " ++ schema[i].name);
+    }
     break :blk r;
 };
 
@@ -388,6 +395,9 @@ pub fn main(init: std.process.Init) !void {
 
     try vx.enterAltScreen(tty.writer());
     try vx.queryTerminal(tty.writer(), .fromSeconds(1));
+
+    render(vx.window());
+    try vx.render(tty.writer());
 
     while (!should_quit) {
         const event = try loop.nextEvent();
