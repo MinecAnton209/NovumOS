@@ -1,5 +1,7 @@
 const kconfig = @import("kconfig.zig");
 
+pub const k = kconfig;
+
 pub const schema = [_]kconfig.Field{
     .{ .name = "USE_GARBAGE_COLLECTOR", .default = .{ .bool = false }, .help = "Build-time toggle for GC" },
     .{ .name = "HEAP_INITIAL_SIZE", .default = .{ .int = 1024 * 1024 }, .help = "Initial kernel heap bytes" },

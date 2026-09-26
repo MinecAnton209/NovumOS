@@ -153,6 +153,24 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run config facade tests");
     test_step.dependOn(&run_config_tests.step);
 
+    // cfg_write merge tests: its ../ imports leave the main module root in
+    // Zig 0.16, so resolve them as named modules. config_schema.zig keeps its
+    // own relative @import("kconfig.zig") and resolves it file-locally, which
+    // is why it must NOT also be wired as a separate "kconfig" module.
+    const cfg_write_mod = b.createModule(.{
+        .root_source_file = b.path("tools/cfg_write.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    cfg_write_mod.addAnonymousImport("config_schema", .{
+        .root_source_file = b.path("config_schema.zig"),
+        .imports = &.{},
+    });
+    const cfg_write_tests = b.addTest(.{ .root_module = cfg_write_mod });
+    const run_cfg_write_tests = b.addRunArtifact(cfg_write_tests);
+    const cfg_write_test_step = b.step("test-cfg-write", "Run cfg_write merge tests");
+    cfg_write_test_step.dependOn(&run_cfg_write_tests.step);
+
     // menuconfig TUI: host dev tool, deliberately not part of default_step
     const vaxis_dep = b.dependency("vaxis", .{
         .target = b.graph.host,
