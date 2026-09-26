@@ -19,15 +19,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Configurable settings for shell history size, heap initial size, serial/LFB debug, and security path policies
 - Dedicated test suites for configuration engine, facade, serializer, and TUI logic (`test`, `test-cfg-write`, `test-menuconfig`)
 - Auto-dirty detection prompting creation of `.config` from `defconfig` on first `menuconfig` run
+- Support for `[skip ci]` / `[ci skip]` directives in GitHub Actions CI workflows
 
 ### Changed
 - Moved `build.zig` and `build.zig.zon` to the repository root for direct root-level execution
 - Updated `build.bat` and `build.sh` build scripts to invoke `zig build` from repository root
+- Output bootable ISO directly to `build/NovumOS.iso` and updated all documentation / CI paths
 - Migrated external dependencies to `libvaxis` via root Zig package manager
+- Formatted entire Zig codebase with `zig fmt`
 
 ### Fixed
 - Added NASM include content-tracking for `arch/x86/idt.asm` to prevent stale build artifacts
 - Fixed word-wrapped text margin alignment inside Help modal dialogs
+- Fixed `@embedFile` artifact installation path for the embedded Nova binary on clean builds
 
 ## [0.25-beta.2] - 2026-09-25
 
