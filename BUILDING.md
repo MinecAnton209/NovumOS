@@ -105,7 +105,7 @@ name in `build.zig`'s `-Darch` switch, add branches in
 
 | Path | What |
 |------|------|
-| `NovumOS.iso` | Bootable ISO (Limine + kernel) |
+| `build/NovumOS.iso` | Bootable ISO (Limine + kernel) |
 | `build/kernel32.elf` | Linked kernel |
 | `build/trampoline.bin` | SMP AP trampoline (also embedded via `zig/arch/*/trampoline.bin`) |
 | `build/nova` | nova user-space ELF, embedded into the kernel with `@embedFile` |
@@ -135,14 +135,14 @@ launch QEMU manually as shown below.
 ### Basic
 
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso -serial stdio
+qemu-system-i386 -cdrom build/NovumOS.iso -serial stdio
 ```
 
 ### With Disk Image
 
 ```bash
 zig build mkdisk --disk-size=2G        # once
-qemu-system-x86_64 -boot d -cdrom NovumOS.iso -hda disk.img -m 2G -serial stdio
+qemu-system-x86_64 -boot d -cdrom build/NovumOS.iso -hda disk.img -m 2G -serial stdio
 ```
 
 A freshly created `disk.img` is unformatted: on first boot run `mkfs` in
@@ -151,23 +151,23 @@ the shell before `touch`/`cat`/redirects.
 ### Serial Console (No Graphics)
 
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso -nographic
+qemu-system-i386 -cdrom build/NovumOS.iso -nographic
 ```
 
 ### PC Speaker Audio (QEMU)
 
 ```bash
-qemu-system-i386 -cdrom NovumOS.iso -audiodev sdl,id=audio0 -machine pc,pcspk-audiodev=audio0 -serial stdio
+qemu-system-i386 -cdrom build/NovumOS.iso -audiodev sdl,id=audio0 -machine pc,pcspk-audiodev=audio0 -serial stdio
 ```
 
 ### Debugging
 
 ```bash
 # With QEMU monitor
-qemu-system-i386 -cdrom NovumOS.iso -serial stdio -monitor stdio
+qemu-system-i386 -cdrom build/NovumOS.iso -serial stdio -monitor stdio
 
 # With GDB
-qemu-system-i386 -cdrom NovumOS.iso -serial stdio -s -S
+qemu-system-i386 -cdrom build/NovumOS.iso -serial stdio -s -S
 # Then in gdb: target remote localhost:1234
 ```
 

@@ -86,7 +86,7 @@ pub fn build(b: *std.Build) void {
 
     // Install the object file to build/
     const install_kernel = b.addInstallArtifact(kernel, .{
-        .dest_dir = .{ .override = .{ .custom = "build" } },
+        .dest_dir = .{ .override = .{ .custom = "../build" } },
     });
 
     b.default_step.dependOn(&install_kernel.step);
@@ -132,8 +132,8 @@ pub fn build(b: *std.Build) void {
     link_cmd.addFileArg(um_o);
     link_cmd.addFileArg(kernel.getEmittedBin());
 
-    const install_elf = b.addInstallFileWithDir(kernel_elf, .{ .custom = "build" }, "kernel32.elf");
-    const install_tramp = b.addInstallFileWithDir(tramp_bin, .{ .custom = "build" }, "trampoline.bin");
+    const install_elf = b.addInstallFileWithDir(kernel_elf, .{ .custom = "../build" }, "kernel32.elf");
+    const install_tramp = b.addInstallFileWithDir(tramp_bin, .{ .custom = "../build" }, "trampoline.bin");
     b.default_step.dependOn(&install_elf.step);
     b.default_step.dependOn(&install_tramp.step);
 
@@ -225,10 +225,10 @@ pub fn build(b: *std.Build) void {
 
         // Install nova.elf to zig/build for @embedFile in zig/kernel/elf.zig
         const install_nova = b.addInstallArtifact(nova_exe, .{
-            .dest_dir = .{ .override = .{ .custom = "zig/build" } },
+            .dest_dir = .{ .override = .{ .custom = "../zig/build" } },
         });
         const install_nova_root = b.addInstallArtifact(nova_exe, .{
-            .dest_dir = .{ .override = .{ .custom = "build" } },
+            .dest_dir = .{ .override = .{ .custom = "../build" } },
         });
         b.default_step.dependOn(&install_nova.step);
         b.default_step.dependOn(&install_nova_root.step);

@@ -55,7 +55,7 @@ xorriso -as mkisofs -b boot/limine-bios-cd.bin ^
         -no-emul-boot -boot-load-size 4 -boot-info-table ^
         --efi-boot boot/limine-uefi-cd.bin ^
         -efi-boot-part --efi-boot-image --protective-msdos-label ^
-        iso_root -o NovumOS.iso
+        iso_root -o build\NovumOS.iso
 if %errorlevel% neq 0 (
     echo Error creating ISO!
     pause
@@ -64,7 +64,7 @@ if %errorlevel% neq 0 (
 
 :: Install Limine bootloader to ISO
 echo Installing Limine to ISO...
-limine-build\limine bios-install NovumOS.iso
+limine-build\limine bios-install build\NovumOS.iso
 if %errorlevel% neq 0 (
     echo Error installing Limine!
     pause
@@ -74,4 +74,4 @@ if %errorlevel% neq 0 (
 echo.
 echo === Build Complete ===
 echo.
-echo To run: qemu-system-i386 -cdrom NovumOS.iso -serial stdio
+echo To run: qemu-system-i386 -cdrom build\NovumOS.iso -serial stdio

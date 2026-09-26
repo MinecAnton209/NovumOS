@@ -21,11 +21,11 @@ controller reset line (`outb(0x64, 0xFE)`). Nothing is written to disk:
    code bits.
 4. Re-run with exception tracing:
    ```bash
-   qemu-system-i386 -cdrom NovumOS.iso -serial stdio -d int,cpu_reset -D qemu.log
+   qemu-system-i386 -cdrom build/NovumOS.iso -serial stdio -d int,cpu_reset -D qemu.log
    ```
 5. Or single-step from the panic:
    ```bash
-   qemu-system-i386 -cdrom NovumOS.iso -serial stdio -s -S
+   qemu-system-i386 -cdrom build/NovumOS.iso -serial stdio -s -S
    # then: gdb build/kernel32.elf  →  target remote localhost:1234
    ```
 6. Press ENTER to reboot (or restart QEMU).

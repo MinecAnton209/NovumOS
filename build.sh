@@ -53,11 +53,11 @@ if command -v xorriso &> /dev/null; then
             -no-emul-boot -boot-load-size 4 -boot-info-table \
             --efi-boot boot/limine-uefi-cd.bin \
             -efi-boot-part --efi-boot-image --protective-msdos-label \
-            iso_root -o NovumOS.iso
+            iso_root -o build/NovumOS.iso
 
     # Install Limine bootloader to ISO
     echo "Installing Limine to ISO..."
-    ./limine-build/limine bios-install NovumOS.iso
+    ./limine-build/limine bios-install build/NovumOS.iso
 else
     echo "Skipping ISO (xorriso not found)"
     echo "Install xorriso to create an ISO: sudo apt install xorriso"
@@ -65,8 +65,8 @@ fi
 
 echo ""
 echo "=== Build Complete ==="
-echo "ISO:  NovumOS.iso  ($(stat -c%s NovumOS.iso | numfmt --to=iec))"
+echo "ISO:  build/NovumOS.iso  ($(stat -c%s build/NovumOS.iso | numfmt --to=iec))"
 echo ""
 echo "To run:"
-echo "  qemu-system-i386 -cdrom NovumOS.iso"
+echo "  qemu-system-i386 -cdrom build/NovumOS.iso"
 echo ""
