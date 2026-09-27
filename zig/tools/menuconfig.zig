@@ -25,7 +25,8 @@ const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8, chi
     .{ .name = "Audio", .keys = &.{ "ENABLE_BOOT_BEEP", "ENABLE_ERROR_BEEP" }, .children = &.{} },
     .{ .name = "Shell / System", .keys = &.{
         "ENABLE_DEBUG_COMMANDS", "ENABLE_DEBUG_CRASH_COMMANDS", "HISTORY_SIZE",
-        "ENABLE_EMBEDDED_ELFS",  "ENABLE_IDT_WATCHDOG",         "ENABLE_RSOD_REBOOT",
+        "ENABLE_DISK_HISTORY",   "ENABLE_EMBEDDED_ELFS",        "ENABLE_IDT_WATCHDOG",
+        "ENABLE_RSOD_REBOOT",
     }, .children = &.{} },
     .{ .name = "Fun / demos", .keys = &.{ "ENABLE_DOOMFIRE", "ENABLE_MATRIX" }, .children = &.{} },
     .{ .name = "Drivers", .keys = &.{}, .children = &.{5} },

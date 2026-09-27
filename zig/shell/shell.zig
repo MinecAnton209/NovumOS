@@ -474,6 +474,7 @@ fn handle_history_key(char: u8) bool {
 }
 
 fn save_history_to_disk() void {
+    if (!config.ENABLE_DISK_HISTORY) return;
     if (common.selected_disk < 0) return;
     const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
 
@@ -502,6 +503,7 @@ fn save_history_to_disk() void {
 }
 
 fn load_history_from_disk() void {
+    if (!config.ENABLE_DISK_HISTORY) return;
     if (common.selected_disk < 0) return;
     const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
 

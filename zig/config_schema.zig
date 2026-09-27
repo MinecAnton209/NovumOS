@@ -22,6 +22,12 @@ pub const schema = [_]kconfig.Field{
         .desc = "Defines the maximum number of previously executed command lines stored in the interactive shell scrollback history buffer. Accessible via Up/Down arrow keys.",
     },
     .{
+        .name = "ENABLE_DISK_HISTORY",
+        .default = .{ .bool = true },
+        .help = "Persist shell history to disk (.HISTORY)",
+        .desc = "Saves shell command history to the .HISTORY file on the selected disk and restores it on boot. When disabled, history lives only in RAM and no disk reads or writes occur.",
+    },
+    .{
         .name = "ENABLE_DEBUG_CRASH_COMMANDS",
         .default = .{ .bool = true },
         .help = "Kernel crash test commands (panic, div0, pf)",

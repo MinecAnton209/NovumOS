@@ -13,6 +13,7 @@ fn value(comptime T: type, comptime name: []const u8) T {
 pub const USE_GARBAGE_COLLECTOR = value(bool, "USE_GARBAGE_COLLECTOR");
 pub const HEAP_INITIAL_SIZE = value(u32, "HEAP_INITIAL_SIZE");
 pub const HISTORY_SIZE = value(u32, "HISTORY_SIZE");
+pub const ENABLE_DISK_HISTORY = value(bool, "ENABLE_DISK_HISTORY");
 pub const ENABLE_DEBUG_CRASH_COMMANDS = value(bool, "ENABLE_DEBUG_CRASH_COMMANDS");
 pub const ENABLE_DEBUG_COMMANDS = value(bool, "ENABLE_DEBUG_COMMANDS");
 pub const ENABLE_EARLY_LFB_DEBUG = value(bool, "ENABLE_EARLY_LFB_DEBUG");
