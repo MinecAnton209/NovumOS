@@ -1,4 +1,5 @@
 const common = @import("common.zig");
+const config = @import("../config.zig");
 const ata = @import("../drivers/ata.zig");
 const bpb_mod = @import("../drivers/fat/bpb.zig");
 
@@ -55,6 +56,16 @@ pub fn lsdsk() void {
 
 pub const FatType = enum { Fat12, Fat16, Fat32 };
 
+/// Disabled FAT variant guard: mkfs-fatXX is gated out of the shell table,
+// but the generic mkfs path can still reach here — fail loudly instead.
+fn fatEnabled(comptime ft: FatType) bool {
+    return switch (ft) {
+        .Fat12 => config.ENABLE_FAT12,
+        .Fat16 => config.ENABLE_FAT16,
+        .Fat32 => config.ENABLE_FAT32,
+    };
+}
+
 /// Unified mkfs for FAT12/16/32. Comptime dispatch on `ft` keeps all
 /// FAT-specific logic inline while eliminating the three-way copy-paste.
 pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
@@ -63,6 +74,15 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
         .Fat16 => "FAT16",
         .Fat32 => "FAT32",
     };
+
+    if (!fatEnabled(ft)) {
+        common.printZ("Error: ");
+        common.printZ(fmt_name);
+        common.printZ(" support disabled (ENABLE_");
+        common.printZ(fmt_name);
+        common.printZ("=n)\n");
+        return;
+    }
 
     if (drive_num >= 2) {
         common.printZ("Error: Invalid drive number (0-1)\n");

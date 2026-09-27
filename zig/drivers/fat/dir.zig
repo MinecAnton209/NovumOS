@@ -1092,6 +1092,10 @@ fn short_name_checksum(name: []const u8) u8 {
 /// true (caller should `continue` to the next entry).
 /// Otherwise returns false and resets `lfn.active`.
 pub fn consume_lfn_entry(buffer: []const u8, idx: usize, lfn: *LfnState) bool {
+    if (!config.ENABLE_LFN and buffer[idx + 11] == 0x0F) {
+        lfn.active = false;
+        return true;
+    }
     if (buffer[idx + 11] != 0x0F) {
         // Short entry — compute checksum to match pending LFN
         const sum = short_name_checksum(buffer[idx .. idx + 32]);
@@ -1202,6 +1206,7 @@ fn generate_short_alias(name: []const u8, out: *[11]u8) void {
 pub fn add_directory_entry(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []const u8, cluster: u32, size: u32, attr: u8) bool {
     var short_name: [11]u8 = undefined;
     const needs_alias = check_needs_lfn(name);
+    if (!config.ENABLE_LFN and needs_alias) return false;
 
     if (needs_alias) {
         generate_short_alias(name, &short_name);

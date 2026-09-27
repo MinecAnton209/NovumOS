@@ -16,20 +16,30 @@ const root_opt_keys = [_][]const u8{
     "ENABLE_NOVA",
 };
 
-const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8 }{
+const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8, children: []const usize }{
     .{ .name = "Debug output", .keys = &.{
         "ENABLE_SERIAL_DEBUG",   "ENABLE_EARLY_LFB_DEBUG", "ENABLE_FAT_DEBUG",
         "ENABLE_KERNEL_LOGGING", "ENABLE_BOOT_TRACE",      "ENABLE_SYSCALL_TRACE",
         "MOUSE_DEBUG",           "NOVA_DEBUG",
-    } },
-    .{ .name = "Audio", .keys = &.{ "ENABLE_BOOT_BEEP", "ENABLE_ERROR_BEEP" } },
+    }, .children = &.{} },
+    .{ .name = "Audio", .keys = &.{ "ENABLE_BOOT_BEEP", "ENABLE_ERROR_BEEP" }, .children = &.{} },
     .{ .name = "Shell / System", .keys = &.{
         "ENABLE_DEBUG_COMMANDS", "ENABLE_DEBUG_CRASH_COMMANDS", "HISTORY_SIZE",
         "ENABLE_EMBEDDED_ELFS",  "ENABLE_IDT_WATCHDOG",         "ENABLE_RSOD_REBOOT",
-    } },
-    .{ .name = "Fun / demos", .keys = &.{ "ENABLE_DOOMFIRE", "ENABLE_MATRIX" } },
-    .{ .name = "Security", .keys = &.{"NOVA_PATH_POLICY_ENABLED"} },
-    .{ .name = "Memory / Sizes", .keys = &.{"HEAP_INITIAL_SIZE"} },
+    }, .children = &.{} },
+    .{ .name = "Fun / demos", .keys = &.{ "ENABLE_DOOMFIRE", "ENABLE_MATRIX" }, .children = &.{} },
+    .{ .name = "Drivers", .keys = &.{}, .children = &.{5} },
+    .{ .name = "Filesystems", .keys = &.{
+        "ENABLE_FAT12", "ENABLE_FAT16", "ENABLE_FAT32", "ENABLE_LFN",
+    }, .children = &.{} },
+    .{ .name = "Security", .keys = &.{"NOVA_PATH_POLICY_ENABLED"}, .children = &.{} },
+    .{ .name = "Memory / Sizes", .keys = &.{"HEAP_INITIAL_SIZE"}, .children = &.{} },
+};
+
+const Group = struct {
+    name: []const u8,
+    opt_indices: []const usize,
+    children: []const usize,
 };
 
 fn schemaIndex(comptime name: []const u8) usize {
@@ -45,23 +55,36 @@ const MenuItem = union(enum) {
     submenu: usize,
 };
 
-const root_items: [root_opt_keys.len + submenu_defs.len]MenuItem = blk: {
-    var items: [root_opt_keys.len + submenu_defs.len]MenuItem = undefined;
+const is_child: [submenu_defs.len]bool = blk: {
+    var arr: [submenu_defs.len]bool = .{false} ** submenu_defs.len;
+    for (submenu_defs) |sd| {
+        for (sd.children) |c| arr[c] = true;
+    }
+    break :blk arr;
+};
+
+const root_submenu_count: usize = blk: {
+    var n: usize = 0;
+    for (0..is_child.len) |i| {
+        if (!is_child[i]) n += 1;
+    }
+    break :blk n;
+};
+
+const root_items: [root_opt_keys.len + root_submenu_count]MenuItem = blk: {
+    var items: [root_opt_keys.len + root_submenu_count]MenuItem = undefined;
     var n: usize = 0;
     for (root_opt_keys) |k| {
         items[n] = .{ .opt = schemaIndex(k) };
         n += 1;
     }
     for (0..submenu_defs.len) |si| {
-        items[n] = .{ .submenu = si };
-        n += 1;
+        if (!is_child[si]) {
+            items[n] = .{ .submenu = si };
+            n += 1;
+        }
     }
     break :blk items;
-};
-
-const Group = struct {
-    name: []const u8,
-    opt_indices: []const usize,
 };
 
 fn groupKeyIndices(comptime keys: []const []const u8) []const usize {
@@ -87,9 +110,13 @@ const submenus: [submenu_defs.len]Group = blk: {
             if (seen[idx]) @compileError("menuconfig: duplicate schema key: " ++ k);
             seen[idx] = true;
         }
+        for (sd.children) |c| {
+            if (c >= submenu_defs.len) @compileError("menuconfig: child submenu index out of range");
+        }
         s_arr[i] = .{
             .name = sd.name,
             .opt_indices = groupKeyIndices(sd.keys),
+            .children = sd.children,
         };
     }
     for (seen, 0..) |was_seen, i| {
@@ -155,7 +182,9 @@ fn isDirty() bool {
 }
 
 var current_menu: ?usize = null;
-var menu_cursor_stack: usize = 0;
+var menu_stack: [8]?usize = undefined;
+var menu_cursor_stack: [8]usize = undefined;
+var menu_depth: usize = 0;
 var cursor: usize = 0;
 var scroll: usize = 0;
 var should_quit = false;
@@ -261,23 +290,36 @@ fn syncNewKeys(alloc: std.mem.Allocator, defconfig_text: []const u8) usize {
 
 fn currentCount() usize {
     if (current_menu) |g| {
-        return submenus[g].opt_indices.len;
+        return submenus[g].opt_indices.len + submenus[g].children.len;
     } else {
         return root_items.len;
     }
 }
 
-fn optUnderCursor() ?usize {
+const CursorItem = union(enum) { opt: usize, submenu: usize };
+
+fn itemUnderCursor() ?CursorItem {
     if (current_menu) |g| {
-        if (cursor < submenus[g].opt_indices.len) {
-            return submenus[g].opt_indices[cursor];
-        }
+        const n_opts = submenus[g].opt_indices.len;
+        if (cursor < n_opts) return .{ .opt = submenus[g].opt_indices[cursor] };
+        const c = cursor - n_opts;
+        if (c < submenus[g].children.len) return .{ .submenu = submenus[g].children[c] };
     } else {
         if (cursor < root_items.len) {
             switch (root_items[cursor]) {
-                .opt => |idx| return idx,
-                .submenu => return null,
+                .opt => |idx| return .{ .opt = idx },
+                .submenu => |si| return .{ .submenu = si },
             }
+        }
+    }
+    return null;
+}
+
+fn optUnderCursor() ?usize {
+    if (itemUnderCursor()) |it| {
+        switch (it) {
+            .opt => |idx| return idx,
+            .submenu => return null,
         }
     }
     return null;
@@ -508,9 +550,20 @@ fn render(win: vaxis.Window) void {
         }
 
         if (current_menu) |g| {
-            // Inside submenu: list of options for group `g`
-            const opt_idx = submenus[g].opt_indices[item_idx];
-            renderOptRow(inner_box, arena, r, opt_idx, is_cursor);
+            const n_opts = submenus[g].opt_indices.len;
+            if (item_idx < n_opts) {
+                renderOptRow(inner_box, arena, r, submenus[g].opt_indices[item_idx], is_cursor);
+            } else {
+                const si = submenus[g].children[item_idx - n_opts];
+                const group_text = std.fmt.allocPrint(arena, "    {s}  --->", .{submenus[si].name}) catch submenus[si].name;
+                _ = inner_box.print(&[_]vaxis.Segment{.{
+                    .text = group_text,
+                    .style = if (is_cursor)
+                        .{ .fg = col_sel_tag, .bg = col_sel_bg, .bold = true }
+                    else
+                        .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true },
+                }}, .{ .row_offset = @intCast(r), .col_offset = 0, .wrap = .none });
+            }
         } else {
             // Root menu: options on top, followed by submenus
             switch (root_items[item_idx]) {
@@ -682,8 +735,11 @@ fn renderHelpModal(win: vaxis.Window, arena: std.mem.Allocator) void {
             .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true },
         }}, .{ .row_offset = text_win.height -| 3, .col_offset = 0, .wrap = .none });
     } else {
-        // Help on submenu category
-        const si = root_items[cursor].submenu;
+        // Help on submenu category (root or nested)
+        const si = switch (itemUnderCursor() orelse return) {
+            .submenu => |s| s,
+            else => return,
+        };
         const grp = submenus[si];
         const title_str = std.fmt.allocPrint(arena, " Help: {s} ", .{grp.name}) catch " Help ";
         const tx: u16 = if (mw > title_str.len) @intCast((mw - @as(u16, @intCast(title_str.len))) / 2) else 1;
@@ -1064,32 +1120,20 @@ fn doSave() bool {
 }
 
 fn performSelectAction() void {
-    if (current_menu == null) {
-        switch (root_items[cursor]) {
-            .submenu => |si| {
-                menu_cursor_stack = cursor;
-                current_menu = si;
-                cursor = 0;
-                scroll = 0;
-                status = "";
-            },
-            .opt => |idx| {
-                switch (values[idx]) {
-                    .bool => |bv| {
-                        values[idx] = .{ .bool = !bv };
-                    },
-                    .int => |iv| {
-                        edit_target = idx;
-                        edit_len = (std.fmt.bufPrint(&edit_buf, "{d}", .{iv}) catch unreachable).len;
-                        edit_modal_btn = .ok;
-                        mode = .edit;
-                    },
-                    else => {},
-                }
-            },
-        }
-    } else {
-        if (optUnderCursor()) |idx| {
+    const it = itemUnderCursor() orelse return;
+    switch (it) {
+        .submenu => |si| {
+            if (menu_depth < menu_stack.len) {
+                menu_stack[menu_depth] = current_menu;
+                menu_cursor_stack[menu_depth] = cursor;
+                menu_depth += 1;
+            }
+            current_menu = si;
+            cursor = 0;
+            scroll = 0;
+            status = "";
+        },
+        .opt => |idx| {
             switch (values[idx]) {
                 .bool => |bv| {
                     values[idx] = .{ .bool = !bv };
@@ -1102,14 +1146,15 @@ fn performSelectAction() void {
                 },
                 else => {},
             }
-        }
+        },
     }
 }
 
 fn performExitAction() void {
-    if (current_menu != null) {
-        current_menu = null;
-        cursor = menu_cursor_stack;
+    if (menu_depth > 0) {
+        menu_depth -= 1;
+        current_menu = menu_stack[menu_depth];
+        cursor = menu_cursor_stack[menu_depth];
         scroll = 0;
         status = "";
     } else {

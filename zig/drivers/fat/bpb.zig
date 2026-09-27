@@ -102,6 +102,10 @@ pub fn read_bpb(drive: ata.Drive) ?BPB {
 
     if (!is_fat12 and !is_fat16 and !is_fat32) return null;
 
+    if (is_fat12 and !config.ENABLE_FAT12) return null;
+    if (is_fat16 and !config.ENABLE_FAT16) return null;
+    if (is_fat32 and !config.ENABLE_FAT32) return null;
+
     bpb.sectors_per_fat32 = @as(u32, buffer[36]) | (@as(u32, buffer[37]) << 8) | (@as(u32, buffer[38]) << 16) | (@as(u32, buffer[39]) << 24);
     bpb.root_cluster = @as(u32, buffer[44]) | (@as(u32, buffer[45]) << 8) | (@as(u32, buffer[46]) << 16) | (@as(u32, buffer[47]) << 24);
 

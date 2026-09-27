@@ -38,6 +38,10 @@ pub const ENABLE_BUILTIN_SCRIPTS = value(bool, "ENABLE_BUILTIN_SCRIPTS");
 pub const ENABLE_MOUSE = value(bool, "ENABLE_MOUSE");
 pub const ENABLE_SMP = value(bool, "ENABLE_SMP");
 pub const ENABLE_NOVA = value(bool, "ENABLE_NOVA");
+pub const ENABLE_FAT12 = value(bool, "ENABLE_FAT12");
+pub const ENABLE_FAT16 = value(bool, "ENABLE_FAT16");
+pub const ENABLE_FAT32 = value(bool, "ENABLE_FAT32");
+pub const ENABLE_LFN = value(bool, "ENABLE_LFN");
 
 pub const BUILD_HASH = 0xDEADC0DE ^ 0xCAFEBABE ^ 0x12345678;
 pub const WATCHDOG_INTERVAL_TICKS = 1000 + (BUILD_HASH % 500);

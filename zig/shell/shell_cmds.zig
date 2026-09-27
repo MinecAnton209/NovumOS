@@ -1026,6 +1026,10 @@ fn tree_sector(drive: ata.Drive, bpb: fat.BPB, buffer: *[512]u8, depth: usize, l
 
         // LFN Entry
         if (buffer[i + 11] == 0x0F) {
+            if (!@import("../config.zig").ENABLE_LFN) {
+                lfn.active = false;
+                continue;
+            }
             const seq = buffer[i];
             const chk = buffer[i + 13];
 

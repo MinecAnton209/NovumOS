@@ -135,9 +135,6 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "cd", .help = "cd <dir|..|/> - Change directory", .handler = cmd_handler_cd, .kind = .custom, .usage = "Usage: cd <directory>\n" },
     .{ .name = "pwd", .help = "Print current working directory", .handler = no_args_handler(&shell_cmds.cmd_pwd), .kind = .no_args },
     .{ .name = "tree", .help = "Display recursive directory structure", .handler = no_args_handler(&shell_cmds.cmd_tree), .kind = .no_args },
-    .{ .name = "mkfs-fat12", .help = "Format drive as FAT12 (legacy)", .handler = guarded_handler(&shell_cmds.cmd_mkfs_fat12, "Usage: mkfs-fat12 <drive>\n"), .kind = .guarded_args, .usage = "Usage: mkfs-fat12 <drive>\n" },
-    .{ .name = "mkfs-fat16", .help = "Format drive as FAT16 (standard)", .handler = guarded_handler(&shell_cmds.cmd_mkfs_fat16, "Usage: mkfs-fat16 <drive>\n"), .kind = .guarded_args, .usage = "Usage: mkfs-fat16 <drive>\n" },
-    .{ .name = "mkfs-fat32", .help = "Format drive as FAT32 (advanced)", .handler = guarded_handler(&shell_cmds.cmd_mkfs_fat32, "Usage: mkfs-fat32 <drive>\n"), .kind = .guarded_args, .usage = "Usage: mkfs-fat32 <drive>\n" },
     .{ .name = "touch", .help = "Create an empty file", .handler = guarded_handler(&shell_cmds.cmd_touch, "Usage: touch <file>\n"), .kind = .guarded_args, .usage = "Usage: touch <file>\n" },
     .{ .name = "lseek", .help = "lseek <f> <off> [SET|CUR|END]", .handler = guarded_handler(&shell_cmds.cmd_lseek, "Usage: lseek <file> <offset> [SEEK_SET|SEEK_CUR|SEEK_END]\n"), .kind = .guarded_args, .usage = "Usage: lseek <file> <offset> [SEEK_SET|SEEK_CUR|SEEK_END]\n" },
     .{ .name = "truncate", .help = "truncate <f> <size> - Truncate file", .handler = guarded_handler(&shell_cmds.cmd_truncate, "Usage: truncate <file> <size>\n"), .kind = .guarded_args, .usage = "Usage: truncate <file> <size>\n" },
@@ -200,6 +197,12 @@ const SHELL_COMMANDS = [_]Command{
 } else [_]Command{}) ++ (if (config.ENABLE_DEBUG_COMMANDS and config.ENABLE_SMP) [_]Command{
     .{ .name = "smp-test", .help = "Test global task queue across cores", .handler = no_args_handler(&shell_cmds.cmd_smp_test), .kind = .no_args },
     .{ .name = "stress-test", .help = "Run heavy math on AP cores while BSP stays free", .handler = no_args_handler(&shell_cmds.cmd_stress_test), .kind = .no_args },
+} else [_]Command{}) ++ (if (config.ENABLE_FAT12) [_]Command{
+    .{ .name = "mkfs-fat12", .help = "Format drive as FAT12 (legacy)", .handler = guarded_handler(&shell_cmds.cmd_mkfs_fat12, "Usage: mkfs-fat12 <drive>\n"), .kind = .guarded_args, .usage = "Usage: mkfs-fat12 <drive>\n" },
+} else [_]Command{}) ++ (if (config.ENABLE_FAT16) [_]Command{
+    .{ .name = "mkfs-fat16", .help = "Format drive as FAT16 (standard)", .handler = guarded_handler(&shell_cmds.cmd_mkfs_fat16, "Usage: mkfs-fat16 <drive>\n"), .kind = .guarded_args, .usage = "Usage: mkfs-fat16 <drive>\n" },
+} else [_]Command{}) ++ (if (config.ENABLE_FAT32) [_]Command{
+    .{ .name = "mkfs-fat32", .help = "Format drive as FAT32 (advanced)", .handler = guarded_handler(&shell_cmds.cmd_mkfs_fat32, "Usage: mkfs-fat32 <drive>\n"), .kind = .guarded_args, .usage = "Usage: mkfs-fat32 <drive>\n" },
 } else [_]Command{}) ++ (if (config.ENABLE_NOVA) [_]Command{
     .{ .name = "nova", .help = "Start Nova Scripting Interpreter", .handler = cmd_handler_nova_legacy, .kind = .custom },
     .{ .name = "nova_legacy", .help = "Alias for nova", .handler = cmd_handler_nova_legacy, .kind = .custom },

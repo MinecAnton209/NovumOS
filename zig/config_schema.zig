@@ -165,4 +165,28 @@ pub const schema = [_]kconfig.Field{
         .help = "Nova programming language runtime environment",
         .desc = "Enables the core Nova language interpreter, memory runtime, embedded userspace ELF loader, and interactive scripting engine.",
     },
+    .{
+        .name = "ENABLE_FAT12",
+        .default = .{ .bool = true },
+        .help = "FAT12 filesystem driver support",
+        .desc = "Enables mounting and formatting FAT12 volumes. When disabled, FAT12 disks are rejected by read_bpb and the mkfs-fat12 command disappears from help.",
+    },
+    .{
+        .name = "ENABLE_FAT16",
+        .default = .{ .bool = true },
+        .help = "FAT16 filesystem driver support",
+        .desc = "Enables mounting and formatting FAT16 volumes. When disabled, FAT16 disks are rejected by read_bpb and the mkfs-fat16 command disappears from help.",
+    },
+    .{
+        .name = "ENABLE_FAT32",
+        .default = .{ .bool = true },
+        .help = "FAT32 filesystem driver support",
+        .desc = "Enables mounting and formatting FAT32 volumes. When disabled, FAT32 disks are rejected by read_bpb and the mkfs-fat32 command disappears from help.",
+    },
+    .{
+        .name = "ENABLE_LFN",
+        .default = .{ .bool = true },
+        .help = "Long filename (LFN) support",
+        .desc = "Enables long filename entries (attr 0x0F). When disabled, only 8.3 short names work: LFN entries are skipped on lookup and adding a long name fails.",
+    },
 };

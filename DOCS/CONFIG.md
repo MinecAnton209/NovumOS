@@ -55,6 +55,10 @@ linked, and its commands disappear from `help`.
 | `ENABLE_SPEAKER` | Driver, `beep` command, syscall 42, panic sound. `ENABLE_BOOT_BEEP`/`ENABLE_ERROR_BEEP` apply only while speaker is on |
 | `ENABLE_SMP` | AP bring-up (kernel runs BSP-only), `smp-test`/`stress-test`. Partial by design — locks/per-CPU arrays stay |
 | `ENABLE_NOVA` | `nova`/`nova_legacy`/`install`/`uninstall` commands, `.nv` script dispatch, embedded `nova.elf`, and the nova build step itself (`build/nova` not produced) |
+| `ENABLE_FAT12` | `mkfs-fat12` command, mounting FAT12 volumes (`read_bpb` returns `null`) |
+| `ENABLE_FAT16` | `mkfs-fat16` command, mounting FAT16 volumes (`read_bpb` returns `null`) |
+| `ENABLE_FAT32` | `mkfs-fat32` command, mounting FAT32 volumes (`read_bpb` returns `null`) |
+| `ENABLE_LFN` | Long filename (LFN, attr `0x0F`) support: lookup skips LFN entries, creating a long name fails (8.3 only) |
 
 Measured on `build/kernel32.elf` vs the default build (364920 bytes):
 `QUANTUM=n` 356728, `MOUSE=n` 360824, `NOVA=n` 315768.
