@@ -20,8 +20,8 @@ const root_opt_keys = [_][]const u8{
 const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8 }{
     .{ .name = "Debug output", .keys = &.{
         "ENABLE_SERIAL_DEBUG",   "ENABLE_EARLY_LFB_DEBUG", "ENABLE_FAT_DEBUG",
-        "ENABLE_KERNEL_LOGGING", "ENABLE_BOOT_TRACE",      "MOUSE_DEBUG",
-        "NOVA_DEBUG",
+        "ENABLE_KERNEL_LOGGING", "ENABLE_BOOT_TRACE",      "ENABLE_SYSCALL_TRACE",
+        "MOUSE_DEBUG",           "NOVA_DEBUG",
     } },
     .{ .name = "Audio", .keys = &.{ "ENABLE_BOOT_BEEP", "ENABLE_ERROR_BEEP" } },
     .{ .name = "Shell / System", .keys = &.{

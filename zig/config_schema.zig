@@ -76,6 +76,18 @@ pub const schema = [_]kconfig.Field{
         .desc = "Enables the in-memory circular log ring buffer and formatted log levels (INFO, WARN, ERROR, DEBUG) for runtime inspection.",
     },
     .{
+        .name = "ENABLE_BOOT_TRACE",
+        .default = .{ .bool = false },
+        .help = "Stage-by-stage boot trace (kmain to shell)",
+        .desc = "Prints a timestamped marker for every boot stage from kmain entry through memory, drivers, disk, scheduler, SMP and the final Ring 3 shell handoff. Independent of ENABLE_KERNEL_LOGGING; enable when diagnosing early boot hangs.",
+    },
+    .{
+        .name = "ENABLE_SYSCALL_TRACE",
+        .default = .{ .bool = false },
+        .help = "Log every user syscall (number, args, result)",
+        .desc = "Prints one line per SYSENTER trap with the syscall number, argument registers (ebx/ecx/edx/esi) and the return value. Very verbose and slows the shell noticeably; enable only when tracing user/kernel interaction.",
+    },
+    .{
         .name = "ENABLE_SPEAKER",
         .default = .{ .bool = true },
         .help = "PC speaker audio hardware support",

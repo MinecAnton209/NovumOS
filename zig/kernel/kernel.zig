@@ -14,6 +14,7 @@ const smp = @import("../arch/mod.zig").smp;
 const libc_stubs = @import("libc_stubs.zig");
 const logger = @import("logger.zig");
 const user = @import("../arch/mod.zig").user;
+const sysenter = @import("../arch/mod.zig").sysenter;
 const idt_watchdog = @import("../arch/mod.zig").idt_watchdog;
 const ata = @import("../drivers/ata.zig");
 const fat = @import("../drivers/fat.zig");
@@ -66,6 +67,13 @@ const scheduler = @import("scheduler.zig");
 
 /// Main Kernel Loop - Exported for re-entry from User Mode
 pub export fn kernel_loop() noreturn {
+    const Announce = struct {
+        var done = false;
+    };
+    if (!Announce.done) {
+        Announce.done = true;
+        logger.trace("boot: shell ready");
+    }
     while (true) {
         read_command();
         execute_command();
@@ -75,13 +83,18 @@ pub export fn kernel_loop() noreturn {
 
 fn init_memory() void {
     memory.pmm.init();
+    logger.trace("boot: PMM ready");
     memory.heap.init();
+    logger.trace("boot: kernel heap ready");
     memory.init_paging();
+    logger.trace("boot: demand paging ready");
 }
 
 fn init_display() void {
     timer.init();
+    logger.trace("boot: PIT timer ready");
     lfb.init();
+    logger.trace("boot: framebuffer ready");
     vga.clear_screen();
     vga.set_color(11, 0);
     common.printZ("\nInitializing NovumOS Kernel...\n\n");
@@ -113,6 +126,7 @@ fn init_disk_check() void {
     // Select whichever has a valid BPB; prefer Slave to match legacy behavior.
     var master_probed = false;
     var slave_probed = false;
+    logger.trace("boot: probing ATA disks");
     while (boot_elapsed < 2000) {
         const now = timer.get_ticks();
         if (now - boot_last >= 10) {
@@ -123,15 +137,19 @@ fn init_disk_check() void {
 
         if (!slave_probed and ata.identify(.Slave) > 0) {
             slave_probed = true;
+            logger.trace("boot: slave ATA disk found");
             if (fat.read_bpb(.Slave) != null) {
                 common.selected_disk = 1;
+                logger.trace("boot: slave filesystem selected");
                 break;
             }
         }
         if (!master_probed and ata.identify(.Master) > 0) {
             master_probed = true;
+            logger.trace("boot: master ATA disk found");
             if (fat.read_bpb(.Master) != null) {
                 common.selected_disk = 0;
+                logger.trace("boot: master filesystem selected");
                 break;
             }
         }
@@ -139,7 +157,11 @@ fn init_disk_check() void {
         timer.sleep(10);
         boot_elapsed += 10;
     }
+    if (common.selected_disk < 0) {
+        logger.trace("boot: no boot disk, RAM filesystem only");
+    }
     common.fs_init();
+    logger.trace("boot: fs layer ready");
 
     common.print_char(8);
     common.print_char(' ');
@@ -150,6 +172,7 @@ fn init_disk_check() void {
 
 fn init_scheduler() void {
     scheduler.init();
+    logger.trace("boot: scheduler ready");
     var current_esp: u32 = undefined;
     asm volatile ("mov %%esp, %[esp]"
         : [esp] "=r" (current_esp),
@@ -161,10 +184,17 @@ fn init_peripherals() void {
     if (config.ENABLE_SPEAKER) {
         speaker.init();
         timer.set_tick_callback(&speaker.beep_async_tick);
+        logger.trace("boot: speaker ready");
         if (config.ENABLE_BOOT_BEEP) speaker.beep(1000, 100);
     }
-    if (config.ENABLE_MOUSE) mouse.init();
-    if (config.ENABLE_QUANTUM) quantum.init();
+    if (config.ENABLE_MOUSE) {
+        mouse.init();
+        logger.trace("boot: mouse ready");
+    }
+    if (config.ENABLE_QUANTUM) {
+        quantum.init();
+        logger.trace("boot: quantum ready");
+    }
 }
 
 /// Kernel entry point.
@@ -172,29 +202,45 @@ export fn kmain() void {
     // 1. Memory (paging, heap, PMM)
     init_memory();
     init_display();
+    logger.trace("boot: display ready");
+
+    // Fast syscalls (SYSENTER MSRs) before any Ring 3 entry
+    sysenter.init_bsp();
+    logger.trace("boot: sysenter MSRs programmed");
 
     // 2. Drivers
     common.printZ("Checking PMM: ");
     vga.set_color(10, 0);
     common.printZ("OK\n");
-    _ = acpi.init();
+    if (acpi.init()) {
+        logger.trace("boot: ACPI ready");
+    } else {
+        logger.trace("boot: ACPI unavailable, using defaults");
+    }
     init_drivers_spinner();
 
     // 3. File System + disk check
     init_disk_check();
+    logger.trace("boot: disks probed");
 
     // 4. Display dimensions + welcome
     vga.init_dimensions();
     vga.clear_screen();
     vga.vga_flush();
     messages.print_welcome();
+    logger.trace("boot: console ready");
 
     // 5. Scheduler + multicore
     init_scheduler();
+    logger.trace("boot: scheduler bootstrapped");
     smp.init();
+    logger.trace("boot: SMP online");
     idt_watchdog.save_snapshot();
+    logger.trace("boot: IDT snapshot saved");
 
     // 6. Peripherals + user mode
     init_peripherals();
+    logger.trace("boot: peripherals ready");
+    logger.trace("boot: entering Ring 3 shell");
     user.jump_to_user_mode_with_entry(@intFromPtr(&kernel_loop), true);
 }

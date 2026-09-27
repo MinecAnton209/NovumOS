@@ -47,15 +47,30 @@ fn in_ring3() bool {
 }
 
 /// Issue a syscall from Ring 3 and return raw eax. Call only after in_ring3().
-/// The int 0x80 stub pushad/popad's, so unused arg registers are harmless.
+/// Args travel in EBX/ESI/EDI/EBP; ECX/EDX carry the SYSENTER frame.
 fn syscall_proxy(comptime num: u32, arg0: u32, arg1: u32, arg2: u32, arg3: u32) u32 {
-    return asm volatile ("int $0x80"
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    var si: u32 = undefined;
+    return asm volatile (
+        \\pushl %esi
+        \\pushl %edi
+        \\movl %ebp, %esi
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
         : [ret] "={eax}" (-> u32),
+          [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
+          [si] "={esi}" (si),
         : [sys] "{eax}" (@as(u32, num)),
           [b] "{ebx}" (arg0),
-          [c] "{ecx}" (arg1),
-          [d] "{edx}" (arg2),
-          [s] "{esi}" (arg3),
+          [c] "{esi}" (arg1),
+          [d] "{edi}" (arg2),
+          [s] "{ebp}" (arg3),
     );
 }
 
@@ -216,16 +231,39 @@ fn io_port(comptime width: u6, comptime is_out: bool, port: u16, value: ?u32) ?u
     );
     if ((cs & 3) == 3) {
         if (is_out) {
-            asm volatile ("int $0x80"
-                :
+            var cx: u32 = undefined;
+            var dx: u32 = undefined;
+            asm volatile (
+                \\pushl %esi
+                \\pushl $0
+                \\pushfl
+                \\movl %esp, %ecx
+                \\call 1f
+                \\1:
+                \\popl %edx
+                \\sysenter
+                : [cx] "={ecx}" (cx),
+                  [dx] "={edx}" (dx),
                 : [sys] "{eax}" (@as(u32, sys_out)),
                   [p] "{ebx}" (@as(u32, port)),
-                  [v] "{ecx}" (@as(u32, value orelse 0)),
+                  [v] "{esi}" (@as(u32, value orelse 0)),
             );
             return null;
         }
-        return asm volatile ("int $0x80"
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        return asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
             : [ret] "={eax}" (-> ret_ty),
+              [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, sys_in)),
               [p] "{ebx}" (@as(u32, port)),
         );
@@ -311,8 +349,19 @@ pub fn reboot() noreturn {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 14)),
         );
         while (true) {}
@@ -331,8 +380,19 @@ pub fn shutdown() noreturn {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 13)),
         );
         while (true) {}
@@ -349,8 +409,19 @@ pub fn sleep(ms: usize) void {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 10)),
               [val] "{ebx}" (@as(u32, @intCast(ms))),
         );
@@ -365,9 +436,20 @@ pub fn idt_check() bool {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        var result: u32 = 0;
-        asm volatile ("int $0x80"
-            : [ret] "={eax}" (result),
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        const result: u32 = asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [ret] "={eax}" (-> u32),
+              [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 33)),
         );
         return result == 1;
@@ -384,8 +466,19 @@ pub fn idt_move() void {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        _ = asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        _ = asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 34)),
         );
         return;

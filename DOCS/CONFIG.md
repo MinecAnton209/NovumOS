@@ -62,7 +62,11 @@ Measured on `build/kernel32.elf` vs the default build (364920 bytes):
 
 **Debug output** — `ENABLE_SERIAL_DEBUG` / `ENABLE_EARLY_LFB_DEBUG` go
 to nasm as `-D` defines; `ENABLE_FAT_DEBUG`, `ENABLE_KERNEL_LOGGING`,
-`MOUSE_DEBUG`, `NOVA_DEBUG` are Zig-side traces.
+`MOUSE_DEBUG`, `NOVA_DEBUG` are Zig-side traces. `ENABLE_BOOT_TRACE`
+(default `n`) prints a `[ BOOT ]` marker per boot stage from kmain to
+the Ring 3 shell handoff, independent of `ENABLE_KERNEL_LOGGING`.
+`ENABLE_SYSCALL_TRACE` (default `n`) prints one `[ SYSCALL ]` line per
+SYSENTER trap with number, args and return value — very verbose.
 
 **Shell** — `ENABLE_DEBUG_COMMANDS`, `ENABLE_DEBUG_CRASH_COMMANDS`,
 `HISTORY_SIZE` (default 50; `zig build -Dhistory_size=N` overrides for

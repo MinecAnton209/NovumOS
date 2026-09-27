@@ -48,6 +48,20 @@ pub fn info(msg: []const u8) void {
     internal_log(.INFO, "[ Kernel ] ", msg);
 }
 
+/// Boot-stage trace, gated independently of ENABLE_KERNEL_LOGGING.
+/// Only called from init paths (never from ISRs), but keeps the same
+/// no-wait printing behavior as the rest of the logger.
+pub fn trace(msg: []const u8) void {
+    if (!config.ENABLE_BOOT_TRACE) return;
+    const original_color = vga.current_color;
+    vga.set_color(11, 0); // Light Cyan
+    common.printZ("[ BOOT ] ");
+    vga.set_color(15, 0);
+    common.printZ(msg);
+    common.printZ("\n");
+    vga.set_color(@intCast((original_color >> 8) & 0x0F), @intCast((original_color >> 12) & 0x0F));
+}
+
 pub fn success(msg: []const u8) void {
     internal_log(.SUCCESS, "[   OK   ] ", msg);
 }

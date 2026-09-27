@@ -180,8 +180,8 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     break :blk table;
 };
 
-/// Dispatch a syscall to its handler. Called from user.zig's
-/// handle_syscall_zig trampoline.
+/// Dispatch a syscall to its handler. Called from sysenter.zig's
+/// handle_sysenter_zig with a Registers frame built from the trap.
 pub fn dispatch(regs: *user.Registers) void {
     if (regs.eax >= HANDLERS.len) {
         var buf: [32]u8 = undefined;

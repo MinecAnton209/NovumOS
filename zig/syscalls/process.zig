@@ -73,7 +73,8 @@ pub fn exit(_: *user.Registers) void {
 }
 
 /// Syscall 12: JumpToUser(EBX = entry) — raw jump to Ring 3
-/// Restricted: entry must be in user-space, no kernel-pointer jumps.
+/// Reuses the user stack instead of resetting ESP, so the caller's
+/// SYSENTER frame stays intact and sysenter_entry can resume it.
 pub fn jumpToUser(regs: *user.Registers) void {
     const entry = regs.ebx;
     const kernel_end = @intFromPtr(&memory.ebss_sym);
@@ -82,11 +83,28 @@ pub fn jumpToUser(regs: *user.Registers) void {
     if (entry < kernel_end or entry >= max_user_addr) {
         logger.security("JumpToUser: Invalid entry point (not in user-space)");
         regs.eax = 0;
-    } else {
-        const user_esp = 0x3FF000 + 4096 - 16;
-        const eflags: u32 = if (user.get_is_privileged()) 0x3202 else 0x0202;
-        jump_to_ring3_entry(entry, user_esp, eflags);
+        return;
     }
+    const eflags: u32 = if (user.get_is_privileged()) 0x3202 else 0x0202;
+    asm volatile (
+        \\cli
+        \\pushl $0xAB
+        \\pushl %[esp]
+        \\pushl %[flags]
+        \\pushl $0xA3
+        \\pushl %[entry]
+        \\movw $0xAB, %%ax
+        \\movw %%ax, %%ds
+        \\movw %%ax, %%es
+        \\movw %%ax, %%fs
+        \\movw %%ax, %%gs
+        \\iret
+        :
+        : [entry] "r" (entry),
+          [esp] "r" (regs.esp_dummy),
+          [flags] "r" (eflags),
+        : .{ .memory = true, .eax = true });
+    unreachable;
 }
 
 /// Syscall 40: Execve(EBX = filename_ptr) — execute ELF from simplefs

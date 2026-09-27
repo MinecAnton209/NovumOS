@@ -9,7 +9,6 @@ const logger = @import("../../kernel/logger.zig");
 const ata = @import("../../drivers/ata.zig");
 const rtc = @import("../../drivers/time/time.zig");
 const config = @import("../../config.zig");
-const syscalls = @import("../../syscalls/mod.zig");
 
 // External jump target to return to kernel shell
 extern fn kernel_loop() noreturn;
@@ -121,10 +120,8 @@ pub fn checkPrivilege(regs: *Registers, action: []const u8) bool {
     return true;
 }
 
-// System call handler exported for linker
-export fn handle_syscall_zig(regs: *Registers) void {
-    syscalls.dispatch(regs);
-}
+// System call dispatch is entered via sysenter_entry (arch/x86/idt.asm),
+// which calls handle_sysenter_zig in sysenter.zig.
 
 /// Thread-safe and ISR-safe malloc for User and Kernel mode.
 /// If in Ring 3, it performs a syscall to transition to Ring 0.
@@ -135,12 +132,23 @@ pub fn user_malloc(size: usize) ?[*]u8 {
     );
     if ((cs & 3) == 0) return memory.heap.alloc(size); // Already in Ring 0
 
-    var res: usize = 0;
-    asm volatile ("int $0x80"
-        : [ret] "={eax}" (res),
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    const res: u32 = asm volatile (
+        \\pushl $0
+        \\pushl $0
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
+        : [ret] "={eax}" (-> u32),
+          [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
         : [sys] "{eax}" (@as(u32, 30)),
           [arg1] "{ebx}" (size),
-        : .{ .memory = true });
+    );
     if (res == 0) return null;
     return @ptrFromInt(res);
 }
@@ -157,11 +165,22 @@ pub fn user_free(ptr: ?[*]u8) void {
         return;
     }
 
-    asm volatile ("int $0x80"
-        :
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    asm volatile (
+        \\pushl $0
+        \\pushl $0
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
+        : [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
         : [sys] "{eax}" (@as(u32, 31)),
           [arg1] "{ebx}" (@intFromPtr(p)),
-        : .{ .memory = true });
+    );
 }
 
 // Link to the assembly implementation
@@ -172,6 +191,33 @@ pub fn jump_to_user_mode() noreturn {
 }
 
 pub fn jump_to_user_mode_with_entry(entry: usize, privileged: bool) noreturn {
+    // CPL check first: shell already runs in Ring 3, and everything below
+    // (wrmsr, cli, invlpg) faults with #GP if executed at CPL=3.
+    var cs_reg: u16 = 0;
+    asm volatile ("mov %%cs, %[cs]"
+        : [cs] "=r" (cs_reg),
+    );
+    if ((cs_reg & 3) == 3) {
+        // Use syscall 12 to jump to a new entry point
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
+            : [sys] "{eax}" (@as(u32, 12)),
+              [ent] "{ebx}" (entry),
+        );
+        unreachable;
+    }
+
     set_is_user_mode(true);
     set_is_privileged(privileged);
 
@@ -180,27 +226,16 @@ pub fn jump_to_user_mode_with_entry(entry: usize, privileged: bool) noreturn {
     const tss = &exceptions.cores_tss[core_idx];
     tss.ss0 = 0x10;
 
-    // BSP uses 0x500000, APs use their respective allocated stacks
+    // BSP uses 0x500000, APs use their respective allocated stacks.
+    // SYSENTER_ESP tracks esp0 so both entries land on the same stack.
+    const sysenter_mod = @import("sysenter.zig");
     if (core_idx == 0) {
         tss.esp0 = 0x500000;
+        sysenter_mod.set_kernel_esp(0x500000);
     } else {
         const smp_mod = @import("smp.zig");
         tss.esp0 = @intFromPtr(&smp_mod.ap_stacks[core_idx - 1]) + 8192;
-    }
-
-    // Check if we are already in Ring 3
-    var cs_reg: u16 = 0;
-    asm volatile ("mov %%cs, %[cs]"
-        : [cs] "=r" (cs_reg),
-    );
-    if ((cs_reg & 3) == 3) {
-        // Use syscall 12 to jump to a new entry point
-        asm volatile ("int $0x80"
-            :
-            : [sys] "{eax}" (@as(u32, 12)),
-              [ent] "{ebx}" (entry),
-        );
-        unreachable;
+        sysenter_mod.set_kernel_esp(tss.esp0);
     }
 
     // Dynamic User Stack Allocation

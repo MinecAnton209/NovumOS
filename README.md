@@ -24,8 +24,8 @@ syscalls, an integrated scripting language (Nova) and a user-mode SDK.
   at boot), long file names, hidden files, in-OS `mkfs`, recursive
   `cp`/`rm`, `path_policy` sandbox for user programs.
 - **Kernel** — demand paging, IDT with a watchdog, preemptive
-  round-robin scheduler, SMP with work stealing, Ring 3 via `int 0x80`
-  with a validated syscall table, ACPI power-off, PIT timer, RTC,
+   round-robin scheduler, SMP with work stealing, Ring 3 via `SYSENTER`
+   with a validated syscall table, ACPI power-off, PIT timer, RTC,
   PS/2 keyboard and mouse.
 - **Nova** — two runtimes: a frozen legacy interpreter in Ring 0 and a
   modern AST-based interpreter in Ring 3 under `zig/nova_user/`.
@@ -73,7 +73,7 @@ flowchart TD
 | `zig/kernel/` | `kmain`, memory, scheduler, ELF loader |
 | `zig/shell/` | shell and command table |
 | `zig/drivers/` | ATA, FAT, VGA/LFB, timer, speaker, RTC, PCI, ACPI |
-| `zig/syscalls/` | `int 0x80` dispatch |
+| `zig/syscalls/` | `SYSENTER` dispatch |
 | `zig/nova_user/`, `zig/nova_legacy/` | nova runtimes (Ring 3 / Ring 0) |
 | `sdk/` | user-mode SDK and examples |
 

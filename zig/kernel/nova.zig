@@ -17,8 +17,19 @@ export fn nova_ring3_entry() noreturn {
     }
 
     // After interpreter exits, we must syscall exit (Syscall 0: Exit)
-    asm volatile ("int $0x80"
-        :
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    asm volatile (
+        \\pushl $0
+        \\pushl $0
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
+        : [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
         : [sys] "{eax}" (@as(u32, 0)),
     );
     while (true) {}
@@ -46,8 +57,19 @@ pub export fn nova_start(arg_ptr: [*]const u8, arg_len: usize) void {
         } else {
             interpreter.start(null);
         }
-        asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 0)),
         );
     } else {

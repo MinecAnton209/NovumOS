@@ -132,12 +132,23 @@ pub fn beep_async(freq: u32, dur_ms: u32) void {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        asm volatile (
+            \\pushl %esi
+            \\pushl %edi
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 42)),
               [op] "{ebx}" (@as(u32, 0)),
-              [f] "{ecx}" (freq),
-              [d] "{edx}" (dur_ms),
+              [f] "{esi}" (freq),
+              [d] "{edi}" (dur_ms),
         );
         return;
     }
@@ -160,13 +171,27 @@ pub fn beep_pattern_async(freq: u32, dur_ms: u32, gap_ms: u32) void {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        var si: u32 = undefined;
+        asm volatile (
+            \\pushl %esi
+            \\pushl %edi
+            \\movl %ebp, %esi
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
+              [si] "={esi}" (si),
             : [sys] "{eax}" (@as(u32, 42)),
               [op] "{ebx}" (@as(u32, 2)),
-              [f] "{ecx}" (freq),
-              [d] "{edx}" (dur_ms),
-              [g] "{esi}" (gap_ms),
+              [f] "{esi}" (freq),
+              [d] "{edi}" (dur_ms),
+              [g] "{ebp}" (gap_ms),
         );
         return;
     }
@@ -189,8 +214,19 @@ pub fn beep_async_check() void {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 42)),
               [op] "{ebx}" (@as(u32, 1)),
         );

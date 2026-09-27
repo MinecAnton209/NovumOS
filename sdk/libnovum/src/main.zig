@@ -1,6 +1,18 @@
 inline fn syscall0(num: u32) u32 {
-    return asm volatile ("int $0x80"
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    return asm volatile (
+        \\pushl $0
+        \\pushl $0
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
         : [ret] "={eax}" (-> u32),
+          [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
         : [num] "{eax}" (num),
     );
 }
@@ -9,40 +21,91 @@ inline fn syscall0(num: u32) u32 {
 // Implements syscall wrappers for C, C#, and Zig
 
 inline fn syscall1(num: u32, arg1: u32) u32 {
-    return asm volatile ("int $0x80"
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    return asm volatile (
+        \\pushl $0
+        \\pushl $0
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
         : [ret] "={eax}" (-> u32),
+          [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
         : [num] "{eax}" (num),
           [arg1] "{ebx}" (arg1),
     );
 }
 
 inline fn syscall2(num: u32, arg1: u32, arg2: u32) u32 {
-    return asm volatile ("int $0x80"
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    return asm volatile (
+        \\pushl %esi
+        \\pushl $0
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
         : [ret] "={eax}" (-> u32),
+          [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
         : [num] "{eax}" (num),
           [arg1] "{ebx}" (arg1),
-          [arg2] "{ecx}" (arg2),
+          [arg2] "{esi}" (arg2),
     );
 }
 
 inline fn syscall3(num: u32, arg1: u32, arg2: u32, arg3: u32) u32 {
-    return asm volatile ("int $0x80"
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    return asm volatile (
+        \\pushl %esi
+        \\pushl %edi
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
         : [ret] "={eax}" (-> u32),
+          [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
         : [num] "{eax}" (num),
           [arg1] "{ebx}" (arg1),
-          [arg2] "{ecx}" (arg2),
-          [arg3] "{edx}" (arg3),
+          [arg2] "{esi}" (arg2),
+          [arg3] "{edi}" (arg3),
     );
 }
 
 inline fn syscall4(num: u32, arg1: u32, arg2: u32, arg3: u32, arg4: u32) u32 {
-    return asm volatile ("int $0x80"
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    var si: u32 = undefined;
+    return asm volatile (
+        \\pushl %esi
+        \\pushl %edi
+        \\movl %ebp, %esi
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
         : [ret] "={eax}" (-> u32),
+          [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
+          [si] "={esi}" (si),
         : [num] "{eax}" (num),
           [arg1] "{ebx}" (arg1),
-          [arg2] "{ecx}" (arg2),
-          [arg3] "{edx}" (arg3),
-          [arg4] "{esi}" (arg4),
+          [arg2] "{esi}" (arg2),
+          [arg3] "{edi}" (arg3),
+          [arg4] "{ebp}" (arg4),
     );
 }
 

@@ -181,7 +181,7 @@ qemu-system-i386 -cdrom build/NovumOS.iso -serial stdio -s -S
 | `zig/kernel/` | `kmain`, memory, scheduler, logger, ELF loader, fs glue |
 | `zig/shell/` | shell and command table |
 | `zig/drivers/` | ATA, FAT, VGA/LFB, timer, speaker, RTC, PCI, ACPI |
-| `zig/syscalls/` | `int 0x80` dispatch and handlers |
+| `zig/syscalls/` | `SYSENTER` dispatch and handlers |
 | `zig/nova_user/` | modern nova (Ring 3, AST) |
 | `zig/nova_legacy/` | frozen legacy nova (Ring 0) |
 | `.config` / `defconfig` | local overrides / committed defaults (repo root) |

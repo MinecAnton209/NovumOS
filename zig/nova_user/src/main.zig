@@ -4,18 +4,42 @@ const interpreter = @import("nova_legacy/interpreter.zig");
 // No kernel imports — everything via syscall inline asm.
 
 fn syscall0(n: u32) u32 {
-    return asm volatile ("int $0x80"
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    return asm volatile (
+        \\pushl $0
+        \\pushl $0
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
         : [ret] "={eax}" (-> u32),
+          [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
         : [num] "{eax}" (n),
     );
 }
 
 fn syscall2(n: u32, a1: u32, a2: u32) u32 {
-    return asm volatile ("int $0x80"
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    return asm volatile (
+        \\pushl %esi
+        \\pushl $0
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
         : [ret] "={eax}" (-> u32),
+          [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
         : [num] "{eax}" (n),
           [a1] "{ebx}" (a1),
-          [a2] "{ecx}" (a2),
+          [a2] "{esi}" (a2),
     );
 }
 

@@ -475,8 +475,8 @@ pub fn cmd_idt_modify(args: []const u8) void {
         }
     }
 
-    if (vector == 0x20 or vector == 0x21 or vector == 0x80 or vector < 32) {
-        common.printZ("Error: Cannot modify critical vectors (0-31, 0x20, 0x21, 0x80)\n");
+    if (vector == 0x20 or vector == 0x21 or vector < 32) {
+        common.printZ("Error: Cannot modify critical vectors (0-31, 0x20, 0x21)\n");
         return;
     }
 

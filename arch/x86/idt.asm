@@ -9,6 +9,7 @@ global enable_interrupts
 global disable_interrupts
 global test_divide_by_zero
 global double_fault_handler_task
+global sysenter_entry
 
 ; External Zig ISR handlers
 extern isr_keyboard
@@ -18,7 +19,7 @@ extern isr_mouse
 extern isr_timer
 extern handle_exception
 extern handle_double_fault
-extern handle_syscall_zig
+extern handle_sysenter_zig
 extern idt_watchdog_save_snapshot
 
 ; IDT (Interrupt Descriptor Table) Management
@@ -86,12 +87,8 @@ idt_init:
     call idt_set_gate
 %endif
 
-    ; 7. Set Syscall Gate (0x80) with DPL 3
-    mov eax, syscall_handler
-    mov ebx, 0x80
-    call idt_set_syscall_gate
-    
-    ; 7. Load IDT into CPU
+    ; 7. Load IDT into CPU (no syscall gate: Ring 3 enters via SYSENTER,
+    ;    see sysenter_entry below and zig/arch/x86/sysenter.zig)
     lidt [idt_descriptor]
 
     ; Flush keyboard buffer
@@ -146,25 +143,6 @@ idt_set_task_gate:
     mov byte [edi + 5], 0x85 ; Task Gate (Present, DPL 0, Type 5)
     mov word [edi + 6], 0   ; Offset ignored
 
-    pop edi
-    ret
-
-; Helper: Set a Syscall Gate (DPL 3)
-; EAX: offset of handler, EBX: gate index
-idt_set_syscall_gate:
-    push edi
-    
-    mov edi, idt_start
-    shl ebx, 3          ; index * 8
-    add edi, ebx
-    
-    mov [edi], ax       ; Offset low 16 bits
-    mov word [edi + 2], 0x08 ; Selector (Kernel Code)
-    mov byte [edi + 4], 0    ; Reserved
-    mov byte [edi + 5], 0xEE ; IDT attributes (Present, DPL 3, 32bit Interrupt Gate)
-    shr eax, 16
-    mov [edi + 6], ax   ; Offset high 16 bits
-    
     pop edi
     ret
 
@@ -389,32 +367,68 @@ isr_timer_wrapper:
     pop gs
     iretd
 
-; Syscall Handler
-syscall_handler:
-    push dword 0            ; Dummy error code
-    push dword 0x80         ; Vector 0x80
-    push gs                 ; Save segment registers
-    push fs
-    push es
-    push ds
-    pushad
-    
-    ; Set kernel data segments
+; Sysenter Handler (fast Ring 3 entry, replaces the old int 0x80 gate)
+; Entry state from SYSENTER: ECX = user ESP, EDX = user EIP,
+; ESP = kernel stack from IA32_SYSENTER_ESP. Args in EAX/EBX/ESI/EDI/EBP.
+; The stub pushed [EFLAGS][Y][X] on the user stack before trapping.
+sysenter_entry:
+    cli
+    push eax                ; syscall number
+    push edx                ; user EIP
+    push ecx                ; user ESP
+
+    ; Kernel data segments for the Zig handler
     mov ax, 0x10
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
-    
-    cld                     ; Clear direction flag for Zig string ops
-    
-    push esp                ; Pass pointer to Registers struct
-    call handle_syscall_zig
-    add esp, 4
-    
-    popad
-    
-    ; Defensive Zeroing: Clear SSE/XMM registers to prevent leakage 
+
+    cld
+
+    pop ecx                 ; UESP (live restore)
+    pop edx                 ; UEIP
+    pop eax                 ; syscall number
+
+    ; Re-save: the call below clobbers caller-saved regs
+    push eax                ; syscall number
+    push edx                ; user EIP
+    push ecx                ; user ESP
+
+    ; cdecl args: uesp, ueip, num, a1, esi, edi, ebp
+    push ebp
+    push edi
+    push esi
+    push ebx
+    push eax
+    push edx
+    push ecx
+    call handle_sysenter_zig
+    add esp, 28
+    ; Stack: [UESP][UEIP][num]; EAX = handler return value.
+    ; Only ECX/EDX are scratch here: stubs declare them clobbered,
+    ; EBX/ESI/EDI/EBP must reach user code untouched.
+    pop ecx                 ; UESP
+    pop edx                 ; UEIP
+    ; every user stub uses `call 1f / 1: popl %edx / sysenter`,
+    ; so UEIP points at popl (1B) + sysenter (2B), not the resume addr.
+    ; +3 lands past sysenter; switch stubs to an explicit return label if pattern changes.
+    add edx, 3
+    add esp, 4              ; drop syscall number
+    lea ecx, [ecx + 12]     ; balanced user ESP (skip [EFLAGS][Y][X])
+
+    ; Restore user data segments via the stack so EAX (return value)
+    ; survives the selector reload.
+    push 0xAB
+    pop ds
+    push 0xAB
+    pop es
+    push 0xAB
+    pop fs
+    push 0xAB
+    pop gs
+
+    ; Defensive Zeroing: Clear SSE/XMM registers to prevent leakage
     ; of kernel calculation state to User Mode.
     pxor xmm0, xmm0
     pxor xmm1, xmm1
@@ -425,11 +439,13 @@ syscall_handler:
     pxor xmm6, xmm6
     pxor xmm7, xmm7
 
-    pop ds                  ; Restore segment registers
-    pop es
-    pop fs
-    pop gs
-    add esp, 8              ; Clean up vector and dummy error code
+    ; Synthesize the IRET frame (restores exact EFLAGS incl. IOPL).
+    ; ECX is UESP+12 so [ecx-12] is the validated user EFLAGS slot.
+    push 0xAB               ; SS
+    push ecx                ; ESP
+    push dword [ecx - 12]   ; EFLAGS
+    push 0xA3               ; CS
+    push edx                ; EIP
     iretd
 
 ; Test function to trigger division by zero exception

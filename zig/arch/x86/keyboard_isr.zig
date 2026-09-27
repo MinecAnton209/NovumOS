@@ -380,8 +380,20 @@ pub export fn keyboard_wait_char() u8 {
 
     if ((cs_val & 3) != 0) {
         // We are in Ring 3! Use syscall 2 (GetChar)
-        return asm volatile ("int $0x80"
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        return asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
             : [ret] "={eax}" (-> u8),
+              [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 2)),
         );
     }
@@ -428,9 +440,20 @@ pub fn check_ctrl_c() bool {
         : [cs] "=r" (cs_val),
     );
     if ((cs_val & 3) == 3) {
-        var res: u32 = 0;
-        asm volatile ("int $0x80"
-            : [ret] "={eax}" (res),
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        const res: u32 = asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [ret] "={eax}" (-> u32),
+              [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 32)),
         );
         return res != 0;

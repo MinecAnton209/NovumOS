@@ -122,11 +122,22 @@ pub export fn zig_set_cursor(row: u8, col: u8) void {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        asm volatile (
+            \\pushl %esi
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 3)),
-              [ebx] "{ebx}" (@as(u32, row)),
-              [ecx] "{ecx}" (@as(u32, col)),
+              [row] "{ebx}" (@as(u32, row)),
+              [col] "{esi}" (@as(u32, col)),
         );
         return;
     }
@@ -142,8 +153,20 @@ pub export fn zig_get_cursor_row() u8 {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        const res = asm volatile ("int $0x80"
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        const res: u32 = asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
             : [ret] "={eax}" (-> u32),
+              [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 4)),
         );
         return @intCast(res >> 8);
@@ -156,8 +179,20 @@ pub export fn zig_get_cursor_col() u8 {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        const res = asm volatile ("int $0x80"
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        const res: u32 = asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
             : [ret] "={eax}" (-> u32),
+              [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 4)),
         );
         return @intCast(res & 0xFF);
@@ -465,11 +500,22 @@ fn outb(port: u16, val: u8) void {
     );
 
     if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        asm volatile (
+            \\pushl %esi
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 7)),
               [p] "{ebx}" (@as(u32, port)),
-              [v] "{ecx}" (@as(u32, val)),
+              [v] "{esi}" (@as(u32, val)),
         );
         return;
     }

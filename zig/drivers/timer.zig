@@ -79,10 +79,23 @@ pub fn get_ticks() usize {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        return asm volatile ("int $0x80"
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        const res: u32 = asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
             : [ret] "={eax}" (-> u32),
+              [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 11)),
         );
+        return res;
     }
     return ticks;
 }
@@ -94,8 +107,19 @@ pub fn sleep(ms: usize) void {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 10)),
               [val] "{ebx}" (@as(u32, @intCast(ms))),
         );

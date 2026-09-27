@@ -62,11 +62,24 @@ pub fn identify(drive: Drive) u32 {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        return asm volatile ("int $0x80"
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        const res: u32 = asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
             : [ret] "={eax}" (-> u32),
+              [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 20)),
               [d] "{ebx}" (@as(u32, @intFromEnum(drive))),
         );
+        return res;
     }
 
     const eflags = interrupts_save();
@@ -117,12 +130,23 @@ pub fn read_sector(drive: Drive, lba: u32, buffer: [*]u8) void {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        asm volatile (
+            \\pushl %esi
+            \\pushl %edi
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 21)),
               [d] "{ebx}" (@as(u32, @intFromEnum(drive))),
-              [l] "{ecx}" (lba),
-              [b] "{edx}" (@intFromPtr(buffer)),
+              [l] "{esi}" (lba),
+              [b] "{edi}" (@intFromPtr(buffer)),
         );
         return;
     }
@@ -159,12 +183,23 @@ pub fn write_sector(drive: Drive, lba: u32, data: [*]const u8) void {
         : [cs] "=r" (cs),
     );
     if ((cs & 3) == 3) {
-        asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        asm volatile (
+            \\pushl %esi
+            \\pushl %edi
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 22)),
               [d] "{ebx}" (@as(u32, @intFromEnum(drive))),
-              [l] "{ecx}" (lba),
-              [b] "{edx}" (@intFromPtr(data)),
+              [l] "{esi}" (lba),
+              [b] "{edi}" (@intFromPtr(data)),
         );
         return;
     }

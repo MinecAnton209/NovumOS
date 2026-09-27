@@ -1,6 +1,17 @@
 fn print_z(str: [*:0]const u8) void {
-    asm volatile ("int $0x80"
-        :
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    asm volatile (
+        \\pushl $0
+        \\pushl $0
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
+        : [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
         : [sys] "{eax}" (@as(u32, 1)),
           [str] "{ebx}" (@intFromPtr(str)),
     );
@@ -18,8 +29,19 @@ pub fn main() noreturn {
     print_z("Exiting...\n");
 
     // Exit syscall (0)
-    asm volatile ("int $0x80"
-        :
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    asm volatile (
+        \\pushl $0
+        \\pushl $0
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
+        : [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
         : [sys] "{eax}" (@as(u32, 0)),
     );
     while (true) {}

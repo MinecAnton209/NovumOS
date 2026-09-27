@@ -625,11 +625,22 @@ pub fn map_range(vaddr: usize, size: usize, is_user: bool) void {
         // Redirect to syscall if called from user-mode code directly.
         // Must NOT hold paging_lock here — the syscall handler runs in Ring 0
         // and the return would skip the defer block, leaking the lock.
-        asm volatile ("int $0x80"
-            :
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        asm volatile (
+            \\pushl %esi
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 15)),
               [v] "{ebx}" (vaddr),
-              [s] "{ecx}" (size),
+              [s] "{esi}" (size),
         );
         return;
     }

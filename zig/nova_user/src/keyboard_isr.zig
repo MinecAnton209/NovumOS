@@ -1,6 +1,18 @@
 fn syscall0(n: u32) u32 {
-    return asm volatile ("int $0x80"
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    return asm volatile (
+        \\pushl $0
+        \\pushl $0
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
         : [ret] "={eax}" (-> u32),
+          [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
         : [num] "{eax}" (n),
     );
 }
@@ -8,8 +20,20 @@ fn syscall0(n: u32) u32 {
 // compat: keyboard via syscalls 2 (GetChar) and 32 (CheckCtrlC)
 
 fn syscall1(n: u32, a1: u32) u32 {
-    return asm volatile ("int $0x80"
+    var cx: u32 = undefined;
+    var dx: u32 = undefined;
+    return asm volatile (
+        \\pushl $0
+        \\pushl $0
+        \\pushfl
+        \\movl %esp, %ecx
+        \\call 1f
+        \\1:
+        \\popl %edx
+        \\sysenter
         : [ret] "={eax}" (-> u32),
+          [cx] "={ecx}" (cx),
+          [dx] "={edx}" (dx),
         : [num] "{eax}" (n),
           [a1] "{ebx}" (a1),
     );

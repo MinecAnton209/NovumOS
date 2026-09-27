@@ -153,11 +153,23 @@ pub fn init_bga(w: u16, h: u16) bool {
     if ((cs & 3) == 3) {
         // Mapping new framebuffer/backbuffer pages runs invlpg (privileged),
         // so the whole resolution switch must execute in Ring 0.
-        const ok = asm volatile ("int $0x80"
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        const ok: u32 = asm volatile (
+            \\pushl %esi
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
             : [ret] "={eax}" (-> u32),
+              [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 58)),
               [w] "{ebx}" (@as(u32, w)),
-              [h] "{ecx}" (@as(u32, h)),
+              [h] "{esi}" (@as(u32, h)),
         );
         return ok != 0;
     }

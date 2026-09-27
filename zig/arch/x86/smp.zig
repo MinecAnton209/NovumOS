@@ -3,6 +3,7 @@ const memory = @import("../../kernel/memory.zig");
 const common = @import("../../commands/common.zig");
 const logger = @import("../../kernel/logger.zig");
 const config = @import("../../config.zig");
+const std = @import("std");
 
 const TRAMPOLINE_ADDR = 0x8000;
 const FLAG_ADDR = 0x9000;
@@ -275,6 +276,10 @@ pub export fn ap_kernel_entry() noreturn {
     const selector = @as(u16, 0x18) + (@as(u16, @intCast(my_idx)) * 8);
     load_ltr(selector);
 
+    // SYSENTER MSRs are per-CPU: point this core at its own kernel stack
+    const sysenter_mod = @import("sysenter.zig");
+    sysenter_mod.init_ap(@intFromPtr(&ap_stacks[my_idx - 1]) + 8192);
+
     // Enable interrupts on this core
     asm volatile ("sti");
 
@@ -487,6 +492,9 @@ pub fn init() void {
             cores[ap_count + 1].id = id;
             detected_map[id] = @intCast(ap_count + 1);
             ap_count += 1;
+            var ap_msg: [32]u8 = undefined;
+            const ap_line = std.fmt.bufPrint(&ap_msg, "boot: AP {d} online", .{ap_count}) catch "boot: AP online";
+            logger.trace(ap_line);
         }
     }
 

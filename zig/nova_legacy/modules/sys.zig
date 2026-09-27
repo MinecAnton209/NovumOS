@@ -16,9 +16,20 @@ pub fn handleSys(vm: anytype, name: []const u8) ?hash_table.VariableValue {
             vm.reportError("Expected ')' in sys.get_mem");
         }
         // Syscall 44 returns free physical memory in bytes.
-        var result: u32 = 0;
-        asm volatile ("int $0x80"
-            : [ret] "={eax}" (result),
+        var cx: u32 = undefined;
+        var dx: u32 = undefined;
+        const result: u32 = asm volatile (
+            \\pushl $0
+            \\pushl $0
+            \\pushfl
+            \\movl %esp, %ecx
+            \\call 1f
+            \\1:
+            \\popl %edx
+            \\sysenter
+            : [ret] "={eax}" (-> u32),
+              [cx] "={ecx}" (cx),
+              [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 44)),
         );
         return .{ .vtype = .int, .int_val = @intCast(result) };
