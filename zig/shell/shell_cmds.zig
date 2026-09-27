@@ -1,4 +1,3 @@
-const std = @import("std");
 const ls = @import("../commands/ls.zig");
 const cat = @import("../commands/cat.zig");
 const touch = @import("../commands/touch.zig");
@@ -1363,9 +1362,7 @@ pub export fn cmd_matrix() void {
         // Busy-wait ~2 ticks (20ms) instead. No hlt/sti: the shell runs
         // in Ring 3, where both fault as privileged (#GP above).
         const start = timer.get_ticks();
-        while (timer.get_ticks() - start < 2) {
-            std.mem.doNotOptimizeAway(start);
-        }
+        while (timer.get_ticks() - start < 2) {}
         if (keyboard_isr.keyboard_has_data()) {
             const c = keyboard_isr.keyboard_getchar();
             if (c == 27 or c == 3) break;

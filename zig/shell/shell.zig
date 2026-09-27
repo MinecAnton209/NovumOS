@@ -689,6 +689,46 @@ fn autocomplete() void {
     }
 
     const current_prefix = auto_prefix[0..auto_prefix_len];
+
+    // Split trailing path component: "dir/sub" completes "sub" inside "dir/".
+    // Without this, prefix "1/" never matches an entry name.
+    var complete_dir: ?[]const u8 = null;
+    var complete_base = current_prefix;
+    var slash_pos: usize = current_prefix.len;
+    while (slash_pos > 0) : (slash_pos -= 1) {
+        if (current_prefix[slash_pos - 1] == '/' or current_prefix[slash_pos - 1] == '\\') break;
+    }
+    if (slash_pos > 0) {
+        complete_dir = current_prefix[0..slash_pos];
+        complete_base = current_prefix[slash_pos..];
+    }
+
+    var complete_cluster: u32 = common.current_dir_cluster;
+    var complete_ok: bool = true;
+    if (complete_dir) |dd| {
+        if (common.selected_disk >= 0) {
+            const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
+            if (fat.read_bpb(drive)) |bpb| {
+                if (fat.resolve_full_path(drive, bpb, common.current_dir_cluster, common.current_path[0..common.current_path_len], dd)) |res| {
+                    if (!res.is_dir) {
+                        complete_ok = false;
+                    } else {
+                        complete_cluster = res.cluster;
+                    }
+                } else {
+                    complete_ok = false;
+                }
+            } else {
+                complete_ok = false;
+            }
+        }
+    }
+
+    if (!complete_ok) {
+        auto_cycling = false;
+        return;
+    }
+
     var total_matches: usize = 0;
 
     var is_cd_cmd = false;
@@ -710,7 +750,7 @@ fn autocomplete() void {
             var d_buf: [512]u8 = undefined;
             var lfn: fat.LfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
 
-            if (common.current_dir_cluster == 0 and bpb.fat_type != .FAT32) {
+            if (complete_cluster == 0 and bpb.fat_type != .FAT32) {
                 var sector = bpb.first_root_dir_sector;
                 while (sector < bpb.first_data_sector) : (sector += 1) {
                     ata.read_sector(drive, sector, &d_buf);
@@ -743,11 +783,11 @@ fn autocomplete() void {
                         }
                         lfn.active = false;
 
-                        if (common.startsWithIgnoreCase(name_str, current_prefix)) total_matches += 1;
+                        if (common.startsWithIgnoreCase(name_str, complete_base)) total_matches += 1;
                     }
                 }
             } else {
-                var current = if (common.current_dir_cluster == 0) bpb.root_cluster else common.current_dir_cluster;
+                var current = if (complete_cluster == 0) bpb.root_cluster else complete_cluster;
                 const eof_val = switch (bpb.fat_type) {
                     .FAT12 => @as(u32, 0xFF8),
                     .FAT16 => @as(u32, 0xFFF8),
@@ -790,7 +830,7 @@ fn autocomplete() void {
 
                             if (common.std_mem_eql(name_str, ".") or common.std_mem_eql(name_str, "..")) continue;
 
-                            if (common.startsWithIgnoreCase(name_str, current_prefix)) total_matches += 1;
+                            if (common.startsWithIgnoreCase(name_str, complete_base)) total_matches += 1;
                         }
                     }
                     current = fat.get_fat_entry(drive, bpb, current);
@@ -832,7 +872,7 @@ fn autocomplete() void {
             var d_buf: [512]u8 = undefined;
             var lfn: fat.LfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
 
-            if (common.current_dir_cluster == 0 and bpb.fat_type != .FAT32) {
+            if (complete_cluster == 0 and bpb.fat_type != .FAT32) {
                 var sector = bpb.first_root_dir_sector;
                 outer: while (sector < bpb.first_data_sector) : (sector += 1) {
                     ata.read_sector(drive, sector, &d_buf);
@@ -864,7 +904,7 @@ fn autocomplete() void {
                         }
                         lfn.active = false;
 
-                        if (common.startsWithIgnoreCase(name_str, current_prefix)) {
+                        if (common.startsWithIgnoreCase(name_str, complete_base)) {
                             if (current_match_idx == auto_match_index) {
                                 picked_len = @min(picked_name_buf.len, name_str.len);
                                 for (0..picked_len) |p| picked_name_buf[p] = name_str[p];
@@ -876,7 +916,7 @@ fn autocomplete() void {
                     }
                 }
             } else {
-                var current = if (common.current_dir_cluster == 0) bpb.root_cluster else common.current_dir_cluster;
+                var current = if (complete_cluster == 0) bpb.root_cluster else complete_cluster;
                 const eof_val = switch (bpb.fat_type) {
                     .FAT12 => @as(u32, 0xFF8),
                     .FAT16 => @as(u32, 0xFFF8),
@@ -918,7 +958,7 @@ fn autocomplete() void {
 
                             if (common.std_mem_eql(name_str, ".") or common.std_mem_eql(name_str, "..")) continue;
 
-                            if (common.startsWithIgnoreCase(name_str, current_prefix)) {
+                            if (common.startsWithIgnoreCase(name_str, complete_base)) {
                                 if (current_match_idx == auto_match_index) {
                                     picked_len = @min(picked_name_buf.len, name_str.len);
                                     for (0..picked_len) |p| picked_name_buf[p] = name_str[p];
@@ -937,7 +977,12 @@ fn autocomplete() void {
     }
 
     if (picked_len > 0) {
-        cmd_len = auto_start_pos;
+        // Keep the "dir/" part, replace only the trailing component.
+        if (complete_dir) |dd| {
+            cmd_len = auto_start_pos + @as(u16, @intCast(dd.len));
+        } else {
+            cmd_len = auto_start_pos;
+        }
 
         var needs_quotes = false;
         for (picked_name_buf[0..picked_len]) |c| {
