@@ -33,6 +33,7 @@ pub const MOUSE_DEBUG = value(bool, "MOUSE_DEBUG");
 
 pub const ENABLE_QUANTUM = value(bool, "ENABLE_QUANTUM");
 pub const ENABLE_DOOMFIRE = value(bool, "ENABLE_DOOMFIRE");
+pub const ENABLE_MATRIX = value(bool, "ENABLE_MATRIX");
 pub const ENABLE_BUILTIN_SCRIPTS = value(bool, "ENABLE_BUILTIN_SCRIPTS");
 pub const ENABLE_MOUSE = value(bool, "ENABLE_MOUSE");
 pub const ENABLE_SMP = value(bool, "ENABLE_SMP");

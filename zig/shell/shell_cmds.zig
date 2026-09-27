@@ -1,3 +1,4 @@
+const std = @import("std");
 const ls = @import("../commands/ls.zig");
 const cat = @import("../commands/cat.zig");
 const touch = @import("../commands/touch.zig");
@@ -1317,6 +1318,11 @@ pub export fn cmd_matrix() void {
     timer.sleep(1000);
     vga.clear_screen();
 
+    // Drop stale keystrokes so the command doesn't exit instantly.
+    while (keyboard_isr.keyboard_has_data()) {
+        _ = keyboard_isr.keyboard_getchar();
+    }
+
     while (!keyboard_isr.check_ctrl_c()) {
         for (0..@min(cols, 256)) |x| {
             seed = seed *% 1103515245 +% 12345;
@@ -1351,7 +1357,19 @@ pub export fn cmd_matrix() void {
                 row_offsets[x] = @intCast((y + 1) % rows);
             }
         }
-        timer.sleep(15);
+        vga.vga_flush();
+        // No timer.sleep here: it consumes Ctrl+C from the keyboard
+        // buffer, so check_ctrl_c() in the loop condition never sees it.
+        // Busy-wait ~2 ticks (20ms) instead. No hlt/sti: the shell runs
+        // in Ring 3, where both fault as privileged (#GP above).
+        const start = timer.get_ticks();
+        while (timer.get_ticks() - start < 2) {
+            std.mem.doNotOptimizeAway(start);
+        }
+        if (keyboard_isr.keyboard_has_data()) {
+            const c = keyboard_isr.keyboard_getchar();
+            if (c == 27 or c == 3) break;
+        }
     }
     vga.reset_color();
     vga.clear_screen();

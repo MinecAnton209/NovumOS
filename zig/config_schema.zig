@@ -136,6 +136,12 @@ pub const schema = [_]kconfig.Field{
         .desc = "Enables the classic DOOM PSX procedural fire particle simulation effect in the graphical terminal console.",
     },
     .{
+        .name = "ENABLE_MATRIX",
+        .default = .{ .bool = true },
+        .help = "Matrix rain visual demo command",
+        .desc = "Enables the Matrix rain screensaver effect in the graphical terminal console.",
+    },
+    .{
         .name = "ENABLE_BUILTIN_SCRIPTS",
         .default = .{ .bool = true },
         .help = "Embedded Nova scripts (hello, syscheck)",

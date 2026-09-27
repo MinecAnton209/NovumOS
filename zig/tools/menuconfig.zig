@@ -9,7 +9,6 @@ const schema = &config_schema.schema;
 const root_opt_keys = [_][]const u8{
     "USE_GARBAGE_COLLECTOR",
     "ENABLE_QUANTUM",
-    "ENABLE_DOOMFIRE",
     "ENABLE_BUILTIN_SCRIPTS",
     "ENABLE_MOUSE",
     "ENABLE_SPEAKER",
@@ -28,6 +27,7 @@ const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8 }{
         "ENABLE_DEBUG_COMMANDS", "ENABLE_DEBUG_CRASH_COMMANDS", "HISTORY_SIZE",
         "ENABLE_EMBEDDED_ELFS",  "ENABLE_IDT_WATCHDOG",         "ENABLE_RSOD_REBOOT",
     } },
+    .{ .name = "Fun / demos", .keys = &.{ "ENABLE_DOOMFIRE", "ENABLE_MATRIX" } },
     .{ .name = "Security", .keys = &.{"NOVA_PATH_POLICY_ENABLED"} },
     .{ .name = "Memory / Sizes", .keys = &.{"HEAP_INITIAL_SIZE"} },
 };

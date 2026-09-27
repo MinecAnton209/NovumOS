@@ -159,7 +159,6 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "cp", .help = "cp <src> <dest> - Copy file/folder recursively", .handler = direct_handler(&shell_cmds.cmd_cp), .kind = .direct_args },
     .{ .name = "codename", .help = "Show current release codename", .handler = cmd_handler_codename, .kind = .custom },
     .{ .name = "fetch", .help = "Show stylish system info summary", .handler = no_args_handler(&shell_cmds.cmd_fetch), .kind = .no_args },
-    .{ .name = "matrix", .help = "Enter the NovumOS Matrix (fun!)", .handler = cmd_handler_matrix, .kind = .custom },
     .{ .name = "mv", .help = "mv <src> <dest> - Move or rename file/folder", .handler = direct_handler(&shell_cmds.cmd_mv), .kind = .direct_args },
     .{ .name = "ren", .help = "Alias for mv (rename file/folder)", .handler = direct_handler(&shell_cmds.cmd_rename), .kind = .direct_args },
     .{ .name = "format", .help = "Low-level drive formatting tool", .handler = direct_handler(&shell_cmds.cmd_format), .kind = .direct_args },
@@ -192,6 +191,8 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "qtest", .help = "qtest - Bell state and Pauli-X self test", .handler = cmd_handler_qtest, .kind = .custom },
 } else [_]Command{}) ++ (if (config.ENABLE_DOOMFIRE) [_]Command{
     .{ .name = "doomfire", .help = "Quantum-ignited DOOM fire on the framebuffer", .handler = no_args_handler(&doomfire_cmd.cmd_doomfire), .kind = .no_args },
+} else [_]Command{}) ++ (if (config.ENABLE_MATRIX) [_]Command{
+    .{ .name = "matrix", .help = "Enter the NovumOS Matrix (fun!)", .handler = cmd_handler_matrix, .kind = .custom },
 } else [_]Command{}) ++ (if (config.ENABLE_MOUSE) [_]Command{
     .{ .name = "mouse", .help = "Show PS/2 mouse status and statistics", .handler = cmd_handler_mouse, .kind = .custom },
 } else [_]Command{}) ++ (if (config.ENABLE_SPEAKER) [_]Command{
