@@ -18,7 +18,7 @@ pub fn cmd_cp(args: []const u8) void {
     // 1. Initialize FS
     const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
     const bpb = fat.read_bpb(drive) orelse {
-        common.printZ("Error: Could not read filesystem\n");
+        fat.report_bpb_error(drive);
         return;
     };
 
@@ -61,7 +61,7 @@ pub fn cmd_rename(args: []const u8) void {
 
     const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
     const bpb = fat.read_bpb(drive) orelse {
-        common.printZ("Error: Could not read filesystem\n");
+        fat.report_bpb_error(drive);
         return;
     };
 
@@ -132,7 +132,7 @@ pub fn cmd_format(args: []const u8) void {
     common.printZ("... (Sectors range check)\n");
 
     const bpb = fat.read_bpb(drive) orelse {
-        common.printZ("Error: Could not read disk BPB. Is it an uninitialized disk?\n");
+        fat.report_bpb_error(drive);
         // For truly uninitialized disks, we'd need to write a new BPB first.
         // For now, we only format existing FAT disks.
         return;

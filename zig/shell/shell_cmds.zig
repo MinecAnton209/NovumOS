@@ -89,7 +89,7 @@ pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
 
     const drive = current_drive();
     const bpb = fat.read_bpb(drive) orelse {
-        common.printError("Error: Could not read BPB\n");
+        fat.report_bpb_error(drive);
         return;
     };
 
@@ -221,7 +221,7 @@ pub export fn cmd_ls(args_ptr: [*]const u8, args_len: u32) void {
                 }
             }
         } else {
-            common.printError("Error: Disk not formatted\n");
+            fat.report_bpb_error(drive);
         }
     }
 }
@@ -244,6 +244,8 @@ pub export fn cmd_cat(name_ptr: [*]const u8, name_len: u32) void {
             if (!fat.stream_to_console(drive, bpb, common.current_dir_cluster, name)) {
                 common.printError("Error: File not found\n");
             }
+        } else {
+            fat.report_bpb_error(drive);
         }
     }
 }
@@ -273,7 +275,7 @@ pub export fn cmd_touch(name_ptr: [*]const u8, name_len: u32) void {
                     vga.reset_color();
                 }
             } else {
-                common.printError("Error: Disk not formatted\n");
+                fat.report_bpb_error(drive);
                 return;
             }
         }
@@ -286,7 +288,7 @@ pub export fn cmd_touch(name_ptr: [*]const u8, name_len: u32) void {
 fn with_file_handle(filename: []const u8, check_write_attrs: bool, out: *fat.FileHandle) bool {
     const drive = current_drive();
     const bpb = fat.read_bpb(drive) orelse {
-        common.printError("Error: Disk not formatted\n");
+        fat.report_bpb_error(drive);
         return false;
     };
 
@@ -427,7 +429,7 @@ pub export fn cmd_sync() void {
             common.printError("Error: Sync failed\n");
         }
     } else {
-        common.printError("Error: Disk not formatted\n");
+        fat.report_bpb_error(drive);
     }
 }
 
@@ -579,7 +581,7 @@ pub export fn cmd_attrib(args_ptr: [*]const u8, args_len: u32) void {
             common.printError("Error: File not found\n");
         }
     } else {
-        common.printError("Error: Disk not formatted\n");
+        fat.report_bpb_error(drive);
     }
 }
 
@@ -739,6 +741,8 @@ pub export fn cmd_rm(args_ptr: [*]const u8, args_len: u32) void {
                 }
             }
         }
+    } else {
+        fat.report_bpb_error(drive);
     }
 }
 
@@ -884,7 +888,7 @@ pub export fn cmd_mount(disk_num_ptr: [*]const u8, disk_num_len: u32) void {
 
     const drive = if (disk_num == 0) ata.Drive.Master else ata.Drive.Slave;
     if (fat.read_bpb(drive) == null) {
-        common.printError("Error: Disk not formatted\n");
+        fat.report_bpb_error(drive);
         return;
     }
 
@@ -914,6 +918,8 @@ pub export fn cmd_mkdir(name_ptr: [*]const u8, name_len: u32) void {
         if (!fat.create_directory(drive, bpb, common.current_dir_cluster, argv[0])) {
             common.printError("Error: Failed to create directory\n");
         }
+    } else {
+        fat.report_bpb_error(drive);
     }
 }
 
@@ -928,7 +934,7 @@ pub export fn cmd_cd(args_ptr: [*]const u8, args_len: u32) void {
 
     const drive = current_drive();
     const bpb = fat.read_bpb(drive) orelse {
-        common.printError("Error: Disk not formatted\n");
+        fat.report_bpb_error(drive);
         return;
     };
 
@@ -972,6 +978,8 @@ pub export fn cmd_tree() void {
     if (fat.read_bpb(drive)) |bpb| {
         common.printZ(".\n");
         tree_node(drive, bpb, common.current_dir_cluster, 1);
+    } else {
+        fat.report_bpb_error(drive);
     }
 }
 
@@ -1110,6 +1118,8 @@ pub export fn cmd_write(name_ptr: [*]const u8, name_len: u32, data_ptr: [*]const
             if (!success) {
                 common.printZ("Error: Failed to write file to disk\n");
             }
+        } else {
+            fat.report_bpb_error(drive);
         }
     }
 }
@@ -1451,7 +1461,7 @@ pub export fn cmd_hexdump(name_ptr: [*]const u8, name_len: u32) void {
 
     const drive = current_drive();
     const bpb = fat.read_bpb(drive) orelse {
-        common.printError("Error: Disk not formatted\n");
+        fat.report_bpb_error(drive);
         return;
     };
 
@@ -1540,7 +1550,7 @@ pub export fn cmd_more(name_ptr: [*]const u8, name_len: u32) void {
             }
             const drive = current_drive();
             const bpb = fat.read_bpb(drive) orelse {
-                common.printError("Error: Disk not formatted\n");
+                fat.report_bpb_error(drive);
                 return;
             };
             const entry = fat.find_entry(drive, bpb, common.current_dir_cluster, name) orelse {

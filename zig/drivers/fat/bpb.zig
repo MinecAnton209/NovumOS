@@ -137,6 +137,41 @@ pub fn read_bpb(drive: ata.Drive) ?BPB {
     return bpb;
 }
 
+/// Name of the on-disk FAT variant when it is compiled out (e.g. "FAT12"),
+/// or null when the disk is genuinely unformatted/unknown or supported.
+/// Distinguishes "FS disabled in config" from "disk not formatted":
+/// read_bpb returns null for both, so error paths call this before blaming format.
+pub fn disabled_fs_name(drive: ata.Drive) ?[]const u8 {
+    var buffer: [512]u8 = undefined;
+    ata.read_sector(drive, 0, &buffer);
+    if (buffer[510] != 0x55 or buffer[511] != 0xAA) return null;
+    if (common.std_mem_eql(buffer[0x36..0x3E], "FAT12   ")) {
+        if (!config.ENABLE_FAT12) return "FAT12";
+        return null;
+    }
+    if (common.std_mem_eql(buffer[0x36..0x3E], "FAT16   ")) {
+        if (!config.ENABLE_FAT16) return "FAT16";
+        return null;
+    }
+    if (common.std_mem_eql(buffer[0x52..0x5A], "FAT32   ")) {
+        if (!config.ENABLE_FAT32) return "FAT32";
+        return null;
+    }
+    return null;
+}
+
+/// Report why read_bpb failed: compiled-out FS vs genuinely unformatted disk.
+/// Single choke point so no caller can blame formatting for a config gate.
+pub fn report_bpb_error(drive: ata.Drive) void {
+    if (disabled_fs_name(drive)) |fs_name| {
+        common.printError("Error: ");
+        common.printZ(fs_name);
+        common.printZ(" support disabled in build config\n");
+    } else {
+        common.printError("Error: Disk not formatted\n");
+    }
+}
+
 /// Invalidate the BPB cache for a drive (call after mkfs/reformat).
 pub fn invalidate_bpb_cache(drive: ata.Drive) void {
     switch (drive) {
