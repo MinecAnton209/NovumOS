@@ -59,6 +59,7 @@ const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8, chi
         "ENABLE_DEBUG_COMMANDS", "ENABLE_DEBUG_CRASH_COMMANDS", "HISTORY_SIZE",
         "ENABLE_DISK_HISTORY",   "ENABLE_EMBEDDED_ELFS",        "ENABLE_IDT_WATCHDOG",
         "ENABLE_IDT_WATCHDOG_SNAPSHOT", "ENABLE_RSOD_REBOOT",
+        "ENABLE_WELCOME_MESSAGE", "ENABLE_BOOT_SPINNER",
     }, .children = &.{} },
     .{ .name = "Fun / demos", .keys = &.{ "ENABLE_DOOMFIRE", "ENABLE_MATRIX" }, .children = &.{} },
     .{ .name = "Drivers", .keys = &.{ "ENABLE_SERIAL_INPUT", "ENABLE_VGA_TEXT", "ENABLE_ACPI", "ENABLE_PCI", "ENABLE_ATA" }, .children = &.{5} },

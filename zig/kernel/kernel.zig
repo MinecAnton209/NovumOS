@@ -101,15 +101,17 @@ fn init_display() void {
 }
 
 fn init_drivers_spinner() void {
-    vga.set_color(15, 0);
-    common.printZ("Loading drivers:");
-    vga.set_color(10, 0);
-    vga.vga_flush();
     const spinner = [_]u8{ '|', '/', '-', '\\' };
-    var i: usize = 0;
-    while (i < 8) : (i += 1) {
-        common.set_cursor(2, 17);
-        common.print_char(spinner[i % 4]);
+    if (config.ENABLE_BOOT_SPINNER) {
+        vga.set_color(15, 0);
+        common.printZ("Loading drivers:");
+        vga.set_color(10, 0);
+        vga.vga_flush();
+        var i: usize = 0;
+        while (i < 8) : (i += 1) {
+            common.set_cursor(2, 17);
+            common.print_char(spinner[i % 4]);
+        }
     }
 }
 
@@ -231,7 +233,9 @@ export fn kmain() void {
     vga.init_dimensions();
     vga.clear_screen();
     vga.vga_flush();
-    messages.print_welcome();
+    if (config.ENABLE_WELCOME_MESSAGE) {
+        messages.print_welcome();
+    }
     logger.trace("boot: console ready");
 
     // 5. Scheduler + multicore

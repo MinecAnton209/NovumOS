@@ -67,6 +67,8 @@ linked, and its commands disappear from `help`.
 | `ENABLE_CLOCK_IN_PROMPT` | Live HH:MM:SS clock in prompt, serial mirror, cursor visibility on serial port |
 | `ENABLE_STATUS_INDICATORS` | CAPS/NUM/INS lock status indicators in top-right corner |
 | `ENABLE_IDT_WATCHDOG_SNAPSHOT` | Save IDT snapshot at boot for runtime watchdog comparison; disable if watchdog is off |
+| `ENABLE_WELCOME_MESSAGE` | Boot banner and welcome message on startup |
+| `ENABLE_BOOT_SPINNER` | Animated boot progress spinner during driver/disk init |
 
 ## Dependency validation
 
