@@ -314,7 +314,35 @@ pub fn build(b: *std.Build) void {
 
     // --- Host-native test suites ---
 
-    // str.zig tests: pure utility functions, no hardware deps
+    // Stubs for gdt.zig host tests (redirects ../../config.zig and
+    // ../../kernel/logger.zig imports to host-safe no-ops)
+    const wx_config_stub = b.createModule(.{
+        .root_source_file = b.path("zig/tests/stubs/wx_config_stub.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const wx_logger_stub = b.createModule(.{
+        .root_source_file = b.path("zig/tests/stubs/wx_logger_stub.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+
+    // gdt.zig: pure W^X limit-packing logic (host-safe stubs for config/logger)
+    const gdt_test_mod = b.createModule(.{
+        .root_source_file = b.path("zig/arch/x86/gdt.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+        .imports = &.{
+            .{ .name = "../../config.zig", .module = wx_config_stub },
+            .{ .name = "../../kernel/logger.zig", .module = wx_logger_stub },
+        },
+    });
+    const gdt_tests = b.addTest(.{ .root_module = gdt_test_mod });
+    const run_gdt_tests = b.addRunArtifact(gdt_tests);
+    const gdt_test_step = b.step("test-gdt", "Run GDT W^X limit-packing tests");
+    gdt_test_step.dependOn(&run_gdt_tests.step);
+    test_step.dependOn(&run_gdt_tests.step);
+
     const str_test_mod = b.createModule(.{
         .root_source_file = b.path("zig/tests/test_str.zig"),
         .target = b.graph.host,

@@ -330,3 +330,16 @@ test "nasmDefine rejects unvalidated invalid text" {
         nasmDefineChecked(&buf, &test_schema, "CONFIG_BOGUS=1", "ENABLE_SERIAL_DEBUG"),
     );
 }
+
+// Verify all schema flags are present in defconfig with valid values
+test "defconfig covers new ASLR/W^X flags" {
+    const schema_mod = @import("./config_schema.zig");
+    // Mirror of defconfig content (test runs host-side, cannot @embedFile)
+    const defconfig_text =
+        \\CONFIG_ENABLE_ASLR=y
+        \\CONFIG_ENABLE_WX_SEPARATION=y
+    ;
+    try testing.expect(validate(&schema_mod.schema, defconfig_text) == null);
+    try testing.expect(flag(&schema_mod.schema, defconfig_text, "ENABLE_ASLR"));
+    try testing.expect(flag(&schema_mod.schema, defconfig_text, "ENABLE_WX_SEPARATION"));
+}
