@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Host test suite: 7 test targets (`test-str`, `test-hash-table`, `test-common`, `test-lexer`, `test-parser`, `test-path-policy`, `test-cfg-write`) via `zig build test` (~180 tests)
+- Test documentation in `zig/tests/README.md`
+- Testing section in `CONTRIBUTING.md`
+
 ### Changed
 - Disable `NOVA_DEBUG` and `MOUSE_DEBUG` by default — these are debug trace options and should be opt-in
 - Disable `ENABLE_DEBUG_CRASH_COMMANDS` by default to keep crash-test commands out of production builds

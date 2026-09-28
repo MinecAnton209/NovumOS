@@ -209,7 +209,7 @@ pub fn build(b: *std.Build) void {
     config_test_mod.addOptions("build_config", test_options);
     const config_tests = b.addTest(.{ .root_module = config_test_mod });
     const run_config_tests = b.addRunArtifact(config_tests);
-    const test_step = b.step("test", "Run config facade tests");
+    const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_config_tests.step);
 
     // cfg_write merge tests: resolved as named module config_schema.
@@ -295,6 +295,119 @@ pub fn build(b: *std.Build) void {
         // Make kernel compile depend on nova install (for @embedFile)
         kernel.step.dependOn(&install_nova.step);
     }
+
+    // --- Host-native test suites ---
+
+    // str.zig tests: pure utility functions, no hardware deps
+    const str_test_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tests/test_str.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    str_test_mod.addAnonymousImport("str", .{
+        .root_source_file = b.path("zig/kernel/str.zig"),
+    });
+    const str_tests = b.addTest(.{ .root_module = str_test_mod });
+    const run_str_tests = b.addRunArtifact(str_tests);
+    const str_test_step = b.step("test-str", "Run str.zig utility tests");
+    str_test_step.dependOn(&run_str_tests.step);
+
+    // hash_table.zig tests: self-contained port with host allocator
+    const hash_table_test_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tests/test_hash_table.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const hash_table_tests = b.addTest(.{ .root_module = hash_table_test_mod });
+    const run_hash_table_tests = b.addRunArtifact(hash_table_tests);
+    const hash_table_test_step = b.step("test-hash-table", "Run hash_table.zig tests");
+    hash_table_test_step.dependOn(&run_hash_table_tests.step);
+
+    // test_lexer.zig: ported tokenizer with host allocator
+    const lexer_test_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tests/test_lexer.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const lexer_tests = b.addTest(.{ .root_module = lexer_test_mod });
+    const run_lexer_tests = b.addRunArtifact(lexer_tests);
+    const lexer_test_step = b.step("test-lexer", "Run lexer TokenType tests");
+    lexer_test_step.dependOn(&run_lexer_tests.step);
+
+    // test_parser.zig: ported statement parser with host allocator
+    const parser_test_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tests/test_parser.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const parser_tests = b.addTest(.{ .root_module = parser_test_mod });
+    const run_parser_tests = b.addRunArtifact(parser_tests);
+    const parser_test_step = b.step("test-parser", "Run parser statement tests");
+    parser_test_step.dependOn(&run_parser_tests.step);
+
+    // test_common.zig: pure function tests (parse_int, intToString, etc.)
+    const common_test_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tests/test_common.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const common_tests = b.addTest(.{ .root_module = common_test_mod });
+    const run_common_tests = b.addRunArtifact(common_tests);
+    const common_test_step = b.step("test-common", "Run common.zig utility function tests");
+    common_test_step.dependOn(&run_common_tests.step);
+
+    // path_policy.zig tests: canonicalize + blocked path matching
+    // path_policy imports "../config.zig", "logger.zig", "../commands/common.zig"
+    // We create stub modules for config, logger, common and use `imports` in
+    // CreateOptions to redirect path-based @import calls to the stubs.
+    const config_stub_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tests/stubs/config_stub.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const logger_stub_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tests/stubs/logger_stub.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const common_stub_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tests/stubs/common_stub.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const path_policy_under_test = b.createModule(.{
+        .root_source_file = b.path("zig/kernel/path_policy.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+        .imports = &.{
+            .{ .name = "../config.zig", .module = config_stub_mod },
+            .{ .name = "logger.zig", .module = logger_stub_mod },
+            .{ .name = "../commands/common.zig", .module = common_stub_mod },
+        },
+    });
+    const path_policy_test_mod = b.createModule(.{
+        .root_source_file = b.path("zig/kernel/test_path_policy.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+        .imports = &.{
+            .{ .name = "path_policy", .module = path_policy_under_test },
+        },
+    });
+    const path_policy_tests = b.addTest(.{ .root_module = path_policy_test_mod });
+    const run_path_policy_tests = b.addRunArtifact(path_policy_tests);
+    const path_policy_test_step = b.step("test-path-policy", "Run path_policy.zig canonicalization and blocking tests");
+    path_policy_test_step.dependOn(&run_path_policy_tests.step);
+
+    // Extended test step for all host-test suites
+    test_step.dependOn(&run_str_tests.step);
+    test_step.dependOn(&run_hash_table_tests.step);
+    test_step.dependOn(&run_common_tests.step);
+    test_step.dependOn(&run_lexer_tests.step);
+    test_step.dependOn(&run_parser_tests.step);
+    test_step.dependOn(&run_path_policy_tests.step);
+    test_step.dependOn(&run_cfg_write_tests.step);
+
+    // --- Existing test: config facade ---
 
     // Developer Commands
 
