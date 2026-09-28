@@ -26,6 +26,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - `ENABLE_BOOT_SPINNER` flag to toggle boot progress animation
 - `ENABLE_ASLR` flag for Address Space Layout Randomization — randomizes kernel heap base at boot using `BUILD_HASH` as seed (x86-32 without PAE)
 - `ENABLE_WX_SEPARATION` flag enforcing Write-XOR-Execute via code-segment limit tightening (tightens GDT CS limit to exact kernel code size; execute past code boundary → #GP → page fault — software W^X before NX-bit era)
+- `test-gdt` host test target: `codeSegmentLimit` page-rounding, `packCodeEntry` access/granularity/encoding coverage (3 tests)
+- Kconfig test: `defconfig` validates clean and covers `ENABLE_ASLR`/`ENABLE_WX_SEPARATION`
 
 ### Changed
 - Disable `NOVA_DEBUG` and `MOUSE_DEBUG` by default — these are debug trace options and should be opt-in
