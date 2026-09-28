@@ -1,16 +1,59 @@
 const common = @import("../commands/common.zig");
+const config = @import("../config.zig");
 
 // Serial COM1 Driver
 
 pub const PORT = 0x3F8;
+
+/// Initialize COM1 serial port with 115200 baud, 8N1
+pub fn init() void {
+    // 115200 baud = 1 (divisor), 9600 baud = 12
+    const divisor: u16 = 0; // 115200 baud with 1.152MHz clock
+
+    // Disable all interrupts
+    outb(PORT + 1, 0x00);
+
+    // Enable DLAB (Divisor Latch Access)
+    outb(PORT + 3, 0x80);
+
+    // Set divisor (low and high bytes)
+    outb(PORT + 0, @intCast(divisor & 0xFF));
+    outb(PORT + 1, @intCast((divisor >> 8) & 0xFF));
+
+    // Set 8 data bits, no parity, 1 stop bit
+    outb(PORT + 3, 0x03);
+
+    // FIFO: enable and clear
+    outb(PORT + 2, 0xC7);
+
+    // Set RTS/DTR, reset OFF signal
+    outb(PORT + 4, 0x0B);
+
+    // Clear any pending interrupts and received data
+    _ = inb(PORT);
+}
 
 pub export fn serial_print_char(c: u8) void {
     var cs: u16 = 0;
     asm volatile ("mov %%cs, %[cs]"
         : [cs] "=r" (cs),
     );
-    if ((cs & 3) != 0) return; // Completely block serial output in Ring 3
+    if ((cs & 3) != 0) {
+        // Ring 3 — use serial output syscall if available, else skip
+        return serial_print_char_ring3(c);
+    }
 
+    _serial_print_char(c);
+}
+
+fn serial_print_char_ring3(c: u8) void {
+    // Ring 3 serial output not supported via syscalls in current design
+    // Kernel serial output through ENABLE_SERIAL_INPUT still works
+    _ = c;
+}
+
+
+fn _serial_print_char(c: u8) void {
     while (!is_transmit_empty()) {}
     // Map LF to CRLF for serial terminal consistency
     if (c == 10) {

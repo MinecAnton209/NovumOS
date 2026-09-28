@@ -9,6 +9,7 @@ const acpi = @import("../drivers/acpi.zig");
 const memory = @import("memory.zig");
 const lfb = @import("../drivers/lfb.zig");
 const vga = @import("../drivers/vga.zig");
+const serial = @import("../drivers/serial.zig");
 const exceptions = @import("../arch/mod.zig").exceptions;
 const smp = @import("../arch/mod.zig").smp;
 const libc_stubs = @import("libc_stubs.zig");
@@ -97,6 +98,10 @@ fn init_display() void {
     logger.trace("boot: PIT timer ready");
     lfb.init();
     logger.trace("boot: framebuffer ready");
+    if (config.ENABLE_SERIAL_INPUT) {
+        serial.init();
+        logger.trace("boot: COM1 serial initialized at 115200 baud");
+    }
     vga.clear_screen();
     vga.set_color(11, 0);
     common.printZ("\nInitializing NovumOS Kernel...\n\n");

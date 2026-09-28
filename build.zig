@@ -569,7 +569,7 @@ pub fn build(b: *std.Build) void {
         "-drive",
         "format=raw,file=build/os-image.bin",
         "-serial",
-        "stdio",
+        "mon:stdio",
         "-vga",
         "std",
     });
@@ -578,6 +578,21 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run the OS in QEMU (no disk)");
     run_step.dependOn(&run_cmd.step);
+
+    // nographic: Run the OS with serial I/O only (no VGA), useful for serial console
+    const run_nographic_cmd = b.addSystemCommand(&[_][]const u8{
+        "qemu-system-i386",
+        "-drive",
+        "format=raw,file=build/os-image.bin",
+        "-nographic",
+    });
+    run_nographic_cmd.step.dependOn(&install_kernel.step);
+    const run_nographic_step = b.step("run-nographic", "Run the OS in QEMU with serial console only");
+    run_nographic_step.dependOn(&run_nographic_cmd.step);
+
+    // run-serial: alias for run-nographic
+    const run_serial_step = b.step("run-serial", "Run the OS in QEMU with serial console (alias for run-nographic)");
+    run_serial_step.dependOn(&run_nographic_cmd.step);
 
     // Option for disk size (e.g., 1M, 2G). Default 32M.
     const disk_size_opt = b.option([]const u8, "disk_size", "Size of disk image (e.g., 1M, 2G). Default: 32M");
