@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - `ENABLE_ATA` compile-time config flag to toggle ATA PIO disk driver and disk commands
 - Build-time dependency validation for config conflicts (SMP→ACPI, beep→speaker, ELFs/scripts→Nova)
 - `menuconfig` TUI: cascade-disable dependent options when a provider is turned off, show dependency hints in help dialog
+- `ENABLE_CLOCK_IN_PROMPT` flag to toggle live clock, serial mirror, and serial cursor in shell prompt
+- `ENABLE_STATUS_INDICATORS` flag to toggle CAPS/NUM/INS lock status indicators
 
 ## [0.25-beta.3] - 2026-09-26
 

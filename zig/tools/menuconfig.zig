@@ -62,6 +62,7 @@ const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8, chi
     }, .children = &.{} },
     .{ .name = "Fun / demos", .keys = &.{ "ENABLE_DOOMFIRE", "ENABLE_MATRIX" }, .children = &.{} },
     .{ .name = "Drivers", .keys = &.{ "ENABLE_SERIAL_INPUT", "ENABLE_VGA_TEXT", "ENABLE_ACPI", "ENABLE_PCI", "ENABLE_ATA" }, .children = &.{5} },
+    .{ .name = "Shell / Display", .keys = &.{ "ENABLE_CLOCK_IN_PROMPT", "ENABLE_STATUS_INDICATORS" }, .children = &.{} },
     .{ .name = "Filesystems", .keys = &.{
         "ENABLE_FAT12", "ENABLE_FAT16", "ENABLE_FAT32", "ENABLE_LFN",
     }, .children = &.{} },

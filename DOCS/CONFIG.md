@@ -64,6 +64,8 @@ linked, and its commands disappear from `help`.
 | `ENABLE_ACPI` | ACPI table parsing for SMP core discovery (MADT) and power-off (shutdown); disable for headless builds (SMP → single-core, shutdown → halt) |
 | `ENABLE_PCI` | PCI configuration space scanning and the `lspci` shell command |
 | `ENABLE_ATA` | ATA PIO disk driver, disk probing at boot, and disk commands (`lsdsk`, `mount`, `mkfs`, `format`) |
+| `ENABLE_CLOCK_IN_PROMPT` | Live HH:MM:SS clock in prompt, serial mirror, cursor visibility on serial port |
+| `ENABLE_STATUS_INDICATORS` | CAPS/NUM/INS lock status indicators in top-right corner |
 
 ## Dependency validation
 

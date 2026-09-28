@@ -536,11 +536,15 @@ fn load_history_from_disk() void {
 
 fn refresh_line() void {
     render_vga_line();
-    draw_prompt_clock();
-    render_serial_line();
+    if (config.ENABLE_CLOCK_IN_PROMPT) {
+        draw_prompt_clock();
+        render_serial_line();
+        serial.serial_show_cursor();
+    }
     move_screen_cursor();
-    serial.serial_show_cursor();
-    draw_status_indicators();
+    if (config.ENABLE_STATUS_INDICATORS) {
+        draw_status_indicators();
+    }
 }
 
 /// Overwrite the prompt's HH:MM:SS digits in place so the clock keeps

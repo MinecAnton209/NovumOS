@@ -48,6 +48,8 @@ pub const ENABLE_VGA_TEXT = value(bool, "ENABLE_VGA_TEXT");
 pub const ENABLE_ACPI = value(bool, "ENABLE_ACPI");
 pub const ENABLE_PCI = value(bool, "ENABLE_PCI");
 pub const ENABLE_ATA = value(bool, "ENABLE_ATA");
+pub const ENABLE_CLOCK_IN_PROMPT = value(bool, "ENABLE_CLOCK_IN_PROMPT");
+pub const ENABLE_STATUS_INDICATORS = value(bool, "ENABLE_STATUS_INDICATORS");
 
 pub const BUILD_HASH = 0xDEADC0DE ^ 0xCAFEBABE ^ 0x12345678;
 pub const WATCHDOG_INTERVAL_TICKS = 1000 + (BUILD_HASH % 500);

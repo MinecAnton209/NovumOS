@@ -225,4 +225,16 @@ pub const schema = [_]kconfig.Field{
         .help = "ATA PIO disk driver and disk commands",
         .desc = "Enables the ATA PIO disk driver, disk probing at boot, and all disk-related shell commands (lsdsk, mount, mkfs, format). Disable for headless/RAM-only builds without disk support.",
     },
+    .{
+        .name = "ENABLE_CLOCK_IN_PROMPT",
+        .default = .{ .bool = true },
+        .help = "Live clock & serial mirror in shell prompt",
+        .desc = "Enables the live HH:MM:SS clock update in the prompt, serial console mirroring of the command line, and cursor visibility on the serial port. Disable to reduce per-keypress overhead on minimal builds.",
+    },
+    .{
+        .name = "ENABLE_STATUS_INDICATORS",
+        .default = .{ .bool = true },
+        .help = "CAPS/NUM/INS status indicators in top-right",
+        .desc = "Enables CAPS, NUM, and INS lock status indicator letters drawn in the top-right corner of the screen on every prompt refresh.",
+    },
 };
