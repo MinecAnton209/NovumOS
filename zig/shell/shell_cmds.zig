@@ -1314,6 +1314,15 @@ pub fn cmd_gpf() callconv(.c) void {
 }
 
 pub export fn cmd_matrix() void {
+    // Use LFB if available, fall back to VGA text mode
+    if (lfb.initialized) {
+        cmd_matrix_lfb();
+    } else {
+        cmd_matrix_vga();
+    }
+}
+
+fn cmd_matrix_vga() void {
     vga.clear_screen();
     var row_offsets: [256]u8 = [_]u8{0} ** 256;
 
@@ -1384,6 +1393,87 @@ pub export fn cmd_matrix() void {
     }
     vga.reset_color();
     vga.clear_screen();
+}
+
+fn cmd_matrix_lfb() void {
+    const cols: u32 = lfb.width / 8;  // 8px wide font
+    const rows: u32 = lfb.height / 16; // 16px tall font
+    const max_cols = @min(cols, 256);
+
+    var row_offsets: [256]u32 = [_]u32{0} ** 256;
+
+    // Randomize initial offsets
+    var seed: u32 = @intCast(timer.get_ticks());
+    for (0..max_cols) |i| {
+        seed = seed *% 1103515245 +% 12345;
+        row_offsets[i] = seed % rows;
+    }
+
+    common.printZ("Entering the NovumOS Matrix... (Press Ctrl+C to exit)\n");
+    timer.sleep(1000);
+    lfb.fill_screen(0); // black
+
+    // Drop stale keystrokes
+    while (keyboard_isr.keyboard_has_data()) {
+        _ = keyboard_isr.keyboard_getchar();
+    }
+
+    // Matrix colors (0xRRGGBB format)
+    const GREEN_HEAD: u32 = 0x00FFFF;   // bright cyan/white head
+    const GREEN_BODY: u32 = 0x00FF00;   // bright green
+    const GREEN_FADE: u32 = 0x008800;   // darker green
+    const GREEN_GHOST: u32 = 0x004400;  // very dark green
+    const BLACK: u32 = 0x000000;
+
+    while (!keyboard_isr.check_ctrl_c()) {
+        for (0..max_cols) |x| {
+            seed = seed *% 1103515245 +% 12345;
+
+            if ((seed % 10) < 4) {
+                const y = row_offsets[x];
+                const char_x = x * 8;
+                const char_y = y * 16;
+
+                // Pick a random printable character (33 + rand % 94)
+                const ch: u8 = @intCast(33 + ((seed >> 16) % 94));
+
+                // 1. Bright head
+                lfb.draw_char(ch, char_x, char_y, GREEN_HEAD, BLACK, 1);
+
+                // 2. Light green body
+                const y1 = (y + rows - 1) % rows;
+                const ch1: u8 = @intCast(33 + ((seed >> 8) % 94));
+                lfb.draw_char(ch1, char_x, y1 * 16, GREEN_BODY, BLACK, 1);
+
+                // 3. Dark green fade
+                const y2 = (y + rows - 3) % rows;
+                const ch2: u8 = @intCast(33 + ((seed ^ 0xACE) % 94));
+                lfb.draw_char(ch2, char_x, y2 * 16, GREEN_FADE, BLACK, 1);
+
+                // 4. Ghost trail
+                const y3 = (y + rows - 6) % rows;
+                const ch3: u8 = @intCast(33 + ((seed ^ 0xDEB) % 94));
+                lfb.draw_char(ch3, char_x, y3 * 16, GREEN_GHOST, BLACK, 1);
+
+                // 5. Eraser — draw blank char at tail
+                const y_erase = (y + rows - 12) % rows;
+                lfb.draw_char(' ', char_x, y_erase * 16, GREEN_GHOST, BLACK, 1);
+
+                row_offsets[x] = (y + 1) % rows;
+            }
+        }
+        lfb.swap_buffers();
+
+        // Busy-wait ~2 ticks (20ms) — same logic as VGA version
+        const start = timer.get_ticks();
+        while (timer.get_ticks() - start < 2) {}
+        if (keyboard_isr.keyboard_has_data()) {
+            const c = keyboard_isr.keyboard_getchar();
+            if (c == 27 or c == 3) break;
+        }
+    }
+    lfb.fill_screen(0);
+    lfb.swap_buffers();
 }
 fn print_hexdump_line(offset: u32, data: []const u8) void {
     // Print Offset
