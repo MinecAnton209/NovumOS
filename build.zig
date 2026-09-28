@@ -57,12 +57,24 @@ pub fn build(b: *std.Build) void {
 
     const embedded_elfs_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_EMBEDDED_ELFS");
     const builtin_scripts_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_BUILTIN_SCRIPTS");
+    const doomfire_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_DOOMFIRE");
+    const quantum_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_QUANTUM");
+    const idt_wd_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_IDT_WATCHDOG");
+    const idt_snap_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_IDT_WATCHDOG_SNAPSHOT");
     if (embedded_elfs_on and !nova_on) {
         std.log.err("config conflict: ENABLE_EMBEDDED_ELFS=y requires ENABLE_NOVA=y", .{});
         std.process.exit(1);
     }
     if (builtin_scripts_on and !nova_on) {
         std.log.err("config conflict: ENABLE_BUILTIN_SCRIPTS=y requires ENABLE_NOVA=y", .{});
+        std.process.exit(1);
+    }
+    if (doomfire_on and !quantum_on) {
+        std.log.err("config conflict: ENABLE_DOOMFIRE=y requires ENABLE_QUANTUM=y", .{});
+        std.process.exit(1);
+    }
+    if (idt_snap_on and !idt_wd_on) {
+        std.log.err("config conflict: ENABLE_IDT_WATCHDOG_SNAPSHOT=y requires ENABLE_IDT_WATCHDOG=y", .{});
         std.process.exit(1);
     }
 

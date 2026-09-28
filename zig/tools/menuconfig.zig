@@ -23,6 +23,8 @@ const reverse_deps: [3]struct { provider: []const u8, dependents: []const []cons
     .{ .provider = "ENABLE_ACPI",       .dependents = &[_][]const u8{"ENABLE_SMP"} },
     .{ .provider = "ENABLE_SPEAKER",    .dependents = &[_][]const u8{"ENABLE_BOOT_BEEP", "ENABLE_ERROR_BEEP"} },
     .{ .provider = "ENABLE_NOVA",       .dependents = &[_][]const u8{"ENABLE_EMBEDDED_ELFS", "ENABLE_BUILTIN_SCRIPTS"} },
+    .{ .provider = "ENABLE_QUANTUM",    .dependents = &[_][]const u8{"ENABLE_DOOMFIRE"} },
+    .{ .provider = "ENABLE_IDT_WATCHDOG", .dependents = &[_][]const u8{"ENABLE_IDT_WATCHDOG_SNAPSHOT"} },
 };
 
 fn findRequiredBy(name: []const u8) ?[]const u8 {
