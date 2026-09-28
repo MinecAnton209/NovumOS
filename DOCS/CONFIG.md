@@ -82,6 +82,9 @@ selections fail immediately with an error:
 | `ENABLE_ERROR_BEEP=y` | `ENABLE_SPEAKER=y` |
 | `ENABLE_EMBEDDED_ELFS=y` | `ENABLE_NOVA=y` (embedded ELFs are the Nova VM) |
 | `ENABLE_BUILTIN_SCRIPTS=y` | `ENABLE_NOVA=y` (scripts run on the Nova runtime) |
+| `ENABLE_IDT_WATCHDOG_SNAPSHOT=y` | `ENABLE_IDT_WATCHDOG=y` (snapshot for watchdog comparison) |
+| `ENABLE_CLOCK_IN_PROMPT=y` | `ENABLE_SERIAL_INPUT=y` (clock uses serial mirror) |
+| `ENABLE_STATUS_INDICATORS=y` | `ENABLE_VGA_TEXT=y` (indicators draw to VGA text buffer) |
 
 Measured on `build/kernel32.elf` vs the default build (364920 bytes):
 `QUANTUM=n` 356728, `MOUSE=n` 360824, `NOVA=n` 315768.

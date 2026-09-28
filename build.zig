@@ -78,6 +78,21 @@ pub fn build(b: *std.Build) void {
         std.process.exit(1);
     }
 
+    // Shell/Display dependencies
+    const clock_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_CLOCK_IN_PROMPT");
+    const status_ind_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_STATUS_INDICATORS");
+    const vga_text_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_VGA_TEXT");
+    const serial_input_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_SERIAL_INPUT");
+
+    if (clock_on and !serial_input_on) {
+        std.log.err("config conflict: ENABLE_CLOCK_IN_PROMPT=y requires ENABLE_SERIAL_INPUT=y (clock uses serial mirror)", .{});
+        std.process.exit(1);
+    }
+    if (status_ind_on and !vga_text_on) {
+        std.log.err("config conflict: ENABLE_STATUS_INDICATORS=y requires ENABLE_VGA_TEXT=y (indicators draw to VGA text buffer)", .{});
+        std.process.exit(1);
+    }
+
     const arch = b.option([]const u8, "arch", "Target architecture (supported: x86)") orelse "x86";
     if (!std.mem.eql(u8, arch, "x86")) {
         std.log.err("unsupported -Darch={s}; supported: x86", .{arch});
