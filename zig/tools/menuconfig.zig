@@ -19,7 +19,7 @@ const root_opt_keys = [_][]const u8{
 // Reverse-dependency map: when an option is disabled, these dependent
 // options are also disabled automatically. Mirrors Kconfig semantics.
 // Each entry: "provider" => list of options that depend on it.
-const reverse_deps: [3]struct { provider: []const u8, dependents: []const []const u8 } = .{
+const reverse_deps: [5]struct { provider: []const u8, dependents: []const []const u8 } = .{
     .{ .provider = "ENABLE_ACPI",       .dependents = &[_][]const u8{"ENABLE_SMP"} },
     .{ .provider = "ENABLE_SPEAKER",    .dependents = &[_][]const u8{"ENABLE_BOOT_BEEP", "ENABLE_ERROR_BEEP"} },
     .{ .provider = "ENABLE_NOVA",       .dependents = &[_][]const u8{"ENABLE_EMBEDDED_ELFS", "ENABLE_BUILTIN_SCRIPTS"} },
@@ -1141,11 +1141,11 @@ fn requestQuit() void {
 }
 
 fn checkDependencies() ?[]const u8 {
-    inline for (schema, 0..) |f, i| {
+    for (schema, 0..) |f, i| {
         if (values[i] == .bool and values[i].bool) {
             if (findProvider(f.name)) |provider| {
                 var found = false;
-                inline for (schema, 0..) |pf, j| {
+                for (schema, 0..) |pf, j| {
                     if (std.mem.eql(u8, pf.name, provider)) {
                         if (values[j] == .bool and values[j].bool) found = true;
                     }
@@ -1192,7 +1192,7 @@ fn doSave() bool {
 fn cascadeDisable(name: []const u8) void {
     if (findDependents(name)) |deps| {
         for (deps) |dep| {
-            inline for (schema, 0..) |f, i| {
+            for (schema, 0..) |f, i| {
                 if (std.mem.eql(u8, f.name, dep)) {
                     if (values[i] == .bool and values[i].bool) {
                         values[i] = .{ .bool = false };

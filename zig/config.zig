@@ -54,7 +54,9 @@ pub const ENABLE_STATUS_INDICATORS = value(bool, "ENABLE_STATUS_INDICATORS");
 pub const ENABLE_WELCOME_MESSAGE = value(bool, "ENABLE_WELCOME_MESSAGE");
 pub const ENABLE_BOOT_SPINNER = value(bool, "ENABLE_BOOT_SPINNER");
 
-pub const BUILD_HASH = 0xDEADC0DE ^ 0xCAFEBABE ^ 0x12345678;
+/// Cryptographically random build-time seed injected by build.zig via
+/// std.Io.randomSecure(). Used for watchdog scatter checks.
+pub const BUILD_HASH = build_config.build_hash;
 pub const WATCHDOG_INTERVAL_TICKS = 1000 + (BUILD_HASH % 500);
 pub const WATCHDOG_CHANCE_ALLOC = 1 + (BUILD_HASH % 16);
 pub const WATCHDOG_CHANCE_SCHED = 1 + (BUILD_HASH % 32);

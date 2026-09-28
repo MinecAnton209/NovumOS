@@ -105,6 +105,22 @@ pub fn build(b: *std.Build) void {
 
     const optimize = .ReleaseSmall;
 
+    // Generate a cryptographically secure build hash via the OS CSPRNG
+    // (getrandom on Linux, BCryptGenRandom on Windows, etc.).
+    // Ensures watchdog patterns are unpredictable across builds.
+    const build_hash: u32 = blk: {
+        var buf: [4]u8 = undefined;
+        std.Io.randomSecure(b.graph.io, &buf) catch {
+            // If OS entropy unavailable, fall back to a deterministic hash
+            // of config text to at least vary per config.
+            const Hasher = std.hash.XxHash32;
+            var h = Hasher.init(0x9e3779b9);
+            h.update(cfg.text);
+            break :blk h.final();
+        };
+        break :blk std.mem.readInt(u32, &buf, .little);
+    };
+
     // Create the kernel module first
     const kernel_mod = b.createModule(.{
         .root_source_file = b.path("zig/kernel.zig"),
@@ -118,6 +134,7 @@ pub fn build(b: *std.Build) void {
     options.addOption([]const u8, "target_arch", arch);
     options.addOption(?u32, "history_size", history_size);
     options.addOption([]const u8, "config_text", cfg.text);
+    options.addOption(u32, "build_hash", build_hash);
     kernel_mod.addOptions("build_config", options);
 
     // Build the kernel object file
