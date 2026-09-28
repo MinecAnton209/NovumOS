@@ -16,6 +16,7 @@ const logger = @import("logger.zig");
 const user = @import("../arch/mod.zig").user;
 const sysenter = @import("../arch/mod.zig").sysenter;
 const idt_watchdog = @import("../arch/mod.zig").idt_watchdog;
+const gdt = @import("../arch/mod.zig").gdt;
 const ata = @import("../drivers/ata.zig");
 const fat = @import("../drivers/fat.zig");
 const speaker = @import("../drivers/speaker.zig");
@@ -88,6 +89,7 @@ fn init_memory() void {
     logger.trace("boot: kernel heap ready");
     memory.init_paging();
     logger.trace("boot: demand paging ready");
+    gdt.tighten_code_limit();
 }
 
 fn init_display() void {

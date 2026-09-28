@@ -255,4 +255,16 @@ pub const schema = [_]kconfig.Field{
         .help = "Animated boot progress spinner during init",
         .desc = "Shows a spinning |/ -\\ animation during driver and disk initialization. Disable for minimal text output.",
     },
+    .{
+        .name = "ENABLE_ASLR",
+        .default = .{ .bool = true },
+        .help = "Address Space Layout Randomization (ASLR)",
+        .desc = "Randomizes the load address of the kernel heap, stack, and Nova ELF at boot (x86-32 without PAE). Falls back to fixed addresses if entropy unavailable.",
+    },
+    .{
+        .name = "ENABLE_WX_SEPARATION",
+        .default = .{ .bool = true },
+        .help = "Write-XOR-Execute separation via CS limit tightening",
+        .desc = "Enforces W^X by tightening the code-segment limit to the exact kernel code size and using a separate data segment. Pages outside the code limit cause #GP → page fault on execute. Requires i686+ limit fault support.",
+    },
 };

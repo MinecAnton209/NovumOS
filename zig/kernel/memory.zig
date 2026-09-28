@@ -786,7 +786,23 @@ pub const heap = struct {
         region_count = 0;
         heap_high_water = 0;
 
-        const addr = pmm.alloc_page() orelse return;
+        var addr = pmm.alloc_page() orelse return;
+
+        // ASLR: randomize the heap start by up to 15 extra pages so heap
+        // addresses differ between builds. Uses BUILD_HASH as a cheap seed.
+        if (config.ENABLE_ASLR) {
+            const pages_to_skip = (config.BUILD_HASH % 16);
+            var i: usize = 0;
+            while (i < pages_to_skip) : (i += 1) {
+                if (pmm.alloc_page()) |extra| {
+                    _ = extra; // waste the page to shift heap_base
+                }
+            }
+            if (pmm.alloc_page()) |moved| {
+                addr = moved;
+            }
+        }
+
         heap_base = addr;
         regions[0] = .{ .base = addr, .end = addr + PAGE_SIZE };
         region_count = 1;

@@ -92,6 +92,7 @@ extern init_exception_handling
 section .data
 ; Kernel GDT Structure
 align 16
+global gdt_kernel_start
 gdt_kernel_start:
     dq 0                        ; Null descriptor (0x00)
     dw 0xffff, 0x0000, 0x9a00, 0x00cf ; Code segment (0x08)

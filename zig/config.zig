@@ -53,6 +53,8 @@ pub const ENABLE_CLOCK_IN_PROMPT = value(bool, "ENABLE_CLOCK_IN_PROMPT");
 pub const ENABLE_STATUS_INDICATORS = value(bool, "ENABLE_STATUS_INDICATORS");
 pub const ENABLE_WELCOME_MESSAGE = value(bool, "ENABLE_WELCOME_MESSAGE");
 pub const ENABLE_BOOT_SPINNER = value(bool, "ENABLE_BOOT_SPINNER");
+pub const ENABLE_ASLR = value(bool, "ENABLE_ASLR");
+pub const ENABLE_WX_SEPARATION = value(bool, "ENABLE_WX_SEPARATION");
 
 /// Cryptographically random build-time seed injected by build.zig via
 /// std.Io.randomSecure(). Used for watchdog scatter checks.

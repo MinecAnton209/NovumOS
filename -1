@@ -1,0 +1,18 @@
+test-menuconfig
++- run test
+   +- compile test Debug native 1 errors
+zig/tools/menuconfig.zig:160:24: error: menuconfig: missing key in menuconfig: ENABLE_ASLR
+        if (!was_seen) @compileError("menuconfig: missing key in menuconfig: " ++ schema[i].name);
+                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+referenced by:
+    test.menus cover every schema option exactly once: zig/tools/menuconfig.zig:1913:10
+error: 1 compilation errors
+failed command: /opt/zig/zig test -ODebug --dep vaxis --dep config_schema -Mroot=/root/NovumOS/zig/tools/menuconfig.zig -ODebug --dep zigimg --dep uucode -Mvaxis=/root/NovumOS/zig-pkg/vaxis-0.6.0-BWNV_OybDABnzf12gCPzy_IgAjkKkonDJF-2O_7XyLtD/src/main.zig -Mconfig_schema=/root/NovumOS/zig/config_schema.zig -ODebug --dep zigimg -Mzigimg=/root/NovumOS/zig-pkg/zigimg-0.1.0-8_eo2oyaFwBZwJpmqPkCfVXWBrHcqbYwmrp1I6bTD3lI/zigimg.zig -ODebug --dep types.zig --dep config.zig --dep tables -Muucode=/root/NovumOS/zig-pkg/uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA/src/root.zig -ODebug -Mtypes.zig=/root/NovumOS/zig-pkg/uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA/src/types.zig -ODebug --dep types.zig --dep storage.zig -Mconfig.zig=/root/NovumOS/zig-pkg/uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA/src/config.zig -ODebug --dep config.zig --dep storage.zig --dep build_config -Mtables=.zig-cache/o/50134ad06090413bdf20476753d2eb1e/tables.zig -ODebug --dep config.zig -Mstorage.zig=/root/NovumOS/zig-pkg/uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA/src/storage.zig --dep config.zig --dep storage.zig -Mbuild_config=.zig-cache/o/3faf99e34dd5ddd040c4dc64d35398db/build_config.zig --cache-dir .zig-cache --global-cache-dir /root/.cache/zig --name test --zig-lib-dir /opt/zig/lib/ --listen=-
+
+Build Summary: 3/6 steps succeeded (1 failed)
+test-menuconfig transitive failure
++- run test transitive failure
+   +- compile test Debug native 1 errors
+
+error: the following build command failed with exit code 1:
+.zig-cache/o/bf1c6ecba169c6169b31246061b338d1/build /opt/zig/zig /opt/zig/lib /root/NovumOS .zig-cache /root/.cache/zig --seed 0xb2bef596 -Z299c24547d93e0aa test-menuconfig

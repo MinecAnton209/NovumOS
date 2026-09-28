@@ -19,3 +19,4 @@ pub const user = if (arch_is("x86")) @import("x86/user.zig") else unsupported();
 pub const keyboard_isr = if (arch_is("x86")) @import("x86/keyboard_isr.zig") else unsupported();
 pub const idt_watchdog = if (arch_is("x86")) @import("x86/idt_watchdog.zig") else unsupported();
 pub const sysenter = if (arch_is("x86")) @import("x86/sysenter.zig") else unsupported();
+pub const gdt = if (arch_is("x86")) @import("x86/gdt.zig") else unsupported();
