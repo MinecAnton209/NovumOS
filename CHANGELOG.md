@@ -13,6 +13,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 - `ENABLE_SERIAL_INPUT` compile-time config flag to toggle serial port keyboard input (COM1 polling in timer IRQ and `keyboard_wait_char`)
 - `ENABLE_VGA_TEXT` compile-time config flag to toggle direct VGA text mode memory (0xB8000) writes, useful for LFB-only builds
+- `ENABLE_ACPI` compile-time config flag to toggle ACPI table parsing (MADT/SMP, shutdown)
+- `ENABLE_PCI` compile-time config flag to toggle PCI bus enumeration and `lspci` command
+- `ENABLE_ATA` compile-time config flag to toggle ATA PIO disk driver and disk commands
+- Build-time dependency validation for config conflicts (SMP→ACPI, beep→speaker, ELFs/scripts→Nova)
+- `menuconfig` TUI: cascade-disable dependent options when a provider is turned off, show dependency hints in help dialog
 
 ## [0.25-beta.3] - 2026-09-26
 

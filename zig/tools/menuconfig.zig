@@ -16,6 +16,38 @@ const root_opt_keys = [_][]const u8{
     "ENABLE_NOVA",
 };
 
+// Reverse-dependency map: when an option is disabled, these dependent
+// options are also disabled automatically. Mirrors Kconfig semantics.
+// Each entry: "provider" => list of options that depend on it.
+const reverse_deps: [3]struct { provider: []const u8, dependents: []const []const u8 } = .{
+    .{ .provider = "ENABLE_ACPI",       .dependents = &[_][]const u8{"ENABLE_SMP"} },
+    .{ .provider = "ENABLE_SPEAKER",    .dependents = &[_][]const u8{"ENABLE_BOOT_BEEP", "ENABLE_ERROR_BEEP"} },
+    .{ .provider = "ENABLE_NOVA",       .dependents = &[_][]const u8{"ENABLE_EMBEDDED_ELFS", "ENABLE_BUILTIN_SCRIPTS"} },
+};
+
+fn findRequiredBy(name: []const u8) ?[]const u8 {
+    for (reverse_deps) |rd| {
+        if (std.mem.eql(u8, rd.provider, name)) return rd.provider;
+    }
+    return null;
+}
+
+fn findDependents(name: []const u8) ?[]const []const u8 {
+    for (reverse_deps) |rd| {
+        if (std.mem.eql(u8, rd.provider, name)) return rd.dependents;
+    }
+    return null;
+}
+
+fn findProvider(name: []const u8) ?[]const u8 {
+    for (reverse_deps) |rd| {
+        for (rd.dependents) |dep| {
+            if (std.mem.eql(u8, dep, name)) return rd.provider;
+        }
+    }
+    return null;
+}
+
 const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8, children: []const usize }{
     .{ .name = "Debug output", .keys = &.{
         "ENABLE_SERIAL_DEBUG",   "ENABLE_EARLY_LFB_DEBUG", "ENABLE_FAT_DEBUG",
@@ -726,6 +758,15 @@ fn renderHelpModal(win: vaxis.Window, arena: std.mem.Allocator) void {
             .style = .{ .fg = col_dialog_fg, .bg = col_dialog_bg },
         }}, .{ .row_offset = 3, .col_offset = 0, .wrap = .word });
 
+        // Dependency hint
+        if (findProvider(f.name)) |req| {
+            const dep_row: u16 = text_win.height -| 6;
+            _ = text_win.print(&[_]vaxis.Segment{.{
+                .text = std.fmt.allocPrint(arena, "Depends: CONFIG_{s}=y", .{req}) catch "Depends: ?",
+                .style = .{ .fg = col_tag, .bg = col_dialog_bg, .bold = true },
+            }}, .{ .row_offset = dep_row, .col_offset = 0, .wrap = .none });
+        }
+
         const val_str = switch (values[opt_idx]) {
             .bool => |bv| if (bv) "Current value: [*] y (enabled)" else "Current value: [ ] n (disabled)",
             .int => |iv| std.fmt.allocPrint(arena, "Current value: {d}", .{iv}) catch "",
@@ -1095,7 +1136,31 @@ fn requestQuit() void {
     mode = .confirm;
 }
 
+fn checkDependencies() ?[]const u8 {
+    inline for (schema, 0..) |f, i| {
+        if (values[i] == .bool and values[i].bool) {
+            if (findProvider(f.name)) |provider| {
+                var found = false;
+                inline for (schema, 0..) |pf, j| {
+                    if (std.mem.eql(u8, pf.name, provider)) {
+                        if (values[j] == .bool and values[j].bool) found = true;
+                    }
+                }
+                if (!found) {
+                    return std.fmt.allocPrint(g_alloc,
+                        "CONFIG_{s}=y requires CONFIG_{s}=y", .{ f.name, provider }) catch null;
+                }
+            }
+        }
+    }
+    return null;
+}
+
 fn doSave() bool {
+    if (checkDependencies()) |err| {
+        status = err;
+        return false;
+    }
     const new_text = cfg_write.merge(g_alloc, schema, original, &values) catch {
         status = "out of memory";
         return false;
@@ -1120,6 +1185,20 @@ fn doSave() bool {
     return true;
 }
 
+fn cascadeDisable(name: []const u8) void {
+    if (findDependents(name)) |deps| {
+        for (deps) |dep| {
+            inline for (schema, 0..) |f, i| {
+                if (std.mem.eql(u8, f.name, dep)) {
+                    if (values[i] == .bool and values[i].bool) {
+                        values[i] = .{ .bool = false };
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn performSelectAction() void {
     const it = itemUnderCursor() orelse return;
     switch (it) {
@@ -1137,6 +1216,26 @@ fn performSelectAction() void {
         .opt => |idx| {
             switch (values[idx]) {
                 .bool => |bv| {
+                    if (!bv) {
+                        // Enabling: check that required provider is on
+                        if (findProvider(schema[idx].name)) |provider| {
+                            var provider_on = false;
+                            inline for (schema, 0..) |f, i| {
+                                if (std.mem.eql(u8, f.name, provider)) {
+                                    if (values[i] == .bool and values[i].bool) provider_on = true;
+                                }
+                            }
+                            if (!provider_on) {
+                                status = std.fmt.bufPrint(&status_buf,
+                                    "Cannot enable {s}: requires CONFIG_{s}=y first",
+                                    .{ schema[idx].name, provider }) catch "requires dependency";
+                                return;
+                            }
+                        }
+                    } else {
+                        // Disabling: cascade-disable dependents
+                        cascadeDisable(schema[idx].name);
+                    }
                     values[idx] = .{ .bool = !bv };
                 },
                 .int => |iv| {
