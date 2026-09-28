@@ -15,8 +15,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - `ENABLE_ACPI` compile-time config flag to toggle ACPI table parsing (MADT/SMP, shutdown)
 - `ENABLE_PCI` compile-time config flag to toggle PCI bus enumeration and `lspci` command
 - `ENABLE_ATA` compile-time config flag to toggle ATA PIO disk driver and disk commands
-- Build-time dependency validation for config conflicts (SMP→ACPI, beep→speaker, ELFs/scripts→Nova)
+- Build-time dependency validation for config conflicts (SMP→ACPI, beep→speaker, ELFs/scripts→Nova, doomfire→quantum, snapshot→watchdog)
 - `menuconfig` TUI: cascade-disable dependent options when a provider is turned off, show dependency hints in help dialog
+- Shell/display dependency validation in `build.zig`: `CLOCK_IN_PROMPT`→`SERIAL_INPUT`, `STATUS_INDICATORS`→`VGA_TEXT`
+- Dynamic `BUILD_HASH` using OS CSPRNG (`std.Io.randomSecure`) for watchdog unpredictability, with XxHash32 fallback for reproducible builds
 - `ENABLE_CLOCK_IN_PROMPT` flag to toggle live clock, serial mirror, and serial cursor in shell prompt
 - `ENABLE_STATUS_INDICATORS` flag to toggle CAPS/NUM/INS lock status indicators
 - `ENABLE_IDT_WATCHDOG_SNAPSHOT` flag to control boot-time IDT snapshot capture
@@ -26,6 +28,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 - Disable `NOVA_DEBUG` and `MOUSE_DEBUG` by default — these are debug trace options and should be opt-in
 - Disable `ENABLE_DEBUG_CRASH_COMMANDS` by default to keep crash-test commands out of production builds
+- `test_options` in `build.zig` now includes `build_hash` stub (`0xDEADBEEF`) so `zig test zig/config.zig` passes
 
 ## [0.25-beta.3] - 2026-09-26
 
