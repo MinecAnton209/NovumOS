@@ -206,6 +206,7 @@ pub fn build(b: *std.Build) void {
     test_options.addOption([]const u8, "target_arch", arch);
     test_options.addOption(?u32, "history_size", null);
     test_options.addOption([]const u8, "config_text", "CONFIG_HISTORY_SIZE=7");
+    test_options.addOption(u32, "build_hash", 0xDEADBEEF);
     config_test_mod.addOptions("build_config", test_options);
     const config_tests = b.addTest(.{ .root_module = config_test_mod });
     const run_config_tests = b.addRunArtifact(config_tests);
