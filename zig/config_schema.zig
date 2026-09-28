@@ -55,7 +55,13 @@ pub const schema = [_]kconfig.Field{
         .name = "ENABLE_IDT_WATCHDOG",
         .default = .{ .bool = true },
         .help = "Interrupt Descriptor Table (IDT) integrity watchdog",
-        .desc = "Periodically validates the hardware IDT gates and descriptor addresses to detect stack corruptions or unauthorized descriptor modifications.",
+        .desc = "Periodically validates the hardware IDT gates and descriptor addresses to detect stack corruptions or unauthorized descriptor modifications. Requires ENABLE_SYSENTER=y.",
+    },
+    .{
+        .name = "ENABLE_IDT_WATCHDOG_SNAPSHOT",
+        .default = .{ .bool = true },
+        .help = "Save IDT snapshot at boot for later integrity comparison",
+        .desc = "Takes a snapshot of the IDT at boot for the watchdog to compare against during runtime validation. Disable to save boot time if IDT watchdog is not used.",
     },
     .{
         .name = "ENABLE_RSOD_REBOOT",

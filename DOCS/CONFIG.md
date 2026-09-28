@@ -66,6 +66,7 @@ linked, and its commands disappear from `help`.
 | `ENABLE_ATA` | ATA PIO disk driver, disk probing at boot, and disk commands (`lsdsk`, `mount`, `mkfs`, `format`) |
 | `ENABLE_CLOCK_IN_PROMPT` | Live HH:MM:SS clock in prompt, serial mirror, cursor visibility on serial port |
 | `ENABLE_STATUS_INDICATORS` | CAPS/NUM/INS lock status indicators in top-right corner |
+| `ENABLE_IDT_WATCHDOG_SNAPSHOT` | Save IDT snapshot at boot for runtime watchdog comparison; disable if watchdog is off |
 
 ## Dependency validation
 

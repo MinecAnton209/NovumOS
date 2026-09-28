@@ -241,8 +241,10 @@ export fn kmain() void {
         smp.init();
         logger.trace("boot: SMP online");
     }
-    idt_watchdog.save_snapshot();
-    logger.trace("boot: IDT snapshot saved");
+    if (config.ENABLE_IDT_WATCHDOG_SNAPSHOT) {
+        idt_watchdog.save_snapshot();
+        logger.trace("boot: IDT snapshot saved");
+    }
 
     // 6. Peripherals + user mode
     init_peripherals();
