@@ -36,6 +36,36 @@ pub fn build(b: *std.Build) void {
 
     const nova_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_NOVA");
 
+    const smp_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_SMP");
+    const acpi_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_ACPI");
+    const speaker_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_SPEAKER");
+    const boot_beep_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_BOOT_BEEP");
+    const error_beep_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_ERROR_BEEP");
+
+    if (smp_on and !acpi_on) {
+        std.log.err("config conflict: ENABLE_SMP=y requires ENABLE_ACPI=y (SMP uses ACPI MADT for core discovery)", .{});
+        std.process.exit(1);
+    }
+    if (boot_beep_on and !speaker_on) {
+        std.log.err("config conflict: ENABLE_BOOT_BEEP=y requires ENABLE_SPEAKER=y", .{});
+        std.process.exit(1);
+    }
+    if (error_beep_on and !speaker_on) {
+        std.log.err("config conflict: ENABLE_ERROR_BEEP=y requires ENABLE_SPEAKER=y", .{});
+        std.process.exit(1);
+    }
+
+    const embedded_elfs_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_EMBEDDED_ELFS");
+    const builtin_scripts_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_BUILTIN_SCRIPTS");
+    if (embedded_elfs_on and !nova_on) {
+        std.log.err("config conflict: ENABLE_EMBEDDED_ELFS=y requires ENABLE_NOVA=y", .{});
+        std.process.exit(1);
+    }
+    if (builtin_scripts_on and !nova_on) {
+        std.log.err("config conflict: ENABLE_BUILTIN_SCRIPTS=y requires ENABLE_NOVA=y", .{});
+        std.process.exit(1);
+    }
+
     const arch = b.option([]const u8, "arch", "Target architecture (supported: x86)") orelse "x86";
     if (!std.mem.eql(u8, arch, "x86")) {
         std.log.err("unsupported -Darch={s}; supported: x86", .{arch});

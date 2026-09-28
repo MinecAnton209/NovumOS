@@ -207,4 +207,22 @@ pub const schema = [_]kconfig.Field{
         .help = "VGA text mode emulation layer",
         .desc = "Enables the VGA text emulation layer for the console. Disable to save code size if only LFB graphics mode is used.",
     },
+    .{
+        .name = "ENABLE_ACPI",
+        .default = .{ .bool = true },
+        .help = "ACPI power management (MADT/SMP, shutdown)",
+        .desc = "Enables ACPI table parsing for SMP core discovery (MADT) and power-off (shutdown). Disable to remove ACPI code; SMP will be single-core and shutdown will halt instead of power-off.",
+    },
+    .{
+        .name = "ENABLE_PCI",
+        .default = .{ .bool = true },
+        .help = "PCI bus enumeration & lspci command",
+        .desc = "Enables PCI configuration space scanning and the lspci shell command. Disable to remove PCI driver code when no PCI devices need enumeration.",
+    },
+    .{
+        .name = "ENABLE_ATA",
+        .default = .{ .bool = true },
+        .help = "ATA PIO disk driver and disk commands",
+        .desc = "Enables the ATA PIO disk driver, disk probing at boot, and all disk-related shell commands (lsdsk, mount, mkfs, format). Disable for headless/RAM-only builds without disk support.",
+    },
 };

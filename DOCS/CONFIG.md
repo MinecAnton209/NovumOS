@@ -59,6 +59,24 @@ linked, and its commands disappear from `help`.
 | `ENABLE_FAT16` | `mkfs-fat16` command, mounting FAT16 volumes (`read_bpb` returns `null`) |
 | `ENABLE_FAT32` | `mkfs-fat32` command, mounting FAT32 volumes (`read_bpb` returns `null`) |
 | `ENABLE_LFN` | Long filename (LFN, attr `0x0F`) support: lookup skips LFN entries, creating a long name fails (8.3 only) |
+| `ENABLE_SERIAL_INPUT` | Serial port keyboard input (COM1 polling in timer IRQ and `keyboard_wait_char`); disable for PS/2-only builds |
+| `ENABLE_VGA_TEXT` | Direct VGA text mode memory (0xB8000) writes in `clear_screen` and RSOD panic output; disable for LFB-only builds |
+| `ENABLE_ACPI` | ACPI table parsing for SMP core discovery (MADT) and power-off (shutdown); disable for headless builds (SMP → single-core, shutdown → halt) |
+| `ENABLE_PCI` | PCI configuration space scanning and the `lspci` shell command |
+| `ENABLE_ATA` | ATA PIO disk driver, disk probing at boot, and disk commands (`lsdsk`, `mount`, `mkfs`, `format`) |
+
+## Dependency validation
+
+The build enforces the following dependencies at config time — conflicting
+selections fail immediately with an error:
+
+| Flag | Requires |
+|------|----------|
+| `ENABLE_SMP=y` | `ENABLE_ACPI=y` (SMP uses ACPI MADT for core discovery) |
+| `ENABLE_BOOT_BEEP=y` | `ENABLE_SPEAKER=y` |
+| `ENABLE_ERROR_BEEP=y` | `ENABLE_SPEAKER=y` |
+| `ENABLE_EMBEDDED_ELFS=y` | `ENABLE_NOVA=y` (embedded ELFs are the Nova VM) |
+| `ENABLE_BUILTIN_SCRIPTS=y` | `ENABLE_NOVA=y` (scripts run on the Nova runtime) |
 
 Measured on `build/kernel32.elf` vs the default build (364920 bytes):
 `QUANTUM=n` 356728, `MOUSE=n` 360824, `NOVA=n` 315768.

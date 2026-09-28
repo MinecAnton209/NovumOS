@@ -212,16 +212,20 @@ export fn kmain() void {
     common.printZ("Checking PMM: ");
     vga.set_color(10, 0);
     common.printZ("OK\n");
-    if (acpi.init()) {
-        logger.trace("boot: ACPI ready");
-    } else {
-        logger.trace("boot: ACPI unavailable, using defaults");
+    if (config.ENABLE_ACPI) {
+        if (acpi.init()) {
+            logger.trace("boot: ACPI ready");
+        } else {
+            logger.trace("boot: ACPI unavailable, using defaults");
+        }
     }
     init_drivers_spinner();
 
     // 3. File System + disk check
-    init_disk_check();
-    logger.trace("boot: disks probed");
+    if (config.ENABLE_ATA) {
+        init_disk_check();
+        logger.trace("boot: disks probed");
+    }
 
     // 4. Display dimensions + welcome
     vga.init_dimensions();
@@ -233,8 +237,10 @@ export fn kmain() void {
     // 5. Scheduler + multicore
     init_scheduler();
     logger.trace("boot: scheduler bootstrapped");
-    smp.init();
-    logger.trace("boot: SMP online");
+    if (config.ENABLE_SMP) {
+        smp.init();
+        logger.trace("boot: SMP online");
+    }
     idt_watchdog.save_snapshot();
     logger.trace("boot: IDT snapshot saved");
 
