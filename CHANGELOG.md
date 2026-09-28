@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- Disable `NOVA_DEBUG` and `MOUSE_DEBUG` by default — these are debug trace options and should be opt-in
+- Disable `ENABLE_DEBUG_CRASH_COMMANDS` by default to keep crash-test commands out of production builds
+
+### Added
+- `ENABLE_SERIAL_INPUT` compile-time config flag to toggle serial port keyboard input (COM1 polling in timer IRQ and `keyboard_wait_char`)
+- `ENABLE_VGA_TEXT` compile-time config flag to toggle direct VGA text mode memory (0xB8000) writes, useful for LFB-only builds
+
 ## [0.25-beta.3] - 2026-09-26
 
 ### Added

@@ -398,12 +398,13 @@ pub export fn keyboard_wait_char() u8 {
         );
     }
 
+    const config = @import("../../config.zig");
     const serial = @import("../../drivers/serial.zig");
     while (true) {
         if (keyboard_has_data()) return keyboard_getchar();
 
         // Poll serial port as well
-        if (serial.serial_has_data()) {
+        if (config.ENABLE_SERIAL_INPUT and serial.serial_has_data()) {
             serial_inject_char(serial.serial_getchar());
             if (keyboard_has_data()) return keyboard_getchar();
         }

@@ -29,7 +29,7 @@ const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8, chi
         "ENABLE_RSOD_REBOOT",
     }, .children = &.{} },
     .{ .name = "Fun / demos", .keys = &.{ "ENABLE_DOOMFIRE", "ENABLE_MATRIX" }, .children = &.{} },
-    .{ .name = "Drivers", .keys = &.{}, .children = &.{5} },
+    .{ .name = "Drivers", .keys = &.{ "ENABLE_SERIAL_INPUT", "ENABLE_VGA_TEXT" }, .children = &.{5} },
     .{ .name = "Filesystems", .keys = &.{
         "ENABLE_FAT12", "ENABLE_FAT16", "ENABLE_FAT32", "ENABLE_LFN",
     }, .children = &.{} },

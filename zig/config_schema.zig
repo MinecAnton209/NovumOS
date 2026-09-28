@@ -29,7 +29,7 @@ pub const schema = [_]kconfig.Field{
     },
     .{
         .name = "ENABLE_DEBUG_CRASH_COMMANDS",
-        .default = .{ .bool = true },
+        .default = .{ .bool = false },
         .help = "Kernel crash test commands (panic, div0, pf)",
         .desc = "Enables intentional crash commands in the interactive shell (such as panic, div0, and pagefault) to test fault handling, stack unwinding, and kernel recovery routines.",
     },
@@ -119,13 +119,13 @@ pub const schema = [_]kconfig.Field{
     },
     .{
         .name = "NOVA_DEBUG",
-        .default = .{ .bool = true },
+        .default = .{ .bool = false },
         .help = "Nova VM & bytecode execution tracing",
         .desc = "Enables detailed instruction-level tracing, AST evaluation logs, and runtime memory allocation dumps for Nova language scripts.",
     },
     .{
         .name = "MOUSE_DEBUG",
-        .default = .{ .bool = true },
+        .default = .{ .bool = false },
         .help = "PS/2 mouse initialization & packet logs",
         .desc = "Prints raw byte packets, acknowledge responses, and IRQ12 interrupt delivery events during PS/2 auxiliary mouse setup.",
     },
@@ -194,5 +194,17 @@ pub const schema = [_]kconfig.Field{
         .default = .{ .bool = true },
         .help = "Long filename (LFN) support",
         .desc = "Enables long filename entries (attr 0x0F). When disabled, only 8.3 short names work: LFN entries are skipped on lookup and adding a long name fails.",
+    },
+    .{
+        .name = "ENABLE_SERIAL_INPUT",
+        .default = .{ .bool = true },
+        .help = "Serial port keyboard input (COM1)",
+        .desc = "Enables reading keyboard input from the serial port (COM1 0x3F8) in addition to PS/2. Disable to remove serial polling overhead.",
+    },
+    .{
+        .name = "ENABLE_VGA_TEXT",
+        .default = .{ .bool = true },
+        .help = "VGA text mode emulation layer",
+        .desc = "Enables the VGA text emulation layer for the console. Disable to save code size if only LFB graphics mode is used.",
     },
 };

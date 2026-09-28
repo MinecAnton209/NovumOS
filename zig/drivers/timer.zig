@@ -44,7 +44,7 @@ pub export fn isr_timer(esp: u32) u32 {
 
     // Poll serial for input to support -nographic
     const serial = @import("serial.zig");
-    if (serial.serial_has_data()) {
+    if (config.ENABLE_SERIAL_INPUT and serial.serial_has_data()) {
         const c = serial.serial_getchar();
         if (c != 0) {
             keyboard.serial_inject_char(c);

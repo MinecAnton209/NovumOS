@@ -330,7 +330,7 @@ fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]cons
     if (use_lfb) {
         // Fill entire screen red
         lfb.fill_screen(0xCC0000);
-    } else {
+    } else if (config.ENABLE_VGA_TEXT) {
         // VGA text mode fallback: clear with red attribute
         for (0..2000) |i| {
             vga.VIDEO_MEMORY[i] = (bg_red << 8) | ' ';
@@ -510,7 +510,7 @@ fn draw_rsod(frame: ?*const ExceptionFrame, saved_tss: ?*const TSS, msg: ?[]cons
         lfb.dirty_max_x = lfb.width - 1;
         lfb.dirty_max_y = lfb.height - 1;
         lfb.swap_buffers();
-    } else {
+    } else if (config.ENABLE_VGA_TEXT) {
         // VGA text fallback
         print_at(row, 2, "EAX: ", bg_red);
         print_hex_at(row, 7, eax, bg_red);
@@ -788,6 +788,7 @@ fn fmt_hex8(val: u32, buf: *[10]u8) []const u8 {
 }
 
 fn print_at(row: usize, col: usize, msg: []const u8, attr: u16) void {
+    if (!config.ENABLE_VGA_TEXT) return;
     for (msg, 0..) |c, i| {
         if (col + i >= 80) break;
         vga.VIDEO_MEMORY[row * 80 + col + i] = (attr << 8) | @as(u16, c);

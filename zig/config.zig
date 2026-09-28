@@ -43,6 +43,8 @@ pub const ENABLE_FAT12 = value(bool, "ENABLE_FAT12");
 pub const ENABLE_FAT16 = value(bool, "ENABLE_FAT16");
 pub const ENABLE_FAT32 = value(bool, "ENABLE_FAT32");
 pub const ENABLE_LFN = value(bool, "ENABLE_LFN");
+pub const ENABLE_SERIAL_INPUT = value(bool, "ENABLE_SERIAL_INPUT");
+pub const ENABLE_VGA_TEXT = value(bool, "ENABLE_VGA_TEXT");
 
 pub const BUILD_HASH = 0xDEADC0DE ^ 0xCAFEBABE ^ 0x12345678;
 pub const WATCHDOG_INTERVAL_TICKS = 1000 + (BUILD_HASH % 500);
