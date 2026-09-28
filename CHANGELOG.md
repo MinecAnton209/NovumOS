@@ -6,11 +6,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-### Changed
-- Disable `NOVA_DEBUG` and `MOUSE_DEBUG` by default — these are debug trace options and should be opt-in
-- Disable `ENABLE_DEBUG_CRASH_COMMANDS` by default to keep crash-test commands out of production builds
-
 ### Added
+- Host test suite: 7 test targets (`test-str`, `test-hash-table`, `test-common`, `test-lexer`, `test-parser`, `test-path-policy`, `test-cfg-write`) via `zig build test` (~180 tests)
+- Test documentation in `zig/tests/README.md`
+- Testing section in `CONTRIBUTING.md`
 - `ENABLE_SERIAL_INPUT` compile-time config flag to toggle serial port keyboard input (COM1 polling in timer IRQ and `keyboard_wait_char`)
 - `ENABLE_VGA_TEXT` compile-time config flag to toggle direct VGA text mode memory (0xB8000) writes, useful for LFB-only builds
 - `ENABLE_ACPI` compile-time config flag to toggle ACPI table parsing (MADT/SMP, shutdown)
@@ -23,6 +22,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - `ENABLE_IDT_WATCHDOG_SNAPSHOT` flag to control boot-time IDT snapshot capture
 - `ENABLE_WELCOME_MESSAGE` flag to toggle boot banner and welcome message
 - `ENABLE_BOOT_SPINNER` flag to toggle boot progress animation
+
+### Changed
+- Disable `NOVA_DEBUG` and `MOUSE_DEBUG` by default — these are debug trace options and should be opt-in
+- Disable `ENABLE_DEBUG_CRASH_COMMANDS` by default to keep crash-test commands out of production builds
 
 ## [0.25-beta.3] - 2026-09-26
 

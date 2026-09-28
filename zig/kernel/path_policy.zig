@@ -28,7 +28,7 @@ const BLOCKED_EXACT = [_][]const u8{
 /// `..` is rejected outright — resolve pops it, so a raw prefix match
 /// on "foo/../.SYSTEM/" would never see the blocked prefix. Returns
 /// null when the path cannot be represented (fail closed).
-fn canonicalize(path: []const u8, out: []u8) ?[]const u8 {
+pub fn canonicalize(path: []const u8, out: []u8) ?[]const u8 {
     var len: usize = 0;
     var i: usize = 0;
 

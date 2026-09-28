@@ -53,7 +53,32 @@ qemu-system-i386 -cdrom build/NovumOS.iso -nographic
 3. Make your changes
 4. Ensure the build passes
 5. Test in QEMU
-6. Submit a Pull Request
+6. Run host tests (see below)
+7. Submit a Pull Request
+
+### Running Tests
+
+The project includes host-based tests for pure logic (string utilities, hash tables, parsing, path policies).
+These run on the host machine without QEMU or kernel hardware.
+
+```bash
+# Run all host tests
+zig build test
+
+# Run individual test suites
+zig build test-str         # str.zig utility tests
+zig build test-hash-table  # hash_table.zig tests
+zig build test-common      # common.zig function tests
+zig build test-lexer       # lexer.zig token tests
+zig build test-parser      # parser.zig statement tests
+zig build test-path-policy # path_policy.zig canonicalization tests
+zig build test-cfg-write   # cfg_write.zig merge tests
+```
+
+Port-based tests (test_hash_table.zig, test_lexer.zig, test_parser.zig, test_common.zig)
+can also be run directly: `zig test zig/tests/test_hash_table.zig` etc.
+
+See `zig/tests/README.md` for details on the test architecture.
 
 ### Commit Messages
 
