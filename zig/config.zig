@@ -56,6 +56,7 @@ pub const ENABLE_BOOT_SPINNER = value(bool, "ENABLE_BOOT_SPINNER");
 pub const ENABLE_ASLR = value(bool, "ENABLE_ASLR");
 pub const ENABLE_WX_SEPARATION = value(bool, "ENABLE_WX_SEPARATION");
 pub const BUILD_HASH_SEED = value([]const u8, "BUILD_HASH_SEED");
+pub const ENABLE_MEM_STATS = value(bool, "ENABLE_MEM_STATS");
 
 /// Cryptographically random build-time seed injected by build.zig via
 /// std.Io.randomSecure(). Used for watchdog scatter checks.

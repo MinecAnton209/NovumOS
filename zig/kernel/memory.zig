@@ -129,6 +129,20 @@ pub fn clear_page_busy(idx: u32) bool {
     return true;
 }
 
+/// Public memory statistics for lsmem/pmap (gated by ENABLE_MEM_STATS in shell).
+pub fn pageIsFree(idx: u32) bool {
+    if (idx >= TOTAL_PAGES) return false;
+    const bit_idx: u3 = @intCast(idx % 8);
+    const mask = @as(u8, 1) << bit_idx;
+    return (@atomicLoad(u8, &bitmap[idx / 8], .seq_cst) & mask) == 0;
+}
+
+pub fn totalPages() usize { return TOTAL_PAGES; }
+pub fn freePages() usize { return free_page_count; }
+pub fn usedPages() usize { return TOTAL_PAGES - free_page_count; }
+
+pub const HeapRegion = struct { base: usize, end: usize };
+
 fn read_cmos(reg: u8) u8 {
     const addr = 0x70;
     const data = 0x71;
@@ -768,8 +782,16 @@ pub const heap = struct {
         region_count -= 1;
     }
 
-    /// Keep heap_high_water as the max end across all regions — the
-    /// target for the next contiguous-growth attempt.
+    pub fn regionCount() usize { return region_count; }
+    pub fn regionBase(idx: usize) usize {
+        return if (idx < region_count) regions[idx].base else 0;
+    }
+    pub fn regionEnd(idx: usize) usize {
+        return if (idx < region_count) regions[idx].end else 0;
+    }
+
+    // Keep heap_high_water as the max end across all regions — the
+    // target for the next contiguous-growth attempt.
     fn updateHighWater() void {
         var hw: usize = 0;
         var i: usize = 0;

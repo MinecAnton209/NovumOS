@@ -129,6 +129,8 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "la", .help = "List all files (including hidden)", .handler = cmd_handler_la, .kind = .custom },
     .{ .name = "lsdsk", .help = "List storage devices and partitions", .handler = no_args_handler(&shell_cmds.cmd_lsdsk), .kind = .no_args },
     .{ .name = "lspci", .help = "List PCI devices and hardware bridges", .handler = no_args_handler(&shell_cmds.cmd_lspci), .kind = .no_args },
+    .{ .name = "lsmem", .help = "Show physical memory map (regions, heap, size)", .handler = no_args_handler(&shell_cmds.cmd_lsmem), .kind = .no_args },
+    .{ .name = "pmap", .help = "Render page-bin histogram of free/used physical pages", .handler = no_args_handler(&shell_cmds.cmd_pmap), .kind = .no_args },
     .{ .name = "mount", .help = "mount <0|1> - Select active drive", .handler = guarded_handler(&shell_cmds.cmd_mount, "Usage: mount <drive>\n"), .kind = .guarded_args, .usage = "Usage: mount <drive>\n" },
     .{ .name = "mkdir", .help = "mkdir <name> - Create a new directory", .handler = guarded_handler(&shell_cmds.cmd_mkdir, "Usage: mkdir <name>\n"), .kind = .guarded_args, .usage = "Usage: mkdir <name>\n" },
     .{ .name = "md", .help = "Alias for mkdir", .handler = guarded_handler(&shell_cmds.cmd_mkdir, "Usage: mkdir <name>\n"), .kind = .guarded_args, .usage = "Usage: mkdir <name>\n" },

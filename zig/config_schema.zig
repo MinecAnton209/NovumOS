@@ -273,4 +273,10 @@ pub const schema = [_]kconfig.Field{
         .help = "Override BUILD_HASH for reproducible builds (empty = OS CSPRNG, else hex seed)",
         .desc = "When non-empty, BUILD_HASH is derived from this hex seed instead of the OS CSPRNG, making watchdog patterns and ASLR deterministic for reproducible builds.",
     },
+    .{
+        .name = "ENABLE_MEM_STATS",
+        .default = .{ .bool = true },
+        .help = "Physical memory map visualization (lsmem/pmap)",
+        .desc = "Enables the lsmem and pmap shell commands that render the physical address space by region (kernel, heap, free, page-bins). Disable to remove the stats printer and command surface for minimal builds.",
+    },
 };

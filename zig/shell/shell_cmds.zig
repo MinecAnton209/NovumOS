@@ -32,6 +32,7 @@ const lfb = @import("../drivers/lfb.zig");
 const calc = @import("../commands/calc.zig");
 const logger = @import("../kernel/logger.zig");
 const scheduler = @import("../kernel/scheduler.zig");
+const mem_stats = @import("../commands/mem_stats.zig");
 
 // Shell Commands Module
 // Bridges high-level command logic with individual command implementations.
@@ -157,6 +158,22 @@ pub export fn cmd_pwd() void {
 
 pub export fn cmd_lspci() void {
     pci_cmds.execute();
+}
+
+pub export fn cmd_lsmem() void {
+    if (!config.ENABLE_MEM_STATS) {
+        common.printZ("lsmem: disabled (ENABLE_MEM_STATS=n)\r\n");
+        return;
+    }
+    mem_stats.lsmem();
+}
+
+pub export fn cmd_pmap() void {
+    if (!config.ENABLE_MEM_STATS) {
+        common.printZ("pmap: disabled (ENABLE_MEM_STATS=n)\r\n");
+        return;
+    }
+    mem_stats.pmap();
 }
 
 pub export fn cmd_cp(args_ptr: [*]const u8, args_len: u32) void {

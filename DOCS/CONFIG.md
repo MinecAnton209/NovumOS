@@ -71,13 +71,15 @@ linked, and its commands disappear from `help`.
 | `ENABLE_BOOT_SPINNER` | Animated boot progress spinner during driver/disk init |
 | `ENABLE_ASLR` | Randomizes heap base (BUILD_HASH seed), Nova ELF load slide, and IDT base relocation; disable for reproducible boot addresses |
 | `ENABLE_WX_SEPARATION` | Tightens GDT code-segment limit to exact kernel code size — execute past code boundary → #GP → page fault (software W^X before NX-bit era) |
+| `ENABLE_MEM_STATS` | `lsmem`/`pmap` shell commands (physical memory map visualization, page-bin histogram) |
 
 ### Reproducible builds
 
 `BUILD_HASH_SEED` overrides the OS CSPRNG-based `BUILD_HASH`:
 
-- `= ""` (default) — `BUILD_HASH` from `getrandom`/BCryptGenRandom; fails back to XxHash of config text
+- `= ""` (default) — `BUILD_HASH` from `getrandom`/BCryptGenRandom; falls back to XxHash of config text
 - `=hex` (e.g. `CONFIG_BUILD_HASH_SEED=0xdeadbeef`) — deterministic `BUILD_HASH` from seed, fixing ASLR slide and watchdog chaos for reproducible builds
+- `zig build config` prints the fully resolved configuration (all 30+ options)
 
 ## Dependency validation
 
