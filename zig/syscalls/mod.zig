@@ -86,6 +86,7 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     const nova_mod = @import("nova.zig");
     const fd_mod = @import("fd.zig");
     const video_mod = @import("video.zig");
+    const meminfo_mod = @import("meminfo.zig");
 
     var table: [256]?HandlerPtr = [_]?HandlerPtr{null} ** 256;
     // Console
@@ -163,6 +164,11 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     // Memory mapping
     table[107] = &memory_mod.mmap;
     table[108] = &memory_mod.munmap;
+    // Physical memory info (lsmem/pmap syscalls)
+    if (config.ENABLE_MEM_STATS) {
+        table[115] = &meminfo_mod.memInfo;
+        table[116] = &meminfo_mod.pageBin;
+    }
     // Video/Graphics
     table[58] = &video_mod.setResolution;
     table[60] = &video_mod.getVideoMode;

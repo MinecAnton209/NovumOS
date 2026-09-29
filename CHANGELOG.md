@@ -30,6 +30,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Runtime ASLR for Nova ELF (`aslr.elSlide`) and IDT base (`exceptions.randomize_idt_base`)
 - `BUILD_HASH_SEED` config flag (empty = OS CSPRNG; hex = deterministic replay) enabling reproducible `zig build` while keeping ASLR/W^X
 - New `zig build config` host step printing the fully resolved `.config` with all 30+ options
+- Syscalls 115 (`mem_info`) and 116 (`page_bin`) exposing memory stats to Nova user-space via `syscall.mem_info`/`syscall.page_bin` (gated by `ENABLE_MEM_STATS`)
 - `test-gdt` host test target: `codeSegmentLimit` page-rounding, `packCodeEntry` access/granularity/encoding coverage (3 tests)
 - Kconfig test validates `defconfig` covers all schema fields
 

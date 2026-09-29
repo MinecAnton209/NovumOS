@@ -105,3 +105,15 @@ pub fn syscall4(n: u32, a1: u32, a2: u32, a3: u32, a4: u32) u32 {
           [a4] "{ebp}" (a4),
     );
 }
+
+// Syscall 115: meminfo — write {total, free, used} into user buf.
+// Returns 0 on success, 1 on invalid range.
+pub fn mem_info(buf: [*]u32) u32 {
+    return syscall1(115, @intFromPtr(buf));
+}
+
+// Syscall 116: pagebin — write {free_in_bin, total_in_bin} into user buf.
+// bin index in ecx (0-7).  Returns 0 ok, 1 bad range, 2 bad bin.
+pub fn page_bin(buf: [*]u32, bin: u32) u32 {
+    return syscall2(116, @intFromPtr(buf), bin);
+}
