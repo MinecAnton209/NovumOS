@@ -69,6 +69,15 @@ linked, and its commands disappear from `help`.
 | `ENABLE_IDT_WATCHDOG_SNAPSHOT` | Save IDT snapshot at boot for runtime watchdog comparison; disable if watchdog is off |
 | `ENABLE_WELCOME_MESSAGE` | Boot banner and welcome message on startup |
 | `ENABLE_BOOT_SPINNER` | Animated boot progress spinner during driver/disk init |
+| `ENABLE_ASLR` | Randomizes heap base (BUILD_HASH seed), Nova ELF load slide, and IDT base relocation; disable for reproducible boot addresses |
+| `ENABLE_WX_SEPARATION` | Tightens GDT code-segment limit to exact kernel code size — execute past code boundary → #GP → page fault (software W^X before NX-bit era) |
+
+### Reproducible builds
+
+`BUILD_HASH_SEED` overrides the OS CSPRNG-based `BUILD_HASH`:
+
+- `= ""` (default) — `BUILD_HASH` from `getrandom`/BCryptGenRandom; fails back to XxHash of config text
+- `=hex` (e.g. `CONFIG_BUILD_HASH_SEED=0xdeadbeef`) — deterministic `BUILD_HASH` from seed, fixing ASLR slide and watchdog chaos for reproducible builds
 
 ## Dependency validation
 
@@ -82,8 +91,9 @@ selections fail immediately with an error:
 | `ENABLE_ERROR_BEEP=y` | `ENABLE_SPEAKER=y` |
 | `ENABLE_EMBEDDED_ELFS=y` | `ENABLE_NOVA=y` (embedded ELFs are the Nova VM) |
 | `ENABLE_BUILTIN_SCRIPTS=y` | `ENABLE_NOVA=y` (scripts run on the Nova runtime) |
+| `ENABLE_STATUS_INDICATORS=y` | `ENABLE_VGA_TEXT=y` (indicators draw to VGA text buffer) |
 | `ENABLE_IDT_WATCHDOG_SNAPSHOT=y` | `ENABLE_IDT_WATCHDOG=y` (snapshot for watchdog comparison) |
-| `ENABLE_CLOCK_IN_PROMPT=y` | `ENABLE_SERIAL_INPUT=y` (clock uses serial mirror) |
+| `ENABLE_CLOCK_IN_PROMPT=y` | `ENABLE_SERIAL_INPUT=y` (clock uses serial mirror) | |
 | `ENABLE_STATUS_INDICATORS=y` | `ENABLE_VGA_TEXT=y` (indicators draw to VGA text buffer) |
 
 Measured on `build/kernel32.elf` vs the default build (364920 bytes):

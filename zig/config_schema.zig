@@ -267,4 +267,10 @@ pub const schema = [_]kconfig.Field{
         .help = "Write-XOR-Execute separation via CS limit tightening",
         .desc = "Enforces W^X by tightening the code-segment limit to the exact kernel code size and using a separate data segment. Pages outside the code limit cause #GP → page fault on execute. Requires i686+ limit fault support.",
     },
+    .{
+        .name = "BUILD_HASH_SEED",
+        .default = .{ .str = "" },
+        .help = "Override BUILD_HASH for reproducible builds (empty = OS CSPRNG, else hex seed)",
+        .desc = "When non-empty, BUILD_HASH is derived from this hex seed instead of the OS CSPRNG, making watchdog patterns and ASLR deterministic for reproducible builds.",
+    },
 };

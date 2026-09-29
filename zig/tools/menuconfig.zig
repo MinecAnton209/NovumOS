@@ -70,6 +70,7 @@ const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8, chi
         "ENABLE_FAT12", "ENABLE_FAT16", "ENABLE_FAT32", "ENABLE_LFN",
     }, .children = &.{} },
     .{ .name = "Security", .keys = &.{ "NOVA_PATH_POLICY_ENABLED", "ENABLE_ASLR", "ENABLE_WX_SEPARATION" }, .children = &.{} },
+    .{ .name = "Build", .keys = &.{ "BUILD_HASH_SEED" }, .children = &.{} },
     .{ .name = "Memory / Sizes", .keys = &.{"HEAP_INITIAL_SIZE"}, .children = &.{} },
 };
 

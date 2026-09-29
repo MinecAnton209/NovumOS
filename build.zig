@@ -120,18 +120,22 @@ pub fn build(b: *std.Build) void {
 
     const optimize = .ReleaseSmall;
 
-    // Generate a cryptographically secure build hash via the OS CSPRNG
-    // (getrandom on Linux, BCryptGenRandom on Windows, etc.).
-    // Ensures watchdog patterns are unpredictable across builds.
+    // Build hash: OS CSPRNG by default; deterministic from BUILD_HASH_SEED (hex)
+    // when set, for reproducible builds.  Used for watchdog chaos + ASLR slide.
     const build_hash: u32 = blk: {
+        const seed = kconfig.get([]const u8, &cfg_schema.schema, cfg.text, "BUILD_HASH_SEED") orelse "";
+        if (seed.len > 0) {
+            const Hasher = std.hash.XxHash32;
+            var h = Hasher.init(0);
+            h.update(seed);
+            break :blk h.final();
+        }
         var buf: [4]u8 = undefined;
         std.Io.randomSecure(b.graph.io, &buf) catch {
-            // If OS entropy unavailable, fall back to a deterministic hash
-            // of config text to at least vary per config.
-            const Hasher = std.hash.XxHash32;
-            var h = Hasher.init(0x9e3779b9);
-            h.update(cfg.text);
-            break :blk h.final();
+            const Hasher2 = std.hash.XxHash32;
+            var h2 = Hasher2.init(0x9e3779b9);
+            h2.update(cfg.text);
+            break :blk h2.final();
         };
         break :blk std.mem.readInt(u32, &buf, .little);
     };

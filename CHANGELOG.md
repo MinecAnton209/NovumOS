@@ -26,8 +26,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - `ENABLE_BOOT_SPINNER` flag to toggle boot progress animation
 - `ENABLE_ASLR` flag for Address Space Layout Randomization — randomizes kernel heap base at boot using `BUILD_HASH` as seed (x86-32 without PAE)
 - `ENABLE_WX_SEPARATION` flag enforcing Write-XOR-Execute via code-segment limit tightening (tightens GDT CS limit to exact kernel code size; execute past code boundary → #GP → page fault — software W^X before NX-bit era)
+- `ENABLE_ASLR` runtime randomization for Nova ELF load slide (via `aslr.elSlide`) and IDT base relocation (`exceptions.randomize_idt_base`)
+- `BUILD_HASH_SEED` config flag (empty = OS CSPRNG; hex = deterministic replay) enabling reproducible `zig build` while keeping ASLR/W^X
+- New `zig build config` host step printing the fully resolved `.config` with all 30+ options
 - `test-gdt` host test target: `codeSegmentLimit` page-rounding, `packCodeEntry` access/granularity/encoding coverage (3 tests)
-- Kconfig test: `defconfig` validates clean and covers `ENABLE_ASLR`/`ENABLE_WX_SEPARATION`
+- Kconfig test validates `defconfig` covers all schema fields
 
 ### Changed
 - Disable `NOVA_DEBUG` and `MOUSE_DEBUG` by default — these are debug trace options and should be opt-in
