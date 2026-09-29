@@ -283,6 +283,38 @@ pub fn build(b: *std.Build) void {
     const menuconfig_test_step = b.step("test-menuconfig", "Run menuconfig TUI tests");
     menuconfig_test_step.dependOn(&run_menuconfig_tests.step);
 
+    // config show: host tool printing resolved .config
+    const config_show_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tools/config_show.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    config_show_mod.addOptions("build_config", options);
+    const kconfig_mod = b.createModule(.{
+        .root_source_file = b.path("zig/kconfig.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    // config_schema.zig does `@import("kconfig.zig")` — redirect that name
+    // to the single kconfig_mod so the file is registered once.
+    const config_schema_mod = b.createModule(.{
+        .root_source_file = b.path("zig/config_schema.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+        .imports = &.{
+            .{ .name = "kconfig.zig", .module = kconfig_mod },
+        },
+    });
+    config_show_mod.addImport("kconfig", kconfig_mod);
+    config_show_mod.addImport("config_schema", config_schema_mod);
+    const config_show_exe = b.addExecutable(.{
+        .name = "config-show",
+        .root_module = config_show_mod,
+    });
+    const run_config_show = b.addRunArtifact(config_show_exe);
+    run_config_show.stdio = .inherit;
+    const config_show_step = b.step("config", "Show resolved kernel configuration");
+    config_show_step.dependOn(&run_config_show.step);
     // Nova User-Space ELF
     if (nova_on) {
         const nova_mod = b.createModule(.{

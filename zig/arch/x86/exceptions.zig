@@ -131,6 +131,34 @@ pub export fn init_exception_handling() void {
     df_tss.cr3 = get_cr3();
 }
 
+extern var idt_start: u8;
+
+// IDT ASLR: relocate the 256-entry (2048-byte) table to a fresh page with a
+// page-aligned random slide derived from BUILD_HASH.  Gate handlers keep
+// selector 0x08 — only the table base moves.
+pub fn randomize_idt_base() void {
+    if (!config.ENABLE_ASLR) return;
+
+    const IDT_SIZE = 256 * 8;
+    const page = memory.pmm.alloc_page() orelse return;
+    const page_aligned = page; // pmm returns page-aligned phys addr
+
+    // Copy existing gate entries (set up by idt_init in idt.asm)
+    @memcpy(@as([*]u8, @ptrFromInt(page_aligned))[0..IDT_SIZE],
+            (@as([*]u8, @ptrFromInt(@intFromPtr(&idt_start)))[0..IDT_SIZE]));
+
+    // Load new IDT pointing at the relocated table
+    const Idtr = packed struct { limit: u16, base: u32 };
+    var idtr: Idtr = .{
+        .limit = @as(u16, IDT_SIZE - 1),
+        .base = @intCast(page_aligned),
+    };
+    asm volatile ("lidt (%[ptr])"
+        :
+        : [ptr] "r" (&idtr),
+    );
+}
+
 extern fn double_fault_handler_task() void;
 
 fn get_cr3() u32 {

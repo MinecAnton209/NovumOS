@@ -3,6 +3,7 @@ const memory = @import("memory.zig");
 const user = @import("../arch/mod.zig").user;
 const logger = @import("logger.zig");
 const config = @import("../config.zig");
+const aslr = @import("aslr.zig");
 
 // ELF Loader for NovumOS
 
@@ -100,10 +101,10 @@ pub fn load_and_run(data: []const u8) !noreturn {
             // map_range handles Ring 3 → Ring 0 transition via syscall 15
             // when called from the shell (running in Ring 3).
             // This avoids #GP on privileged instructions like invlpg.
-            memory.map_range(ph.vaddr, ph.memsz, true);
+            memory.map_range(ph.vaddr + aslr.elfSlide(), ph.memsz, true);
 
             // Copy file data to segment
-            const dest = @as([*]u8, @ptrFromInt(ph.vaddr));
+            const dest = @as([*]u8, @ptrFromInt(ph.vaddr + aslr.elfSlide()));
             @memcpy(dest[0..ph.filesz], data[ph.offset .. ph.offset + ph.filesz]);
 
             // Zero BSS (pages already mapped by the loop above)
@@ -114,7 +115,7 @@ pub fn load_and_run(data: []const u8) !noreturn {
     }
 
     logger.info("Jumping to Ring 3 ELF...");
-    user.jump_to_user_mode_with_entry(header.entry, false);
+    user.jump_to_user_mode_with_entry(header.entry + aslr.elfSlide(), false);
 }
 
 /// Load and run the embedded nova_legacy.elf (backward compat, same binary).

@@ -247,6 +247,10 @@ export fn kmain() void {
         smp.init();
         logger.trace("boot: SMP online");
     }
+    if (config.ENABLE_ASLR) {
+        exceptions.randomize_idt_base();
+        logger.trace("boot: IDT relocated (ASLR)");
+    }
     if (config.ENABLE_IDT_WATCHDOG_SNAPSHOT) {
         idt_watchdog.save_snapshot();
         logger.trace("boot: IDT snapshot saved");

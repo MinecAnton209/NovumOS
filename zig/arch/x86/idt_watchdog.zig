@@ -13,6 +13,8 @@ const memory = @import("../../kernel/memory.zig");
 // - Obfuscated key access (can't просто read key[i])
 
 extern var idt_start: u8;
+extern var idt_descriptor: anyopaque;
+extern const idt_end: u8;
 
 // Key permutation at compile time
 const KEY_PERM = [16]u8{ 3, 7, 1, 15, 0, 9, 4, 12, 2, 8, 5, 14, 11, 6, 10, 13 };
