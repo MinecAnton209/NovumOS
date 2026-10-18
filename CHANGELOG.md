@@ -7,7 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
-- `ENABLE_PROFILER` flag and `prof` shell command: timer-based sampling profiler (100 Hz, boot processor) reporting hot kernel and user instruction addresses; `scripts/prof-symbolize.py` maps kernel addresses to function names
+- `ENABLE_PROFILER` flag and `prof` shell command: timer-based sampling profiler (100 Hz, boot processor) reporting hot kernel and user instruction addresses; `scripts/prof-symbolize.py` maps kernel addresses to function names using the unstripped `build/kernel32.debug.elf` (the shipped `kernel32.elf` stays stripped)
 - Host test suite: 7 test targets (`test-str`, `test-hash-table`, `test-common`, `test-lexer`, `test-parser`, `test-path-policy`, `test-cfg-write`) via `zig build test` (~180 tests)
 - Test documentation in `zig/tests/README.md`
 - Testing section in `CONTRIBUTING.md`

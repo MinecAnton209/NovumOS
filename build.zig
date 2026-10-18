@@ -201,6 +201,16 @@ pub fn build(b: *std.Build) void {
     nasm_tr.addArg("-o");
     const tramp_bin = nasm_tr.addOutputFileArg("trampoline.bin");
 
+    // Two links from the same inputs: the unstripped copy keeps the symbols that
+    // scripts/prof-symbolize.py needs to resolve `prof report` addresses.
+    const link_debug_cmd = b.addSystemCommand(&.{ "zig", "ld.lld", "-m", "elf_i386", "-T" });
+    link_debug_cmd.addFileArg(b.path("arch/x86/linker.ld"));
+    link_debug_cmd.addArg("-o");
+    const kernel_debug_elf = link_debug_cmd.addOutputFileArg("kernel32.debug.elf");
+    link_debug_cmd.addFileArg(k32_o);
+    link_debug_cmd.addFileArg(um_o);
+    link_debug_cmd.addFileArg(kernel.getEmittedBin());
+
     const link_cmd = b.addSystemCommand(&.{ "zig", "ld.lld", "-m", "elf_i386", "-T" });
     link_cmd.addFileArg(b.path("arch/x86/linker.ld"));
     link_cmd.addArg("--strip-all");
@@ -210,6 +220,8 @@ pub fn build(b: *std.Build) void {
     link_cmd.addFileArg(um_o);
     link_cmd.addFileArg(kernel.getEmittedBin());
 
+    const install_debug_elf = b.addInstallFileWithDir(kernel_debug_elf, .{ .custom = "../build" }, "kernel32.debug.elf");
+    b.default_step.dependOn(&install_debug_elf.step);
     const install_elf = b.addInstallFileWithDir(kernel_elf, .{ .custom = "../build" }, "kernel32.elf");
     const install_tramp = b.addInstallFileWithDir(tramp_bin, .{ .custom = "../build" }, "trampoline.bin");
     b.default_step.dependOn(&install_elf.step);
