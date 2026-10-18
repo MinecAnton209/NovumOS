@@ -419,6 +419,21 @@ pub fn build(b: *std.Build) void {
     profiler_table_test_step.dependOn(&run_profiler_table_tests.step);
     test_step.dependOn(&run_profiler_table_tests.step);
 
+    // log_ring.zig tests: kernel log byte ring behind the dmesg command
+    const log_ring_test_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tests/test_log_ring.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    log_ring_test_mod.addAnonymousImport("log_ring", .{
+        .root_source_file = b.path("zig/kernel/log_ring.zig"),
+    });
+    const log_ring_tests = b.addTest(.{ .root_module = log_ring_test_mod });
+    const run_log_ring_tests = b.addRunArtifact(log_ring_tests);
+    const log_ring_test_step = b.step("test-log-ring", "Run kernel log ring tests");
+    log_ring_test_step.dependOn(&run_log_ring_tests.step);
+    test_step.dependOn(&run_log_ring_tests.step);
+
     // hash_table.zig tests: self-contained port with host allocator
     const hash_table_test_mod = b.createModule(.{
         .root_source_file = b.path("zig/tests/test_hash_table.zig"),

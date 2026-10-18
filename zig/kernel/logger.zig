@@ -1,6 +1,7 @@
 const common = @import("../commands/common.zig");
 const vga = @import("../drivers/vga.zig");
 const config = @import("../config.zig");
+const dmesg = @import("dmesg.zig");
 
 // NovumOS Kernel Logger
 // Provides colored, formatted, and toggleable logging for system events.
@@ -39,6 +40,9 @@ fn internal_log(level: Level, prefix: []const u8, msg: []const u8) void {
     vga.set_color(15, 0); // Reset to White for the message
     common.printZ(msg);
     common.printZ("\n");
+    dmesg.append(prefix);
+    dmesg.append(msg);
+    dmesg.append("\n");
 
     // Restore original color
     vga.set_color(@intCast((original_color >> 8) & 0x0F), @intCast((original_color >> 12) & 0x0F));
@@ -59,6 +63,9 @@ pub fn trace(msg: []const u8) void {
     vga.set_color(15, 0);
     common.printZ(msg);
     common.printZ("\n");
+    dmesg.append("[ BOOT ] ");
+    dmesg.append(msg);
+    dmesg.append("\n");
     vga.set_color(@intCast((original_color >> 8) & 0x0F), @intCast((original_color >> 12) & 0x0F));
 }
 
@@ -83,6 +90,9 @@ pub fn security(msg: []const u8) void {
     vga.set_color(15, 0);
     common.printZ(msg);
     common.printZ("\n");
+    dmesg.append("[SECURITY] ");
+    dmesg.append(msg);
+    dmesg.append("\n");
 }
 
 pub fn debug(msg: []const u8) void {

@@ -131,6 +131,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "lspci", .help = "List PCI devices and hardware bridges", .handler = no_args_handler(&shell_cmds.cmd_lspci), .kind = .no_args },
     .{ .name = "lsmem", .help = "Show physical memory map (regions, heap, size)", .handler = no_args_handler(&shell_cmds.cmd_lsmem), .kind = .no_args },
     .{ .name = "pmap", .help = "Render page-bin histogram of free/used physical pages", .handler = no_args_handler(&shell_cmds.cmd_pmap), .kind = .no_args },
+    .{ .name = "dmesg", .help = "Show kernel log output kept in memory", .handler = no_args_handler(&shell_cmds.cmd_dmesg), .kind = .no_args },
     .{ .name = "prof", .help = "prof <start|stop|reset|report> - Timer-based sampling profiler", .handler = guarded_handler(&shell_cmds.cmd_prof, "Usage: prof <start|stop|reset|report>\n"), .kind = .guarded_args, .usage = "Usage: prof <start|stop|reset|report>\n" },
     .{ .name = "mount", .help = "mount <0|1> - Select active drive", .handler = guarded_handler(&shell_cmds.cmd_mount, "Usage: mount <drive>\n"), .kind = .guarded_args, .usage = "Usage: mount <drive>\n" },
     .{ .name = "mkdir", .help = "mkdir <name> - Create a new directory", .handler = guarded_handler(&shell_cmds.cmd_mkdir, "Usage: mkdir <name>\n"), .kind = .guarded_args, .usage = "Usage: mkdir <name>\n" },

@@ -2,6 +2,7 @@ const std = @import("std");
 const config = @import("../config.zig");
 const common = @import("../commands/common.zig");
 const SampleTable = @import("profiler_table.zig").SampleTable;
+const irq = @import("irq.zig");
 
 // Sampling runs from the PIT IRQ0 handler, so only the boot processor is profiled.
 // Addresses are printed raw; scripts/prof-symbolize.py maps kernel addresses to names.
@@ -47,18 +48,18 @@ pub fn stop() void {
 }
 
 pub fn reset() void {
-    const flags = irq_save();
+    const flags = irq.irq_save();
     kernel_table.reset();
     user_table.reset();
-    irq_restore(flags);
+    irq.irq_restore(flags);
     common.printZ("prof: counters cleared\n");
 }
 
 pub fn report() void {
-    const flags = irq_save();
+    const flags = irq.irq_save();
     snap_kernel = kernel_table;
     snap_user = user_table;
-    irq_restore(flags);
+    irq.irq_restore(flags);
 
     const total = snap_kernel.total +| snap_user.total;
     common.printZ("Profile: ");
@@ -130,18 +131,3 @@ fn percent(count: u32, total: u32) u32 {
     return count * 100 / total;
 }
 
-fn irq_save() u32 {
-    var flags: u32 = undefined;
-    asm volatile ("pushfl; popl %[f]"
-        : [f] "=r" (flags),
-    );
-    asm volatile ("cli");
-    return flags;
-}
-
-fn irq_restore(flags: u32) void {
-    asm volatile ("pushl %[f]; popfl"
-        :
-        : [f] "r" (flags),
-        : .{ .memory = true });
-}

@@ -19,12 +19,13 @@ const root_opt_keys = [_][]const u8{
 // Reverse-dependency map: when an option is disabled, these dependent
 // options are also disabled automatically. Mirrors Kconfig semantics.
 // Each entry: "provider" => list of options that depend on it.
-const reverse_deps: [5]struct { provider: []const u8, dependents: []const []const u8 } = .{
+const reverse_deps: [6]struct { provider: []const u8, dependents: []const []const u8 } = .{
     .{ .provider = "ENABLE_ACPI",       .dependents = &[_][]const u8{"ENABLE_SMP"} },
     .{ .provider = "ENABLE_SPEAKER",    .dependents = &[_][]const u8{"ENABLE_BOOT_BEEP", "ENABLE_ERROR_BEEP"} },
     .{ .provider = "ENABLE_NOVA",       .dependents = &[_][]const u8{"ENABLE_EMBEDDED_ELFS", "ENABLE_BUILTIN_SCRIPTS"} },
     .{ .provider = "ENABLE_QUANTUM",    .dependents = &[_][]const u8{"ENABLE_DOOMFIRE"} },
     .{ .provider = "ENABLE_IDT_WATCHDOG", .dependents = &[_][]const u8{"ENABLE_IDT_WATCHDOG_SNAPSHOT"} },
+    .{ .provider = "ENABLE_KERNEL_LOGGING", .dependents = &[_][]const u8{"ENABLE_DMESG"} },
 };
 
 fn findRequiredBy(name: []const u8) ?[]const u8 {
@@ -71,7 +72,7 @@ const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8, chi
     }, .children = &.{} },
     .{ .name = "Security", .keys = &.{ "NOVA_PATH_POLICY_ENABLED", "ENABLE_ASLR", "ENABLE_WX_SEPARATION" }, .children = &.{} },
     .{ .name = "Build", .keys = &.{ "BUILD_HASH_SEED" }, .children = &.{} },
-    .{ .name = "System", .keys = &.{ "ENABLE_MEM_STATS", "ENABLE_PROFILER" }, .children = &.{} },
+    .{ .name = "System", .keys = &.{ "ENABLE_MEM_STATS", "ENABLE_PROFILER", "ENABLE_DMESG" }, .children = &.{} },
     .{ .name = "Memory / Sizes", .keys = &.{"HEAP_INITIAL_SIZE"}, .children = &.{} },
 };
 

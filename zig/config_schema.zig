@@ -88,6 +88,12 @@ pub const schema = [_]kconfig.Field{
         .desc = "Enables the in-memory circular log ring buffer and formatted log levels (INFO, WARN, ERROR, DEBUG) for runtime inspection.",
     },
     .{
+        .name = "ENABLE_DMESG",
+        .default = .{ .bool = true },
+        .help = "dmesg command: replay recent kernel log output from memory",
+        .desc = "Keeps the last 4 KiB of kernel log output (logger messages, boot trace and security events) in a ring buffer and prints it with the dmesg shell command. Requires ENABLE_KERNEL_LOGGING=y to record normal log levels. Disable to drop the 4 KiB buffer and the command.",
+    },
+    .{
         .name = "ENABLE_BOOT_TRACE",
         .default = .{ .bool = false },
         .help = "Stage-by-stage boot trace (kmain to shell)",
