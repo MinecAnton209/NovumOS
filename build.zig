@@ -449,6 +449,21 @@ pub fn build(b: *std.Build) void {
     cpu_time_test_step.dependOn(&run_cpu_time_tests.step);
     test_step.dependOn(&run_cpu_time_tests.step);
 
+    // stride.zig tests: weighted stride scheduling picks and long-run shares
+    const stride_test_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tests/test_stride.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    stride_test_mod.addAnonymousImport("stride", .{
+        .root_source_file = b.path("zig/kernel/stride.zig"),
+    });
+    const stride_tests = b.addTest(.{ .root_module = stride_test_mod });
+    const run_stride_tests = b.addRunArtifact(stride_tests);
+    const stride_test_step = b.step("test-stride", "Run stride scheduler tests");
+    stride_test_step.dependOn(&run_stride_tests.step);
+    test_step.dependOn(&run_stride_tests.step);
+
     // hash_table.zig tests: self-contained port with host allocator
     const hash_table_test_mod = b.createModule(.{
         .root_source_file = b.path("zig/tests/test_hash_table.zig"),

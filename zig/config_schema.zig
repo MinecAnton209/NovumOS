@@ -94,6 +94,12 @@ pub const schema = [_]kconfig.Field{
         .desc = "Credits each timer tick to the process that owned the core and shows the total in the CPU time column of ps. Disable to remove the per-tick counter update from the scheduler.",
     },
     .{
+        .name = "ENABLE_STRIDE_SCHEDULER",
+        .default = .{ .bool = true },
+        .help = "Weighted stride scheduler (nice command, pass-based picks)",
+        .desc = "Replaces plain round-robin with stride scheduling: each task advances a virtual pass by 1/weight per quantum and the smallest pass runs next, so CPU shares follow the weight set by nice (1-16). Disable for plain round-robin; nice and sched-test then report unavailable.",
+    },
+    .{
         .name = "ENABLE_DMESG",
         .default = .{ .bool = true },
         .help = "dmesg command: replay recent kernel log output from memory",

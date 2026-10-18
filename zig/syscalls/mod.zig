@@ -87,6 +87,7 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     const fd_mod = @import("fd.zig");
     const video_mod = @import("video.zig");
     const meminfo_mod = @import("meminfo.zig");
+    const sched_test_mod = @import("../kernel/sched_test.zig");
 
     var table: [256]?HandlerPtr = [_]?HandlerPtr{null} ** 256;
     // Console
@@ -168,6 +169,10 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     if (config.ENABLE_MEM_STATS) {
         table[115] = &meminfo_mod.memInfo;
         table[116] = &meminfo_mod.pageBin;
+    }
+    // Scheduler debug harness (spawns weighted CPU-bound tasks from Ring 0)
+    if (config.ENABLE_DEBUG_COMMANDS and config.ENABLE_STRIDE_SCHEDULER) {
+        table[117] = &sched_test_mod.sysSpawn;
     }
     // Video/Graphics
     table[58] = &video_mod.setResolution;

@@ -7,6 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- `ENABLE_STRIDE_SCHEDULER` flag: weighted stride scheduler replaces plain round-robin; `nice <pid> <1-16>` sets the weight; debug `sched-test` (needs `ENABLE_DEBUG_COMMANDS`) spawns a weight-1 and a weight-4 task and reports their CPU time (QEMU: 830 ms vs 3320 ms)
 - `ENABLE_PROCESS_ACCOUNTING` flag: per-process CPU time from timer ticks, shown in the `ps` CPU time column
 - `ENABLE_DMESG` flag and `dmesg` shell command: 4 KiB kernel log ring buffer (logger, boot trace and security messages) replayed on demand; the ring buffer promised by `ENABLE_KERNEL_LOGGING` now exists
 - `ENABLE_PROFILER` flag and `prof` shell command: timer-based sampling profiler (100 Hz, boot processor) reporting hot kernel and user instruction addresses; `scripts/prof-symbolize.py` maps kernel addresses to function names using the unstripped `build/kernel32.debug.elf` (the shipped `kernel32.elf` stays stripped)

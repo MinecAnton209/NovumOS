@@ -6,6 +6,7 @@ const smp = @import("../arch/mod.zig").smp;
 const common = @import("../commands/common.zig");
 const config = @import("../config.zig");
 const cpu_time = @import("cpu_time.zig");
+const stride = @import("stride.zig");
 const timer = @import("../drivers/timer.zig");
 
 pub const ProcessState = enum {
@@ -29,6 +30,8 @@ pub const Process = struct {
     name_owned: bool,
     /// Timer ticks this process owned a core for (ENABLE_PROCESS_ACCOUNTING).
     cpu_ticks: u32 = 0,
+    /// Stride scheduler virtual time; the runnable task with the smallest pass runs next.
+    pass: u32 = 0,
 
     // Stack for the process
     stack: []u8,
@@ -112,6 +115,7 @@ pub fn bootstrap(esp: u32) void {
     p.cwd = "/";
     p.is_idle = false;
     p.cpu_ticks = 0;
+    p.pass = 0;
     p.esp = esp;
     p.cr3 = memory.get_current_pd();
     p.stack = &[_]u8{}; // Initial process uses the boot stack
@@ -183,6 +187,8 @@ fn create_process_locked(name: []const u8, entry_point: usize, is_user: bool, is
     p.cwd = "/";
     p.is_idle = is_idle;
     p.cpu_ticks = 0;
+    // Joining at the current minimum keeps a new task from replaying the CPU share it never asked for.
+    p.pass = min_runnable_pass_locked();
     p.stack = stack;
     p.fd_table = [_]i16{-1} ** FD_TABLE_SIZE;
 
@@ -316,7 +322,36 @@ fn maybe_watchdog(current_esp: u32) void {
 /// own idle thread takes over (created on first use). null means
 /// nothing is runnable and no idle could be created — the caller keeps
 /// the interrupted context as a last resort.
+fn min_runnable_pass_locked() u32 {
+    var best: ?u32 = null;
+    for (processes) |maybe_p| {
+        const p = maybe_p orelse continue;
+        if (p.is_idle or p.state == .Terminated) continue;
+        if (best == null or stride.passBefore(p.pass, best.?)) best = p.pass;
+    }
+    return best orelse 0;
+}
+
+fn pick_stride_locked(cpu: u8) ?*Process {
+    var passes: [NUM_SLOTS]u32 = undefined;
+    var eligible: [NUM_SLOTS]bool = undefined;
+    for (processes, 0..) |maybe_p, idx| {
+        passes[idx] = if (maybe_p) |p| p.pass else 0;
+        eligible[idx] = if (maybe_p) |p| p.state == .Ready and !p.is_idle else false;
+    }
+    const idx = stride.pickIndex(&passes, &eligible) orelse return null;
+    const p = processes[idx].?;
+    p.pass +%= stride.strideFor(p.priority);
+    p.state = .Running;
+    current_procs[cpu] = p;
+    return p;
+}
+
 fn pick_next_esp_locked(cpu: u8, allow_idle_create: bool) ?u32 {
+    if (config.ENABLE_STRIDE_SCHEDULER) {
+        if (pick_stride_locked(cpu)) |p| return p.esp;
+    }
+
     var i: u32 = 0;
     while (i < NUM_SLOTS) : (i += 1) {
         current_process_idx = (current_process_idx + 1) % NUM_SLOTS;
@@ -392,6 +427,21 @@ pub fn schedule(current_esp: u32) u32 {
         if (o.state == .Ready) o.state = .Running;
     }
     return current_esp;
+}
+
+/// Sets the weight used by the stride scheduler (clamped to the supported range).
+/// Returns false if no live process has that pid.
+pub fn set_priority(pid: u32, weight: u32) bool {
+    const eflags = sched_enter();
+    defer sched_leave(eflags);
+    for (processes) |maybe_p| {
+        const p = maybe_p orelse continue;
+        if (p.id == pid and p.state != .Terminated) {
+            p.priority = stride.clampWeight(weight);
+            return true;
+        }
+    }
+    return false;
 }
 
 pub fn list_processes() void {

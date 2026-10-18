@@ -35,6 +35,7 @@ const scheduler = @import("../kernel/scheduler.zig");
 const mem_stats = @import("../commands/mem_stats.zig");
 const profiler = @import("../kernel/profiler.zig");
 const dmesg = @import("../kernel/dmesg.zig");
+const sched_test = @import("../kernel/sched_test.zig");
 
 // Shell Commands Module
 // Bridges high-level command logic with individual command implementations.
@@ -1866,6 +1867,40 @@ pub export fn cmd_res(args_ptr: [*]const u8, args_len: u32) void {
     } else {
         common.printZ("Error: BGA not available or resolution not supported.\n");
     }
+}
+
+pub export fn cmd_nice(args_ptr: [*]const u8, args_len: u32) void {
+    if (!config.ENABLE_STRIDE_SCHEDULER) {
+        common.printZ("nice: disabled (ENABLE_STRIDE_SCHEDULER=n)\n");
+        return;
+    }
+    var argv: [8][]const u8 = undefined;
+    const argc = common.parseArgs(args_ptr[0..args_len], &argv);
+    if (argc < 2) {
+        common.printZ("Usage: nice <pid> <weight 1-16>\n");
+        return;
+    }
+    const pid = common.parse_int(argv[0]) orelse {
+        common.printZ("Error: invalid pid\n");
+        return;
+    };
+    const weight = common.parse_int(argv[1]) orelse {
+        common.printZ("Error: invalid weight\n");
+        return;
+    };
+    if (weight < 1 or weight > 16) {
+        common.printZ("Error: weight must be between 1 and 16\n");
+        return;
+    }
+    if (scheduler.set_priority(@intCast(pid), @intCast(weight))) {
+        common.printZ("nice: weight updated\n");
+    } else {
+        common.printZ("Error: no such process\n");
+    }
+}
+
+pub export fn cmd_sched_test() void {
+    sched_test.run();
 }
 
 pub export fn cmd_kill(args_ptr: [*]const u8, args_len: u32) void {

@@ -120,6 +120,7 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "top", .help = "Real-time CPU and Task Monitor", .handler = no_args_handler(&top_cmd.cmd_top), .kind = .no_args },
     .{ .name = "ps", .help = "List active system processes", .handler = no_args_handler(&shell_cmds.cmd_ps), .kind = .no_args },
     .{ .name = "kill", .help = "kill <pid> - Terminate a running process", .handler = cmd_handler_kill, .kind = .custom },
+    .{ .name = "nice", .help = "nice <pid> <1-16> - Set stride scheduler weight", .handler = guarded_handler(&shell_cmds.cmd_nice, "Usage: nice <pid> <weight 1-16>\n"), .kind = .guarded_args, .usage = "Usage: nice <pid> <weight 1-16>\n" },
     .{ .name = "uptime", .help = "Show system runtime and RTC time", .handler = no_args_handler(&shell_cmds.cmd_uptime), .kind = .no_args },
     .{ .name = "reboot", .help = "Safely restart the system", .handler = no_args_handler(&shell_cmds.cmd_reboot), .kind = .no_args },
     .{ .name = "shutdown", .help = "Safely turn off the system (ACPI)", .handler = no_args_handler(&shell_cmds.cmd_shutdown), .kind = .no_args },
@@ -201,6 +202,8 @@ const SHELL_COMMANDS = [_]Command{
 } else [_]Command{}) ++ (if (config.ENABLE_DEBUG_COMMANDS and config.ENABLE_SMP) [_]Command{
     .{ .name = "smp-test", .help = "Test global task queue across cores", .handler = no_args_handler(&shell_cmds.cmd_smp_test), .kind = .no_args },
     .{ .name = "stress-test", .help = "Run heavy math on AP cores while BSP stays free", .handler = no_args_handler(&shell_cmds.cmd_stress_test), .kind = .no_args },
+} else [_]Command{}) ++ (if (config.ENABLE_DEBUG_COMMANDS and config.ENABLE_STRIDE_SCHEDULER) [_]Command{
+    .{ .name = "sched-test", .help = "Run two weighted CPU-bound tasks (1 vs 4) and print their CPU time", .handler = no_args_handler(&shell_cmds.cmd_sched_test), .kind = .no_args },
 } else [_]Command{}) ++ (if (config.ENABLE_FAT12) [_]Command{
     .{ .name = "mkfs-fat12", .help = "Format drive as FAT12 (legacy)", .handler = guarded_handler(&shell_cmds.cmd_mkfs_fat12, "Usage: mkfs-fat12 <drive>\n"), .kind = .guarded_args, .usage = "Usage: mkfs-fat12 <drive>\n" },
 } else [_]Command{}) ++ (if (config.ENABLE_FAT16) [_]Command{

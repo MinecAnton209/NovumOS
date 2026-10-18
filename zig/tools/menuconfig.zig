@@ -72,7 +72,7 @@ const submenu_defs = [_]struct { name: []const u8, keys: []const []const u8, chi
     }, .children = &.{} },
     .{ .name = "Security", .keys = &.{ "NOVA_PATH_POLICY_ENABLED", "ENABLE_ASLR", "ENABLE_WX_SEPARATION" }, .children = &.{} },
     .{ .name = "Build", .keys = &.{ "BUILD_HASH_SEED" }, .children = &.{} },
-    .{ .name = "System", .keys = &.{ "ENABLE_MEM_STATS", "ENABLE_PROFILER", "ENABLE_DMESG", "ENABLE_PROCESS_ACCOUNTING" }, .children = &.{} },
+    .{ .name = "System", .keys = &.{ "ENABLE_MEM_STATS", "ENABLE_PROFILER", "ENABLE_DMESG", "ENABLE_PROCESS_ACCOUNTING", "ENABLE_STRIDE_SCHEDULER" }, .children = &.{} },
     .{ .name = "Memory / Sizes", .keys = &.{"HEAP_INITIAL_SIZE"}, .children = &.{} },
 };
 
