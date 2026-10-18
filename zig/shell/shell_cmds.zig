@@ -33,6 +33,7 @@ const calc = @import("../commands/calc.zig");
 const logger = @import("../kernel/logger.zig");
 const scheduler = @import("../kernel/scheduler.zig");
 const mem_stats = @import("../commands/mem_stats.zig");
+const profiler = @import("../kernel/profiler.zig");
 
 // Shell Commands Module
 // Bridges high-level command logic with individual command implementations.
@@ -174,6 +175,10 @@ pub export fn cmd_pmap() void {
         return;
     }
     mem_stats.pmap();
+}
+
+pub export fn cmd_prof(args_ptr: [*]const u8, args_len: u32) void {
+    profiler.command(args_ptr[0..args_len]);
 }
 
 pub export fn cmd_cp(args_ptr: [*]const u8, args_len: u32) void {

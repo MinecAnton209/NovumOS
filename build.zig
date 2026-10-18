@@ -392,6 +392,21 @@ pub fn build(b: *std.Build) void {
     const str_test_step = b.step("test-str", "Run str.zig utility tests");
     str_test_step.dependOn(&run_str_tests.step);
 
+    // profiler_table.zig tests: fixed-capacity sample histogram
+    const profiler_table_test_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tests/test_profiler_table.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    profiler_table_test_mod.addAnonymousImport("profiler_table", .{
+        .root_source_file = b.path("zig/kernel/profiler_table.zig"),
+    });
+    const profiler_table_tests = b.addTest(.{ .root_module = profiler_table_test_mod });
+    const run_profiler_table_tests = b.addRunArtifact(profiler_table_tests);
+    const profiler_table_test_step = b.step("test-profiler-table", "Run profiler sample table tests");
+    profiler_table_test_step.dependOn(&run_profiler_table_tests.step);
+    test_step.dependOn(&run_profiler_table_tests.step);
+
     // hash_table.zig tests: self-contained port with host allocator
     const hash_table_test_mod = b.createModule(.{
         .root_source_file = b.path("zig/tests/test_hash_table.zig"),

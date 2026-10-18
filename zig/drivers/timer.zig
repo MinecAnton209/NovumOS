@@ -60,6 +60,10 @@ pub export fn isr_timer(esp: u32) u32 {
         }
     }
 
+    if (config.ENABLE_PROFILER) {
+        @import("../kernel/profiler.zig").on_tick(esp);
+    }
+
     if (tick_callback) |cb| cb();
 
     const scheduler = @import("../kernel/scheduler.zig");

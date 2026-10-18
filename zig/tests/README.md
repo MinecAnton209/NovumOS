@@ -15,6 +15,7 @@ Run via `zig build`:
 | `zig build test-lexer`  | `zig/nova_legacy/lexer.zig` | Tokenized (ported logic)                 |
 | `zig build test-parser` | `zig/nova_legacy/parser.zig` | Statement parsing (ported logic)         |
 | `zig build test-path-policy` | `zig/kernel/path_policy.zig` | Path canonicalization, blocked paths |
+| `zig build test-profiler-table` | `zig/kernel/profiler_table.zig` | Sample histogram: probing, drops, top-N ordering, saturation |
 | `zig build test-cfg-write` | `zig/tools/cfg_write.zig`   | Config merge logic                       |
 | `zig build test`        | All of the above           | Combined test target                     |
 

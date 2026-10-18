@@ -279,4 +279,10 @@ pub const schema = [_]kconfig.Field{
         .help = "Physical memory map visualization (lsmem/pmap)",
         .desc = "Enables the lsmem and pmap shell commands that render the physical address space by region (kernel, heap, free, page-bins). Disable to remove the stats printer and command surface for minimal builds.",
     },
+    .{
+        .name = "ENABLE_PROFILER",
+        .default = .{ .bool = true },
+        .help = "Timer-based sampling profiler (prof command)",
+        .desc = "Samples the interrupted instruction pointer on every PIT tick (100 Hz, boot processor only) and reports hot kernel and user addresses via the prof shell command. Disable to remove the sampling hook from the timer ISR and the command.",
+    },
 };
