@@ -58,6 +58,7 @@ pub const ENABLE_WX_SEPARATION = value(bool, "ENABLE_WX_SEPARATION");
 pub const BUILD_HASH_SEED = value([]const u8, "BUILD_HASH_SEED");
 pub const ENABLE_MEM_STATS = value(bool, "ENABLE_MEM_STATS");
 pub const ENABLE_DMESG = value(bool, "ENABLE_DMESG");
+pub const ENABLE_PROCESS_ACCOUNTING = value(bool, "ENABLE_PROCESS_ACCOUNTING");
 pub const ENABLE_PROFILER = value(bool, "ENABLE_PROFILER");
 
 /// Cryptographically random build-time seed injected by build.zig via

@@ -88,6 +88,12 @@ pub const schema = [_]kconfig.Field{
         .desc = "Enables the in-memory circular log ring buffer and formatted log levels (INFO, WARN, ERROR, DEBUG) for runtime inspection.",
     },
     .{
+        .name = "ENABLE_PROCESS_ACCOUNTING",
+        .default = .{ .bool = true },
+        .help = "Per-process CPU time counted from the timer tick",
+        .desc = "Credits each timer tick to the process that owned the core and shows the total in the CPU time column of ps. Disable to remove the per-tick counter update from the scheduler.",
+    },
+    .{
         .name = "ENABLE_DMESG",
         .default = .{ .bool = true },
         .help = "dmesg command: replay recent kernel log output from memory",

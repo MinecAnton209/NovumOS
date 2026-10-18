@@ -72,6 +72,7 @@ linked, and its commands disappear from `help`.
 | `ENABLE_ASLR` | Randomizes heap base (BUILD_HASH seed), Nova ELF load slide, and IDT base relocation; disable for reproducible boot addresses |
 | `ENABLE_WX_SEPARATION` | Tightens GDT code-segment limit to exact kernel code size — execute past code boundary → #GP → page fault (software W^X before NX-bit era) |
 | `ENABLE_MEM_STATS` | `lsmem`/`pmap` shell commands (physical memory map visualization, page-bin histogram); syscalls 115/116 exposed to Nova only when enabled |
+| `ENABLE_PROCESS_ACCOUNTING` | Per-process CPU time: each timer tick is credited to the owning process and shown in the `ps` CPU time column |
 | `ENABLE_DMESG` | `dmesg` shell command: replays the last 4 KiB of kernel log output kept in a ring buffer; records normal log levels only when `ENABLE_KERNEL_LOGGING=y` |
 | `ENABLE_PROFILER` | Timer-based sampling profiler: `prof start/stop/reset/report`; adds a sampling hook to the PIT ISR (boot processor only) |
 

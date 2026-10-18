@@ -434,6 +434,21 @@ pub fn build(b: *std.Build) void {
     log_ring_test_step.dependOn(&run_log_ring_tests.step);
     test_step.dependOn(&run_log_ring_tests.step);
 
+    // cpu_time.zig tests: scheduler tick to milliseconds conversion
+    const cpu_time_test_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tests/test_cpu_time.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    cpu_time_test_mod.addAnonymousImport("cpu_time", .{
+        .root_source_file = b.path("zig/kernel/cpu_time.zig"),
+    });
+    const cpu_time_tests = b.addTest(.{ .root_module = cpu_time_test_mod });
+    const run_cpu_time_tests = b.addRunArtifact(cpu_time_tests);
+    const cpu_time_test_step = b.step("test-cpu-time", "Run scheduler CPU time conversion tests");
+    cpu_time_test_step.dependOn(&run_cpu_time_tests.step);
+    test_step.dependOn(&run_cpu_time_tests.step);
+
     // hash_table.zig tests: self-contained port with host allocator
     const hash_table_test_mod = b.createModule(.{
         .root_source_file = b.path("zig/tests/test_hash_table.zig"),

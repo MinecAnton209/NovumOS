@@ -7,6 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- `ENABLE_PROCESS_ACCOUNTING` flag: per-process CPU time from timer ticks, shown in the `ps` CPU time column
 - `ENABLE_DMESG` flag and `dmesg` shell command: 4 KiB kernel log ring buffer (logger, boot trace and security messages) replayed on demand; the ring buffer promised by `ENABLE_KERNEL_LOGGING` now exists
 - `ENABLE_PROFILER` flag and `prof` shell command: timer-based sampling profiler (100 Hz, boot processor) reporting hot kernel and user instruction addresses; `scripts/prof-symbolize.py` maps kernel addresses to function names using the unstripped `build/kernel32.debug.elf` (the shipped `kernel32.elf` stays stripped)
 - Host test suite: 7 test targets (`test-str`, `test-hash-table`, `test-common`, `test-lexer`, `test-parser`, `test-path-policy`, `test-cfg-write`) via `zig build test` (~180 tests)

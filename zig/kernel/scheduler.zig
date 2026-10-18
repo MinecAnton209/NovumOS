@@ -5,6 +5,8 @@ const exceptions = @import("../arch/mod.zig").exceptions;
 const smp = @import("../arch/mod.zig").smp;
 const common = @import("../commands/common.zig");
 const config = @import("../config.zig");
+const cpu_time = @import("cpu_time.zig");
+const timer = @import("../drivers/timer.zig");
 
 pub const ProcessState = enum {
     Ready,
@@ -25,6 +27,8 @@ pub const Process = struct {
     cwd: []const u8,
     is_idle: bool,
     name_owned: bool,
+    /// Timer ticks this process owned a core for (ENABLE_PROCESS_ACCOUNTING).
+    cpu_ticks: u32 = 0,
 
     // Stack for the process
     stack: []u8,
@@ -107,6 +111,7 @@ pub fn bootstrap(esp: u32) void {
     p.gid = 0;
     p.cwd = "/";
     p.is_idle = false;
+    p.cpu_ticks = 0;
     p.esp = esp;
     p.cr3 = memory.get_current_pd();
     p.stack = &[_]u8{}; // Initial process uses the boot stack
@@ -177,6 +182,7 @@ fn create_process_locked(name: []const u8, entry_point: usize, is_user: bool, is
     p.gid = 0;
     p.cwd = "/";
     p.is_idle = is_idle;
+    p.cpu_ticks = 0;
     p.stack = stack;
     p.fd_table = [_]i16{-1} ** FD_TABLE_SIZE;
 
@@ -367,6 +373,7 @@ pub fn schedule(current_esp: u32) u32 {
     const old = current_procs[cpu];
     if (old) |curr| {
         curr.esp = current_esp;
+        if (config.ENABLE_PROCESS_ACCOUNTING) curr.cpu_ticks +%= 1;
         if (curr.state == .Running) curr.state = .Ready;
     }
 
@@ -388,8 +395,8 @@ pub fn schedule(current_esp: u32) u32 {
 }
 
 pub fn list_processes() void {
-    common.printZ("PID  Name            State       Space       Priority\n");
-    common.printZ("---  --------------  ----------  ----------  --------\n");
+    common.printZ("PID  Name            State       Space       Priority  CPU time\n");
+    common.printZ("---  --------------  ----------  ----------  --------  --------\n");
 
     var buf: [32]u8 = undefined;
     for (0..NUM_SLOTS) |idx| {
@@ -403,6 +410,7 @@ pub fn list_processes() void {
         var state: ProcessState = .Ready;
         var cr3: u32 = 0;
         var priority: u32 = 0;
+        var cpu_ticks: u32 = 0;
         if (processes[idx]) |p| {
             occupied = true;
             id = p.id;
@@ -411,6 +419,7 @@ pub fn list_processes() void {
             state = p.state;
             cr3 = p.cr3;
             priority = p.priority;
+            cpu_ticks = p.cpu_ticks;
         }
         sched_leave(eflags);
         if (!occupied) continue;
@@ -444,7 +453,19 @@ pub fn list_processes() void {
         while (pad > 0) : (pad -= 1) common.printZ(" ");
 
         // Priority
-        common.printZ(common.intToString(@intCast(priority), &buf));
+        const priority_str = common.intToString(@intCast(priority), &buf);
+        common.printZ(priority_str);
+        pad = 10 - priority_str.len;
+        while (pad > 0) : (pad -= 1) common.printZ(" ");
+
+        // CPU time
+        if (config.ENABLE_PROCESS_ACCOUNTING) {
+            const ms = cpu_time.ticksToMs(cpu_ticks, timer.TARGET_FREQ);
+            common.printZ(common.intToString(@intCast(ms), &buf));
+            common.printZ(" ms");
+        } else {
+            common.printZ("-");
+        }
         common.printZ("\n");
     }
 }

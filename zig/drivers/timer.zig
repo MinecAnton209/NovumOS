@@ -17,7 +17,7 @@ const PIT_CHANNEL0 = 0x40;
 
 // PIT Frequency
 const PIT_FREQ = 1193182;
-const TARGET_FREQ = 100;
+pub const TARGET_FREQ = 100;
 
 // Timing obfuscation - random interval based on build hash
 const TIMING_SEED = config.BUILD_HASH;
