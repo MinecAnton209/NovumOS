@@ -101,8 +101,10 @@ fn init_display() void {
     if (config.ENABLE_SERIAL_INPUT) {
         serial.init();
         logger.trace("boot: COM1 serial initialized at 115200 baud");
-        serial.serial_print_str("Ты сегодня сдохнешь в туалете от поноса, запомни это.\n");
-        serial.serial_print_str("Кернел ушёл срать. Иди доедай, пока не засохло окончательно.\n");
+        if (config.ENABLE_EASTER_EGG) {
+            serial.serial_print_str("Ты сегодня сдохнешь в туалете от поноса, запомни это.\n");
+            serial.serial_print_str("Кернел ушёл срать. Иди доедай, пока не засохло окончательно.\n");
+        }
     }
     vga.clear_screen();
     vga.set_color(11, 0);

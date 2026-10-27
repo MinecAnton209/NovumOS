@@ -76,6 +76,7 @@ linked, and its commands disappear from `help`.
 | `ENABLE_PROCESS_ACCOUNTING` | Per-process CPU time: each timer tick is credited to the owning process and shown in the `ps` CPU time column |
 | `ENABLE_DMESG` | `dmesg` shell command: replays the last 4 KiB of kernel log output kept in a ring buffer; records normal log levels only when `ENABLE_KERNEL_LOGGING=y` |
 | `ENABLE_PROFILER` | Timer-based sampling profiler: `prof start/stop/reset/report`; adds a sampling hook to the PIT ISR (boot processor only) |
+| `ENABLE_EASTER_EGG` | Boot-time joke message on the COM1 serial port (default `n`); requires `ENABLE_SERIAL_INPUT=y` |
 
 ### Reproducible builds
 

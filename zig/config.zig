@@ -36,6 +36,7 @@ pub const MOUSE_DEBUG = value(bool, "MOUSE_DEBUG");
 pub const ENABLE_QUANTUM = value(bool, "ENABLE_QUANTUM");
 pub const ENABLE_DOOMFIRE = value(bool, "ENABLE_DOOMFIRE");
 pub const ENABLE_MATRIX = value(bool, "ENABLE_MATRIX");
+pub const ENABLE_EASTER_EGG = value(bool, "ENABLE_EASTER_EGG");
 pub const ENABLE_BUILTIN_SCRIPTS = value(bool, "ENABLE_BUILTIN_SCRIPTS");
 pub const ENABLE_MOUSE = value(bool, "ENABLE_MOUSE");
 pub const ENABLE_SMP = value(bool, "ENABLE_SMP");
@@ -76,4 +77,8 @@ test "config_text overrides schema default" {
 
 test "field absent from config_text uses schema default" {
     try std.testing.expectEqual(false, ENABLE_SERIAL_DEBUG);
+}
+
+test "easter egg is off by default" {
+    try std.testing.expectEqual(false, ENABLE_EASTER_EGG);
 }

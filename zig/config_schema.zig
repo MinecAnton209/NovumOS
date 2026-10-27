@@ -172,6 +172,12 @@ pub const schema = [_]kconfig.Field{
         .desc = "Enables the Matrix rain screensaver effect in the graphical terminal console.",
     },
     .{
+        .name = "ENABLE_EASTER_EGG",
+        .default = .{ .bool = false },
+        .help = "Boot-time serial easter egg message",
+        .desc = "Prints a joke message to the COM1 serial port during boot. Requires ENABLE_SERIAL_INPUT=y so the serial port is initialized.",
+    },
+    .{
         .name = "ENABLE_BUILTIN_SCRIPTS",
         .default = .{ .bool = true },
         .help = "Embedded Nova scripts (hello, syscheck)",
