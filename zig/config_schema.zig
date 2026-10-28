@@ -101,7 +101,7 @@ pub const schema = [_]kconfig.Field{
     },
     .{
         .name = "ENABLE_DMESG",
-        .default = .{ .bool = true },
+        .default = .{ .bool = false },
         .help = "dmesg command: replay recent kernel log output from memory",
         .desc = "Keeps the last 4 KiB of kernel log output (logger messages, boot trace and security events) in a ring buffer and prints it with the dmesg shell command. Requires ENABLE_KERNEL_LOGGING=y to record normal log levels. Disable to drop the 4 KiB buffer and the command.",
     },

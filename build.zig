@@ -84,6 +84,13 @@ pub fn build(b: *std.Build) void {
     const vga_text_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_VGA_TEXT");
     const serial_input_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_SERIAL_INPUT");
 
+    const dmesg_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_DMESG");
+    const kernel_logging_on = kconfig.flag(&cfg_schema.schema, cfg.text, "ENABLE_KERNEL_LOGGING");
+    if (dmesg_on and !kernel_logging_on) {
+        std.log.err("config conflict: ENABLE_DMESG=y requires ENABLE_KERNEL_LOGGING=y", .{});
+        std.process.exit(1);
+    }
+
     if (clock_on and !serial_input_on) {
         std.log.err("config conflict: ENABLE_CLOCK_IN_PROMPT=y requires ENABLE_SERIAL_INPUT=y (clock uses serial mirror)", .{});
         std.process.exit(1);

@@ -1049,7 +1049,7 @@ fn renderConfirmModal(win: vaxis.Window) void {
 
 fn renderSaveModal(win: vaxis.Window) void {
     const mw: u16 = @min(win.width -| 4, 56);
-    const mh: u16 = 9;
+    const mh: u16 = 11;
     const mx: i17 = @intCast((win.width -| mw) / 2);
     const my: i17 = @intCast((win.height -| mh) / 2);
 
@@ -1088,6 +1088,13 @@ fn renderSaveModal(win: vaxis.Window) void {
         .style = .{ .fg = col_tag, .bg = col_dialog_bg },
     }}, .{ .row_offset = 3, .col_offset = 3, .wrap = .none });
 
+    if (status.len > 0) {
+        _ = modal.print(&[_]vaxis.Segment{.{
+            .text = status,
+            .style = .{ .fg = col_hotkey, .bg = col_dialog_bg, .bold = true },
+        }}, .{ .row_offset = 5, .col_offset = 3, .wrap = .word });
+    }
+
     const is_ok = (save_modal_btn == .ok);
     const is_cancel = (save_modal_btn == .cancel);
 
@@ -1121,15 +1128,11 @@ fn saveDialogKey(key: vaxis.Key) void {
         return;
     }
     if (key.matches(vaxis.Key.enter, .{}) or key.matches(vaxis.Key.space, .{})) {
-        if (save_modal_btn == .ok) {
-            _ = doSave();
-        }
-        mode = .nav;
+        if (save_modal_btn == .cancel or doSave()) mode = .nav;
         return;
     }
     if (key.matches('y', .{}) or key.matches('Y', .{}) or key.matches('o', .{}) or key.matches('O', .{})) {
-        _ = doSave();
-        mode = .nav;
+        if (doSave()) mode = .nav;
         return;
     }
     if (key.matches(vaxis.Key.escape, .{}) or key.matches('n', .{}) or key.matches('N', .{}) or key.matches('c', .{ .ctrl = true })) {
@@ -1143,28 +1146,31 @@ fn requestQuit() void {
     mode = .confirm;
 }
 
-fn checkDependencies() ?[]const u8 {
+var dep_err_buf: [256]u8 = undefined;
+
+fn isBoolEnabled(vals: []const kconfig.Option, name: []const u8) bool {
     for (schema, 0..) |f, i| {
-        if (values[i] == .bool and values[i].bool) {
-            if (findProvider(f.name)) |provider| {
-                var found = false;
-                for (schema, 0..) |pf, j| {
-                    if (std.mem.eql(u8, pf.name, provider)) {
-                        if (values[j] == .bool and values[j].bool) found = true;
-                    }
-                }
-                if (!found) {
-                    return std.fmt.allocPrint(g_alloc,
-                        "CONFIG_{s}=y requires CONFIG_{s}=y", .{ f.name, provider }) catch null;
-                }
-            }
+        if (std.mem.eql(u8, f.name, name)) return vals[i] == .bool and vals[i].bool;
+    }
+    return false;
+}
+
+/// Returns a message naming the first enabled option whose provider is off, or null when consistent.
+fn findDependencyConflict(vals: []const kconfig.Option, buf: []u8) ?[]const u8 {
+    for (schema, 0..) |f, i| {
+        if (vals[i] != .bool or !vals[i].bool) continue;
+        const provider = findProvider(f.name) orelse continue;
+        if (!isBoolEnabled(vals, provider)) {
+            return std.fmt.bufPrint(buf,
+                "CONFIG_{s}=y needs CONFIG_{s}=y: enable CONFIG_{s} or disable CONFIG_{s}",
+                .{ f.name, provider, provider, f.name }) catch "dependency conflict";
         }
     }
     return null;
 }
 
 fn doSave() bool {
-    if (checkDependencies()) |err| {
+    if (findDependencyConflict(values[0..], &dep_err_buf)) |err| {
         status = err;
         return false;
     }
@@ -1985,6 +1991,60 @@ const sync_mini = [_]kconfig.Field{
 const sync_mini_single = [_]kconfig.Field{
     .{ .name = "OPT_BOOL", .default = .{ .bool = false }, .help = "b" },
 };
+
+fn setBoolOpt(vals: []kconfig.Option, name: []const u8, on: bool) void {
+    for (schema, 0..) |f, i| {
+        if (std.mem.eql(u8, f.name, name)) vals[i] = .{ .bool = on };
+    }
+}
+
+fn defaultValues() [schema.len]kconfig.Option {
+    var vals: [schema.len]kconfig.Option = undefined;
+    for (schema, 0..) |f, i| vals[i] = f.default;
+    return vals;
+}
+
+test "shipped defaults have no dependency conflicts" {
+    var vals = defaultValues();
+    var buf: [256]u8 = undefined;
+    try std.testing.expectEqual(@as(?[]const u8, null), findDependencyConflict(&vals, &buf));
+}
+
+test "enabled dependent with disabled provider reports both option names" {
+    var vals = defaultValues();
+    var buf: [256]u8 = undefined;
+    setBoolOpt(&vals, "ENABLE_DMESG", true);
+    setBoolOpt(&vals, "ENABLE_KERNEL_LOGGING", false);
+    const msg = findDependencyConflict(&vals, &buf) orelse return error.ExpectedConflict;
+    try std.testing.expectEqualStrings(
+        "CONFIG_ENABLE_DMESG=y needs CONFIG_ENABLE_KERNEL_LOGGING=y: enable CONFIG_ENABLE_KERNEL_LOGGING or disable CONFIG_ENABLE_DMESG",
+        msg,
+    );
+}
+
+test "enabling the provider clears the dependency conflict" {
+    var vals = defaultValues();
+    var buf: [256]u8 = undefined;
+    setBoolOpt(&vals, "ENABLE_DMESG", true);
+    setBoolOpt(&vals, "ENABLE_KERNEL_LOGGING", true);
+    try std.testing.expectEqual(@as(?[]const u8, null), findDependencyConflict(&vals, &buf));
+}
+
+test "disabled dependent ignores its provider state" {
+    var vals = defaultValues();
+    var buf: [256]u8 = undefined;
+    setBoolOpt(&vals, "ENABLE_DMESG", false);
+    setBoolOpt(&vals, "ENABLE_KERNEL_LOGGING", false);
+    try std.testing.expectEqual(@as(?[]const u8, null), findDependencyConflict(&vals, &buf));
+}
+
+test "conflict message falls back to a generic text when the buffer is too small" {
+    var vals = defaultValues();
+    var buf: [8]u8 = undefined;
+    setBoolOpt(&vals, "ENABLE_DMESG", true);
+    setBoolOpt(&vals, "ENABLE_KERNEL_LOGGING", false);
+    try std.testing.expectEqualStrings("dependency conflict", findDependencyConflict(&vals, &buf).?);
+}
 
 test "isDirty accurately detects modifications and reversions" {
     config_file_exists = true;
