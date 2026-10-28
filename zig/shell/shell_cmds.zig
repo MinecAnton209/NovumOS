@@ -92,11 +92,13 @@ pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
     }
 
     const drive = current_drive();
+    common.printError("[run] disk path`n");
     const bpb = fat.read_bpb(drive) orelse {
         fat.report_bpb_error(drive);
         return;
     };
 
+    common.printError("[run] bpb ok`n");
     const entry = fat.find_entry(drive, bpb, common.current_dir_cluster, name) orelse {
         common.printError("Error: File not found\n");
         return;
@@ -109,6 +111,7 @@ pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
 
     // Allocate memory for the ELF file
     const size = entry.file_size;
+    common.printError("[run] found`n");
     const buf_ptr = memory.heap.alloc(size) orelse {
         common.printError("Error: Out of memory for ELF\n");
         return;
@@ -123,6 +126,7 @@ pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {
         return;
     }
 
+    common.printError("[run] read ok, loading`n");
     // Try to load and run
     elf.load_and_run(buffer) catch |err| {
         logger.err("Error loading ELF");
@@ -230,6 +234,7 @@ pub export fn cmd_ls(args_ptr: [*]const u8, args_len: u32) void {
         ls.execute();
     } else {
         const drive = current_drive();
+    common.printError("[run] disk path`n");
         if (fat.read_bpb(drive)) |bpb| {
             if (path_arg == null) {
                 fat.list_directory(drive, bpb, common.current_dir_cluster, show_hidden);
@@ -268,6 +273,7 @@ pub export fn cmd_cat(name_ptr: [*]const u8, name_len: u32) void {
         cat.execute(name.ptr, @intCast(name.len));
     } else {
         const drive = current_drive();
+    common.printError("[run] disk path`n");
         if (fat.read_bpb(drive)) |bpb| {
             if (!fat.stream_to_console(drive, bpb, common.current_dir_cluster, name)) {
                 common.printError("Error: File not found\n");
@@ -292,6 +298,7 @@ pub export fn cmd_touch(name_ptr: [*]const u8, name_len: u32) void {
             touch.execute(name.ptr, @intCast(name.len));
         } else {
             const drive = current_drive();
+    common.printError("[run] disk path`n");
             if (fat.read_bpb(drive)) |bpb| {
                 common.printZ("Touch: ");
                 common.printZ(name);
@@ -315,6 +322,7 @@ pub export fn cmd_touch(name_ptr: [*]const u8, name_len: u32) void {
 /// Returns the handle (mutable copy) if the file can be safely modified.
 fn with_file_handle(filename: []const u8, check_write_attrs: bool, out: *fat.FileHandle) bool {
     const drive = current_drive();
+    common.printError("[run] disk path`n");
     const bpb = fat.read_bpb(drive) orelse {
         fat.report_bpb_error(drive);
         return false;
@@ -449,6 +457,7 @@ pub export fn cmd_sync() void {
     }
 
     const drive = current_drive();
+    common.printError("[run] disk path`n");
     if (fat.read_bpb(drive)) |bpb| {
         const result = fat.fat_sync(drive, bpb);
         if (result == 0) {
@@ -595,6 +604,7 @@ pub export fn cmd_attrib(args_ptr: [*]const u8, args_len: u32) void {
     }
 
     const drive = current_drive();
+    common.printError("[run] disk path`n");
     if (fat.read_bpb(drive)) |bpb| {
         const ro = read_only orelse false;
         const h = hidden orelse false;
@@ -664,6 +674,7 @@ pub export fn cmd_rm(args_ptr: [*]const u8, args_len: u32) void {
     }
 
     const drive = current_drive();
+    common.printError("[run] disk path`n");
     if (fat.read_bpb(drive)) |bpb| {
         var prefix: []const u8 = "";
         var is_wildcard = false;
@@ -942,6 +953,7 @@ pub export fn cmd_mkdir(name_ptr: [*]const u8, name_len: u32) void {
     }
 
     const drive = current_drive();
+    common.printError("[run] disk path`n");
     if (fat.read_bpb(drive)) |bpb| {
         if (!fat.create_directory(drive, bpb, common.current_dir_cluster, argv[0])) {
             common.printError("Error: Failed to create directory\n");
@@ -961,6 +973,7 @@ pub export fn cmd_cd(args_ptr: [*]const u8, args_len: u32) void {
     const argc = common.parseArgs(args_ptr[0..args_len], &argv);
 
     const drive = current_drive();
+    common.printError("[run] disk path`n");
     const bpb = fat.read_bpb(drive) orelse {
         fat.report_bpb_error(drive);
         return;
@@ -1003,6 +1016,7 @@ pub export fn cmd_tree() void {
         return;
     }
     const drive = current_drive();
+    common.printError("[run] disk path`n");
     if (fat.read_bpb(drive)) |bpb| {
         common.printZ(".\n");
         tree_node(drive, bpb, common.current_dir_cluster, 1);
@@ -1138,6 +1152,7 @@ pub export fn cmd_write(name_ptr: [*]const u8, name_len: u32, data_ptr: [*]const
         }
     } else {
         const drive = current_drive();
+    common.printError("[run] disk path`n");
         if (fat.read_bpb(drive)) |bpb| {
             const name = name_ptr[0..name_len];
             const data = data_ptr[0..data_len];
@@ -1578,11 +1593,13 @@ pub export fn cmd_hexdump(name_ptr: [*]const u8, name_len: u32) void {
     }
 
     const drive = current_drive();
+    common.printError("[run] disk path`n");
     const bpb = fat.read_bpb(drive) orelse {
         fat.report_bpb_error(drive);
         return;
     };
 
+    common.printError("[run] bpb ok`n");
     const entry = fat.find_entry(drive, bpb, common.current_dir_cluster, name) orelse {
         common.printError("Error: File not found\n");
         return;
@@ -1667,11 +1684,13 @@ pub export fn cmd_more(name_ptr: [*]const u8, name_len: u32) void {
                 return;
             }
             const drive = current_drive();
+    common.printError("[run] disk path`n");
             const bpb = fat.read_bpb(drive) orelse {
                 fat.report_bpb_error(drive);
                 return;
             };
-            const entry = fat.find_entry(drive, bpb, common.current_dir_cluster, name) orelse {
+            common.printError("[run] bpb ok`n");
+    const entry = fat.find_entry(drive, bpb, common.current_dir_cluster, name) orelse {
                 common.printError("Error: File not found\n");
                 return;
             };

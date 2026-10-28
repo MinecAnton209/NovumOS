@@ -1,3 +1,4 @@
+const serial_console = @import("../drivers/serial.zig");
 const ata = @import("../drivers/ata.zig");
 const fat = @import("../drivers/fat/fat.zig");
 const user = @import("../arch/mod.zig").user;
@@ -160,6 +161,7 @@ pub fn write(regs: *user.Registers) void {
         }
         const console_data = @as([*]const u8, @ptrFromInt(regs.ecx))[0..regs.edx];
         common.printBuf(console_data);
+        serial_console.serial_print_str(console_data);
         regs.eax = regs.edx;
         return;
     }
