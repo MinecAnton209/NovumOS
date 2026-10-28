@@ -13,8 +13,8 @@ pub const BPB = struct {
     bytes_per_sector: u16 = 512,
 };
 pub const DirEntry = struct {
-    name: [8]u8 = [_]u8{0} ** 8,
-    ext: [3]u8 = [_]u8{0} ** 3,
+    name: [8]u8 = @splat(0),
+    ext: [3]u8 = @splat(0),
     attr: u8 = 0,
     reserved: u8 = 0,
     creation_time_tenth: u8 = 0,
@@ -211,7 +211,7 @@ pub fn list_directory(drive: ata.Drive, bpb: BPB, dir_cluster: u32, show_hidden:
 }
 
 fn genName(path: []const u8) [8]u8 {
-    var result: [8]u8 = [_]u8{0x20} ** 8;
+    var result: [8]u8 = @splat(0x20);
     const slash = lastIndexOf(path, '/') orelse return result;
     const name = path[slash + 1 ..];
     const dot = indexOf(name, '.') orelse name.len;
@@ -223,7 +223,7 @@ fn genName(path: []const u8) [8]u8 {
 }
 
 fn genExt(path: []const u8) [3]u8 {
-    var result: [3]u8 = [_]u8{0x20} ** 3;
+    var result: [3]u8 = @splat(0x20);
     const slash = lastIndexOf(path, '/') orelse return result;
     const name = path[slash + 1 ..];
     const dot = indexOf(name, '.') orelse return result;

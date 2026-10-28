@@ -89,7 +89,7 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     const meminfo_mod = @import("meminfo.zig");
     const sched_test_mod = @import("../kernel/sched_test.zig");
 
-    var table: [256]?HandlerPtr = [_]?HandlerPtr{null} ** 256;
+    var table: [256]?HandlerPtr = @splat(null);
     // Console
     table[1] = &console_mod.printZ;
     table[2] = &console_mod.getChar;

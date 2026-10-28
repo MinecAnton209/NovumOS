@@ -1078,7 +1078,7 @@ pub const VM = struct {
                 }
 
                 if (found) {
-                    var script_buffer: [4096]u8 = [_]u8{0} ** 4096;
+                    var script_buffer: [4096]u8 = @splat(0);
                     const bytes_read = fat.read_file(drive, bpb, current_dir_cluster_val, resolved, &script_buffer);
                     if (bytes_read > 0) {
                         const source = script_buffer[0..@intCast(bytes_read)];

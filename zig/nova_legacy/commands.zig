@@ -27,14 +27,14 @@ const Variable = struct {
 var variables: [MAX_VARS]Variable = undefined;
 var var_count: usize = 0;
 var int_conv_buf: [32]u8 = undefined;
-var term_buffer: [512]u8 = [_]u8{0} ** 512;
-var global_result_buffer: [512]u8 = [_]u8{0} ** 512;
+var term_buffer: [512]u8 = @splat(0);
+var global_result_buffer: [512]u8 = @splat(0);
 
 // Script arguments storage
 const MAX_SCRIPT_ARGS = 8;
 const MAX_ARG_LEN = 64;
-pub var script_args: [MAX_SCRIPT_ARGS][MAX_ARG_LEN]u8 = [_][MAX_ARG_LEN]u8{[_]u8{0} ** MAX_ARG_LEN} ** MAX_SCRIPT_ARGS;
-pub var script_args_len: [MAX_SCRIPT_ARGS]usize = [_]usize{0} ** MAX_SCRIPT_ARGS;
+pub var script_args: [MAX_SCRIPT_ARGS][MAX_ARG_LEN]u8 = @splat(@splat(0));
+pub var script_args_len: [MAX_SCRIPT_ARGS]usize = @splat(0);
 pub var script_argc: usize = 0;
 
 pub fn setScriptArgs(args: []const []const u8) void {
@@ -272,7 +272,7 @@ fn evaluateTerm(raw_term: []const u8) EvalResult {
 
         // Use interpreter's global buffer temporarily or a local one
         // Let's use a local one for safety during expression evaluation
-        var input_buf: [64]u8 = [_]u8{0} ** 64;
+        var input_buf: [64]u8 = @splat(0);
         const len = interpreter.readInput(&input_buf);
 
         const final_input = input_buf[0..len];
@@ -320,7 +320,7 @@ fn evaluateExpression(expr_in: []const u8) EvalResult {
     var in_quotes: bool = false;
 
     var accum_int: i32 = 0;
-    var eval_buffer: [256]u8 = [_]u8{0} ** 256;
+    var eval_buffer: [256]u8 = @splat(0);
     var accum_str_len: usize = 0;
     var current_type: VarType = .int;
 
@@ -387,7 +387,7 @@ fn evaluateExpression(expr_in: []const u8) EvalResult {
                         if (last_op == '+') {
                             // We need to be careful: evaluateTerm might have used global_result_buffer
                             // So we copy our current accum_str to a temp buffer if needed
-                            var to_add_buf: [64]u8 = [_]u8{0} ** 64;
+                            var to_add_buf: [64]u8 = @splat(0);
                             var to_add: []const u8 = "";
 
                             if (val.etype == .string) {
@@ -510,7 +510,7 @@ pub fn evaluateCondition(buffer: []const u8, stmt: parser.Statement) bool {
 }
 
 fn splitArgs(expr: []const u8) struct { args: [4][]const u8, count: usize } {
-    var res: [4][]const u8 = [_][]const u8{""} ** 4;
+    var res: [4][]const u8 = @splat("");
     var count: usize = 0;
     var start: usize = 0;
     var depth: i32 = 0;
@@ -566,12 +566,12 @@ fn execRename(buffer: []const u8, stmt: parser.Statement) void {
 
     if (old_path_res.etype == .string and new_path_res.etype == .string) {
         // Safety copy both paths
-        var old_buf: [64]u8 = [_]u8{0} ** 64;
+        var old_buf: [64]u8 = @splat(0);
         const old_len = if (old_path_res.str_val.len > 64) 64 else old_path_res.str_val.len;
         common.copy(old_buf[0..], old_path_res.str_val[0..old_len]);
         const old_p = old_buf[0..old_len];
 
-        var new_buf: [64]u8 = [_]u8{0} ** 64;
+        var new_buf: [64]u8 = @splat(0);
         const new_len = if (new_path_res.str_val.len > 64) 64 else new_path_res.str_val.len;
         common.copy(new_buf[0..], new_path_res.str_val[0..new_len]);
         const new_p = new_buf[0..new_len];
@@ -593,12 +593,12 @@ fn execCopy(buffer: []const u8, stmt: parser.Statement) void {
 
     if (src_res.etype == .string and dest_res.etype == .string) {
         // Safety copy paths
-        var src_buf: [64]u8 = [_]u8{0} ** 64;
+        var src_buf: [64]u8 = @splat(0);
         const src_len = if (src_res.str_val.len > 64) 64 else src_res.str_val.len;
         common.copy(src_buf[0..], src_res.str_val[0..src_len]);
         const src_p = src_buf[0..src_len];
 
-        var dest_buf: [64]u8 = [_]u8{0} ** 64;
+        var dest_buf: [64]u8 = @splat(0);
         const dest_len = if (dest_res.str_val.len > 64) 64 else dest_res.str_val.len;
         common.copy(dest_buf[0..], dest_res.str_val[0..dest_len]);
         const dest_p = dest_buf[0..dest_len];
@@ -635,7 +635,7 @@ fn execWriteFile(buffer: []const u8, stmt: parser.Statement) void {
 
     const path_res = evaluateExpression(args.args[0]);
     // Safety copy path
-    var path_buf: [64]u8 = [_]u8{0} ** 64;
+    var path_buf: [64]u8 = @splat(0);
     const path_len = if (path_res.str_val.len > 64) 64 else path_res.str_val.len;
     common.copy(path_buf[0..], path_res.str_val[0..path_len]);
     const path = path_buf[0..path_len];

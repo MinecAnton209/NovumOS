@@ -41,7 +41,7 @@ pub fn execute() void {
     common.printZ(" [ Hardware ]\n");
 
     // CPU
-    var vendor_buf: [13]u8 = [_]u8{0} ** 13;
+    var vendor_buf: [13]u8 = @splat(0);
     get_cpu_vendor(&vendor_buf);
     print_entry("CPU Vendor", &vendor_buf, COLOR_LABEL, COLOR_VALUE, COLOR_BG);
 
@@ -125,7 +125,7 @@ pub fn cmd_fetch() void {
         "                         ",
     };
 
-    var vendor_buf: [13]u8 = [_]u8{0} ** 13;
+    var vendor_buf: [13]u8 = @splat(0);
     get_cpu_vendor(&vendor_buf);
 
     common.printZ("\n");

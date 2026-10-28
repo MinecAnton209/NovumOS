@@ -71,7 +71,7 @@ pub const fat_puts = file.fat_puts;
 pub const fat_putc = file.fat_putc;
 
 pub fn format(drive: ata.Drive, bpb: BPB, progress_cb: ?*const fn (u32, u32) void) bool {
-    var buffer: [512]u8 = [_]u8{0} ** 512;
+    var buffer: [512]u8 = @splat(0);
 
     const root_dir_sectors = bpb.root_dir_sectors;
     const total_fat_sectors = bpb.num_fats * bpb.sectors_per_fat;

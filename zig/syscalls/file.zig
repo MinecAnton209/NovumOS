@@ -159,7 +159,7 @@ pub fn statFile(regs: *user.Registers) void {
     result.* = .{
         .size = entry.file_size,
         .is_dir = if ((entry.attr & 0x10) != 0) 1 else 0,
-        .reserved = [_]u8{0} ** 11,
+        .reserved = @splat(0),
     };
     regs.eax = 0;
 }

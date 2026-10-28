@@ -8,22 +8,22 @@ const ata = @import("../drivers/ata.zig");
 // Basic Text Editor (Nano-like)
 
 const MAX_BUF = 8192;
-var buffer: [MAX_BUF]u8 = [_]u8{0} ** MAX_BUF;
+var buffer: [MAX_BUF]u8 = @splat(0);
 var buf_len: usize = 0;
 var cursor_pos: usize = 0;
-var filename: [32]u8 = [_]u8{0} ** 32;
+var filename: [32]u8 = @splat(0);
 var filename_len: usize = 0;
 var insert_mode: bool = true;
 var is_modified: bool = false;
 var content_dirty: bool = true;
-var current_status: [40]u8 = [_]u8{0} ** 40;
+var current_status: [40]u8 = @splat(0);
 var status_len: usize = 0;
 
 // Scrolling state
 var viewport_top: usize = 0; // Which screen-line is at the top of the content area
 
 // Clipboard
-var clipboard: [1024]u8 = [_]u8{0} ** 1024;
+var clipboard: [1024]u8 = @splat(0);
 var clip_len: usize = 0;
 
 pub fn execute(name: []const u8) void {

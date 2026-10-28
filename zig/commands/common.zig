@@ -25,7 +25,7 @@ pub const math_min = str_util.math_min;
 // Global State
 pub var selected_disk: i8 = -1; // -1 means RAM FS
 pub var current_dir_cluster: u32 = 0; // 0 = Root on FAT12/16
-pub var current_path: [256]u8 = [_]u8{0} ** 256;
+pub var current_path: [256]u8 = @splat(0);
 pub var current_path_len: usize = 0;
 
 pub var redirect_active: bool = false;
@@ -33,7 +33,7 @@ pub var redirect_buffer: [32768]u8 = undefined;
 pub var redirect_pos: usize = 0;
 
 pub var pipe_active: bool = false;
-pub var pipe_buffer: [16384]u8 = [_]u8{0} ** 16384;
+pub var pipe_buffer: [16384]u8 = @splat(0);
 pub var pipe_pos: usize = 0;
 pub var pipe_read_active: bool = false;
 

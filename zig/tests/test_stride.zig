@@ -47,8 +47,8 @@ test "pickIndex on an empty set returns null" {
 
 /// Runs the scheduler loop for `quanta` steps and returns how many quanta each task got.
 fn simulate(weights: []const u32, quanta: usize, out: []usize) void {
-    var passes: [8]u32 = [_]u32{0} ** 8;
-    var eligible: [8]bool = [_]bool{false} ** 8;
+    var passes: [8]u32 = @splat(0);
+    var eligible: [8]bool = @splat(false);
     for (weights, 0..) |_, idx| eligible[idx] = true;
     for (out[0..weights.len]) |*c| c.* = 0;
 

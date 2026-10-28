@@ -14,7 +14,7 @@ const SEEK_SET = 0;
 const SEEK_CUR = 1;
 const SEEK_END = 2;
 
-var global_handles: [MAX_GLOBAL_HANDLES]?fat.FileHandle = [_]?fat.FileHandle{null} ** MAX_GLOBAL_HANDLES;
+var global_handles: [MAX_GLOBAL_HANDLES]?fat.FileHandle = @splat(null);
 
 fn alloc_global_handle(handle: fat.FileHandle) ?u16 {
     for (&global_handles, 0..) |*slot, i| {

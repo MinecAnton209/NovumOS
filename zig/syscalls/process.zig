@@ -21,7 +21,7 @@ const ProcessAlloc = struct {
     size: u32,
 };
 
-pub var process_allocs: [MAX_PROCESS_ALLOCS]ProcessAlloc = [_]ProcessAlloc{.{ .ptr = 0, .size = 0 }} ** MAX_PROCESS_ALLOCS;
+pub var process_allocs: [MAX_PROCESS_ALLOCS]ProcessAlloc = @splat(.{ .ptr = 0, .size = 0 });
 pub var process_alloc_count: u32 = 0;
 pub var current_is_nova: bool = false;
 

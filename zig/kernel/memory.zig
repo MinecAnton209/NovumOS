@@ -20,7 +20,7 @@ extern const _system_end: anyopaque;
 pub extern const idt_start: anyopaque;
 
 // We'll allocate a fixed-size bitmap for up to 4GB (128KB bitmap)
-var bitmap: [131072]u8 align(4096) linksection(".system") = [_]u8{0} ** 131072;
+var bitmap: [131072]u8 align(4096) linksection(".system") = @splat(0);
 var last_free_page: u32 = 0;
 var free_page_count: u32 = 0;
 var pmm_lock: u32 = 0;
@@ -208,8 +208,8 @@ pub const PageDirectory = [1024]u32;
 pub const PageTable = [1024]u32;
 
 // Paging structures - MUST be 4096-byte aligned for the CPU
-pub var page_directory: PageDirectory align(4096) linksection(".system") = [_]u32{0} ** 1024;
-pub var page_tables: [1024]?*PageTable linksection(".system") = [_]?*PageTable{null} ** 1024;
+pub var page_directory: PageDirectory align(4096) linksection(".system") = @splat(0);
+pub var page_tables: [1024]?*PageTable linksection(".system") = @splat(null);
 
 inline fn interrupts_save() u32 {
     var eflags: u32 = undefined;
@@ -247,7 +247,7 @@ inline fn interrupts_restore(eflags: u32) void {
 }
 
 // Statically allocate enough page tables to safely cover the first 16MB (Kernel, stack, IDT)
-var first_16mb_pts: [4]PageTable align(4096) linksection(".system") = [_]PageTable{[_]u32{0} ** 1024} ** 4;
+var first_16mb_pts: [4]PageTable align(4096) linksection(".system") = @splat(@splat(0));
 
 pub var pf_count: usize = 0;
 
@@ -717,7 +717,7 @@ const MIN_BLOCK_SIZE: u32 = @max(
 );
 
 pub const heap = struct {
-    var bins: [BIN_COUNT]?*BlockHeader = .{null} ** BIN_COUNT;
+    var bins: [BIN_COUNT]?*BlockHeader = @splat(null);
     var heap_base: usize = 0;
     var heap_lock: u32 = 0;
     // Per-core owner bit: ring-3 heap sections run with interrupts
@@ -804,7 +804,7 @@ pub const heap = struct {
     pub fn init() void {
         // Full state reset: a warm boot preserves RAM, stale bin pointers
         // must never survive into a fresh heap.
-        bins = .{null} ** BIN_COUNT;
+        bins = @splat(null);
         region_count = 0;
         heap_high_water = 0;
 

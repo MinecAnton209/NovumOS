@@ -134,7 +134,7 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
     common.printZ(fmt_name);
     common.printZ("...\n");
 
-    var boot_sector: [512]u8 = [_]u8{0} ** 512;
+    var boot_sector: [512]u8 = @splat(0);
 
     // boot jump & OEM (same for all FAT variants)
     boot_sector[0] = 0xEB;
@@ -299,8 +299,8 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
     ata.write_sector(drive, 0, &boot_sector);
 
     // FAT tables + root directory
-    const zero_sector: [512]u8 = [_]u8{0} ** 512;
-    var fat_start: [512]u8 = [_]u8{0} ** 512;
+    const zero_sector: [512]u8 = @splat(0);
+    var fat_start: [512]u8 = @splat(0);
     fat_start[0] = 0xF8;
     fat_start[1] = 0xFF;
     fat_start[2] = 0xFF;
@@ -319,7 +319,7 @@ pub fn mkfs(drive_num: u8, comptime ft: FatType) void {
                 .Fat32 => 12,
             };
             // FAT-type-specific leading media bytes
-            var fs: [512]u8 = [_]u8{0} ** 512;
+            var fs: [512]u8 = @splat(0);
             fs[0] = 0xF8;
             var j: u32 = 1;
             while (j < media_byte) : (j += 1) fs[j] = 0xFF;

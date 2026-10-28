@@ -14,7 +14,7 @@ var slp_typb: u16 = 0;
 var slp_en: u16 = 0x2000;
 pub var lapic_addr: u32 = 0;
 pub var madt_core_count: u32 = 0;
-pub var lapic_ids: [16]u8 = [_]u8{0} ** 16;
+pub var lapic_ids: [16]u8 = @splat(0);
 
 fn find_rsdp() ?usize {
     const signature = "RSD PTR ";

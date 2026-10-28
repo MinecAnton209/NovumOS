@@ -563,7 +563,7 @@ fn append_to_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []
         var offset_in_sector = @as(u32, @intCast(offset_in_cluster % 512));
 
         while (sector_in_cluster < bpb.sectors_per_cluster and bytes_written < data.len) {
-            var sector_buf: [512]u8 = [_]u8{0} ** 512;
+            var sector_buf: [512]u8 = @splat(0);
             const to_copy = @min(data.len - bytes_written, 512 - offset_in_sector);
 
             if (offset_in_sector > 0 or (old_size > 0 and bytes_written == 0)) {
@@ -674,7 +674,7 @@ fn write_file_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: []cons
 
         var s: u32 = 0;
         while (s < bpb.sectors_per_cluster and bytes_written < data.len) : (s += 1) {
-            var sector_buf: [512]u8 = [_]u8{0} ** 512;
+            var sector_buf: [512]u8 = @splat(0);
             const to_copy = @min(data.len - bytes_written, 512);
             for (0..to_copy) |j| sector_buf[j] = data[bytes_written + j];
             ata.write_sector(drive, lba + s, &sector_buf);

@@ -13,7 +13,7 @@ pub fn SampleTable(comptime capacity: usize) type {
             count: u32 = 0,
         };
 
-        entries: [capacity]Entry = [_]Entry{.{}} ** capacity,
+        entries: [capacity]Entry = @splat(.{}),
         /// Samples recorded into the table, including the ones that were dropped.
         total: u32 = 0,
         /// Samples that could not get a slot because the table was full.

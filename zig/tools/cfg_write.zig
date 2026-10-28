@@ -125,7 +125,7 @@ pub fn merge(
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
 
-    var seen = [_]bool{false} ** schema.len;
+    var seen: [schema.len]bool = @splat(false);
 
     var rest: []const u8 = original;
     while (true) {

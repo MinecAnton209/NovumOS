@@ -96,7 +96,7 @@ const MenuItem = union(enum) {
 };
 
 const is_child: [submenu_defs.len]bool = blk: {
-    var arr: [submenu_defs.len]bool = .{false} ** submenu_defs.len;
+    var arr: [submenu_defs.len]bool = @splat(false);
     for (submenu_defs) |sd| {
         for (sd.children) |c| arr[c] = true;
     }
@@ -138,7 +138,7 @@ fn groupKeyIndices(comptime keys: []const []const u8) []const usize {
 
 const submenus: [submenu_defs.len]Group = blk: {
     var s_arr: [submenu_defs.len]Group = undefined;
-    var seen: [schema.len]bool = .{false} ** schema.len;
+    var seen: [schema.len]bool = @splat(false);
     for (root_opt_keys) |k| {
         const idx = schemaIndex(k);
         if (seen[idx]) @compileError("menuconfig: duplicate key in root_opt_keys: " ++ k);
@@ -1908,7 +1908,7 @@ pub fn main(init: std.process.Init) !void {
 
 test "menus cover every schema option exactly once" {
     var total_opts: usize = 0;
-    var seen: [schema.len]bool = .{false} ** schema.len;
+    var seen: [schema.len]bool = @splat(false);
     for (root_items) |item| {
         switch (item) {
             .opt => |idx| {

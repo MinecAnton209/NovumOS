@@ -37,17 +37,17 @@ pub const Process = struct {
     stack: []u8,
 
     // File descriptor table: fd_table[i] = open file index or -1 if unused
-    fd_table: [FD_TABLE_SIZE]i16 = [_]i16{-1} ** FD_TABLE_SIZE,
+    fd_table: [FD_TABLE_SIZE]i16 = @splat(-1),
 };
 
 pub const FD_TABLE_SIZE = 32;
 
 const NUM_SLOTS = 64;
 
-var processes: [NUM_SLOTS]?*Process = [_]?*Process{null} ** NUM_SLOTS;
+var processes: [NUM_SLOTS]?*Process = @splat(null);
 var current_process_idx: u32 = 0;
-var current_procs: [smp.cores.len]?*Process = [_]?*Process{null} ** smp.cores.len;
-var idle_procs: [smp.cores.len]?*Process = [_]?*Process{null} ** smp.cores.len;
+var current_procs: [smp.cores.len]?*Process = @splat(null);
+var idle_procs: [smp.cores.len]?*Process = @splat(null);
 var next_pid: u32 = 1;
 var bootstrapped: u8 = 0;
 
@@ -119,7 +119,7 @@ pub fn bootstrap(esp: u32) void {
     p.esp = esp;
     p.cr3 = memory.get_current_pd();
     p.stack = &[_]u8{}; // Initial process uses the boot stack
-    p.fd_table = [_]i16{-1} ** FD_TABLE_SIZE;
+    p.fd_table = @splat(-1);
 
     processes[0] = p;
     current_procs[0] = p;
@@ -190,7 +190,7 @@ fn create_process_locked(name: []const u8, entry_point: usize, is_user: bool, is
     // Joining at the current minimum keeps a new task from replaying the CPU share it never asked for.
     p.pass = min_runnable_pass_locked();
     p.stack = stack;
-    p.fd_table = [_]i16{-1} ** FD_TABLE_SIZE;
+    p.fd_table = @splat(-1);
 
     // Initialize stack for context switch
     // [eflags, cs, eip, error_code, vector, gs, fs, es, ds, eax, ecx, edx, ebx, dummy_esp, ebp, esi, edi]

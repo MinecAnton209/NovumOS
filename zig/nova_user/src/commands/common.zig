@@ -95,7 +95,7 @@ pub fn sleep(ms: usize) void {
 // File system state (Ring 3 — always root)
 pub var selected_disk: i8 = 0; // ATA Master
 pub var current_dir_cluster: u32 = 0;
-pub var current_path: [256]u8 = [_]u8{'/'} ** 256;
+pub var current_path: [256]u8 = @splat('/');
 pub var current_path_len: usize = 1;
 
 // Random

@@ -10,8 +10,8 @@ fn binIndex(page_idx: usize, total: usize) usize {
     return @min(pct * BINS / 100, BINS - 1);
 }
 
-var free_bins: [BINS]usize = .{0} ** BINS;
-var busy_bins: [BINS]usize = .{0} ** BINS;
+var free_bins: [BINS]usize = @splat(0);
+var busy_bins: [BINS]usize = @splat(0);
 
 fn resetBins() void {
     var i: usize = 0;

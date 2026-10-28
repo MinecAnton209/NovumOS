@@ -14,7 +14,7 @@ pub fn execute() void {
     var i: u8 = 0;
     while (i < count) : (i += 1) {
         const id = ids[i];
-        var name_buf: [13]u8 = [_]u8{0} ** 13;
+        var name_buf: [13]u8 = @splat(0);
         _ = common.fs_getname(id, &name_buf);
 
         var len: usize = 0;

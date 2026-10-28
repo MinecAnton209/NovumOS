@@ -8,7 +8,7 @@ pub fn LogRing(comptime capacity: usize) type {
     return struct {
         const Self = @This();
 
-        buf: [capacity]u8 = [_]u8{0} ** capacity,
+        buf: [capacity]u8 = @splat(0),
         written: usize = 0,
 
         pub fn append(self: *Self, bytes: []const u8) void {

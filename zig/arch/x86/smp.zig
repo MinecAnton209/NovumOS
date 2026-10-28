@@ -22,7 +22,7 @@ extern const idt_descriptor: anyopaque;
 
 pub const CoreData = struct {
     lock: u32 = 0,
-    tasks: [32]?Task = [_]?Task{null} ** 32,
+    tasks: [32]?Task = @splat(null),
     task_count: u32 = 0,
     total_tasks: u32 = 0,
     is_busy: bool = false,
@@ -31,9 +31,9 @@ pub const CoreData = struct {
     id: u8 = 0,
 };
 
-pub var cores: [16]CoreData = [_]CoreData{.{}} ** 16;
+pub var cores: [16]CoreData = @splat(.{});
 var print_lock: u32 = 0;
-pub var detected_map: [256]u8 = [_]u8{255} ** 256; // Maps LAPIC_ID -> Core Index
+pub var detected_map: [256]u8 = @splat(255); // Maps LAPIC_ID -> Core Index
 pub var detected_cores: u32 = 1;
 var online_cores: u8 = 1;
 

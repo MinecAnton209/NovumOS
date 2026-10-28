@@ -35,7 +35,7 @@ const NOVA_KEYWORDS = [_][]const u8{
 };
 
 // Interpreter state
-var buffer: [BUFFER_SIZE]u8 = [_]u8{0} ** BUFFER_SIZE;
+var buffer: [BUFFER_SIZE]u8 = @splat(0);
 var buf_len: u16 = 0;
 var buf_pos: u16 = 0;
 var insert_mode: bool = true;
@@ -44,21 +44,21 @@ var prompt_col: u8 = 0;
 var exit_flag: bool = false;
 
 // History state
-var history: [HISTORY_SIZE][BUFFER_SIZE]u8 = [_][BUFFER_SIZE]u8{[_]u8{0} ** BUFFER_SIZE} ** HISTORY_SIZE;
-var history_lens: [HISTORY_SIZE]u16 = [_]u16{0} ** HISTORY_SIZE;
+var history: [HISTORY_SIZE][BUFFER_SIZE]u8 = @splat(@splat(0));
+var history_lens: [HISTORY_SIZE]u16 = @splat(0);
 var history_count: u8 = 0;
 var history_index: u8 = 0;
 
 // Autocomplete state
 var auto_cycling: bool = false;
-var auto_prefix: [64]u8 = [_]u8{0} ** 64;
+var auto_prefix: [64]u8 = @splat(0);
 var auto_prefix_len: usize = 0;
 var auto_match_index: usize = 0;
 var auto_start_pos: u16 = 0;
 var global_vm: ?vm_mod.VM = null;
 
 // Multi-line REPL buffer
-var repl_buffer: [REPL_BUFFER_SIZE]u8 = [_]u8{0} ** REPL_BUFFER_SIZE;
+var repl_buffer: [REPL_BUFFER_SIZE]u8 = @splat(0);
 var repl_len: usize = 0;
 
 /// Read a simple line of input into the provided buffer
@@ -133,7 +133,7 @@ pub fn runScript(path: []const u8) void {
 
             // Allocate a temporary buffer for the script
             // For now, use a fixed size. We can improve this later.
-            var script_buffer: [4096]u8 = [_]u8{0} ** 4096;
+            var script_buffer: [4096]u8 = @splat(0);
             const bytes_read = fat.read_file(drive, bpb, global_common.current_dir_cluster, path, &script_buffer);
 
             if (bytes_read > 0) {

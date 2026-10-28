@@ -199,7 +199,7 @@ fn toUpper(c: u8) u8 {
 }
 
 pub fn get_name_from_raw(entry: []const u8) struct { buf: [13]u8, len: usize } {
-    var res: [13]u8 = [_]u8{0} ** 13;
+    var res: [13]u8 = @splat(0);
     var n_len: usize = 0;
     const case_bits = entry[12];
     const name_lower = (case_bits & 0x08) != 0;
@@ -235,7 +235,7 @@ fn printLsHeader() void {
 pub fn list_directory(drive: ata.Drive, bpb: BPB, dir_cluster: u32, show_hidden: bool) void {
     printLsHeader();
 
-    var lfn: LfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
+    var lfn: LfnState = .{ .buf = @splat(0), .active = false, .checksum = 0 };
 
     if (dir_cluster == 0) {
         if (bpb.fat_type == .FAT32) {
@@ -310,7 +310,7 @@ fn list_sector(drive: ata.Drive, sector: u32, show_hidden: bool, lfn: *LfnState)
 
         const is_dir = (attr & 0x10) != 0;
 
-        var name_buf: [256]u8 = [_]u8{0} ** 256;
+        var name_buf: [256]u8 = @splat(0);
         var name_len: usize = 0;
 
         if (use_lfn) {
@@ -552,7 +552,7 @@ fn find_entry_in_sectors(drive: ata.Drive, name: []const u8, start_sector: u32, 
     const sn_name = parts.name;
     const sn_ext = parts.ext;
 
-    var lfn: LfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
+    var lfn: LfnState = .{ .buf = @splat(0), .active = false, .checksum = 0 };
 
     var sector = start_sector;
     while (sector < end_sector) : (sector += 1) {
@@ -793,7 +793,7 @@ pub fn delete_all_in_directory(drive: ata.Drive, bpb: BPB, dir_cluster: u32, rec
 }
 
 fn delete_all_in_sector(drive: ata.Drive, bpb: BPB, sector: u32, buffer: *[512]u8, recursive: bool, delete_subdirs: bool, prefix: []const u8) void {
-    var lfn: LfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
+    var lfn: LfnState = .{ .buf = @splat(0), .active = false, .checksum = 0 };
     var i: u32 = 0;
     var changed = false;
     while (i < 512) : (i += 32) {
@@ -1274,7 +1274,7 @@ pub fn add_directory_entry(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: [
             };
             set_fat_entry(drive, bpb, next, next_eof);
 
-            var buffer: [512]u8 = [_]u8{0} ** 512;
+            var buffer: [512]u8 = @splat(0);
             const new_lba = bpb.first_data_sector + (next - 2) * bpb.sectors_per_cluster;
             var j: u32 = 0;
             while (j < bpb.sectors_per_cluster) : (j += 1) {
@@ -1418,7 +1418,7 @@ fn create_directory_literal(drive: ata.Drive, bpb: BPB, dir_cluster: u32, name: 
 
     if (!add_directory_entry(drive, bpb, dir_cluster, name, cluster, 0, 0x10)) return false;
 
-    var buffer: [512]u8 = [_]u8{0} ** 512;
+    var buffer: [512]u8 = @splat(0);
 
     for (0..32) |j| buffer[j] = ' ';
     buffer[0] = '.';

@@ -108,7 +108,7 @@ const MmapRegion = struct {
     addr: u32,
     size: u32,
 };
-var mmap_regions: [MAX_MMAP_REGIONS]?MmapRegion = [_]?MmapRegion{null} ** MAX_MMAP_REGIONS;
+var mmap_regions: [MAX_MMAP_REGIONS]?MmapRegion = @splat(null);
 var mmap_next: u32 = 0x40000000;
 /// mmap grows a fixed VA window [0x40000000, MMAP_WINDOW_END): everything
 /// below the backbuffer window at 0xD0000000 (see drivers/lfb.zig).

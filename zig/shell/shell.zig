@@ -219,7 +219,7 @@ const SHELL_COMMANDS = [_]Command{
 } else [_]Command{});
 
 // Local command buffer
-var cmd_buffer: [1024]u8 = [_]u8{0} ** 1024;
+var cmd_buffer: [1024]u8 = @splat(0);
 var cmd_len: u16 = 0;
 var cmd_pos: u16 = 0;
 
@@ -229,8 +229,8 @@ pub export fn shell_clear_history() void {
 }
 
 // Command history state
-var history: [HISTORY_SIZE][1024]u8 = [_][1024]u8{[_]u8{0} ** 1024} ** HISTORY_SIZE;
-var history_lens: [HISTORY_SIZE]u16 = [_]u16{0} ** HISTORY_SIZE;
+var history: [HISTORY_SIZE][1024]u8 = @splat(@splat(0));
+var history_lens: [HISTORY_SIZE]u16 = @splat(0);
 var history_count: u8 = 0;
 var history_index: u8 = 0;
 
@@ -243,7 +243,7 @@ var history_loaded: bool = false;
 
 // Autocomplete cycling state
 var auto_cycling: bool = false;
-var auto_prefix: [64]u8 = [_]u8{0} ** 64;
+var auto_prefix: [64]u8 = @splat(0);
 var auto_prefix_len: usize = 0;
 var auto_match_index: usize = 0;
 var auto_start_pos: u16 = 0;
@@ -765,7 +765,7 @@ fn autocomplete() void {
         const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
         if (fat.read_bpb(drive)) |bpb| {
             var d_buf: [512]u8 = undefined;
-            var lfn: fat.LfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
+            var lfn: fat.LfnState = .{ .buf = @splat(0), .active = false, .checksum = 0 };
 
             if (complete_cluster == 0 and bpb.fat_type != .FAT32) {
                 var sector = bpb.first_root_dir_sector;
@@ -866,7 +866,7 @@ fn autocomplete() void {
 
     // Pass 2: find match
     var current_match_idx: usize = 0;
-    var picked_name_buf: [256]u8 = [_]u8{0} ** 256; // Buffer to hold the picked name
+    var picked_name_buf: [256]u8 = @splat(0); // Buffer to hold the picked name
     var picked_len: usize = 0;
     var is_cmd = false;
     var picked_is_dir = false;
@@ -887,7 +887,7 @@ fn autocomplete() void {
         const drive = if (common.selected_disk == 0) ata.Drive.Master else ata.Drive.Slave;
         if (fat.read_bpb(drive)) |bpb| {
             var d_buf: [512]u8 = undefined;
-            var lfn: fat.LfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
+            var lfn: fat.LfnState = .{ .buf = @splat(0), .active = false, .checksum = 0 };
 
             if (complete_cluster == 0 and bpb.fat_type != .FAT32) {
                 var sector = bpb.first_root_dir_sector;
@@ -1134,7 +1134,7 @@ fn try_nova_script(name: []const u8, argv: [8][]const u8, argc: usize) bool {
 
     // System path scripts (/.SYSTEM/CMDS/<name>.nv)
     if (common.selected_disk >= 0) {
-        var path_buf: [128]u8 = [_]u8{0} ** 128;
+        var path_buf: [128]u8 = @splat(0);
         const prefix = "/.SYSTEM/CMDS/";
         const extension = ".nv";
 
@@ -1352,7 +1352,7 @@ fn cmd_handler_nova_legacy(_: []const u8) void {
 }
 
 fn cmd_handler_la(args: []const u8) void {
-    var buf: [128]u8 = [_]u8{0} ** 128;
+    var buf: [128]u8 = @splat(0);
     buf[0] = '-';
     buf[1] = 'a';
     buf[2] = ' ';
@@ -1564,7 +1564,7 @@ fn cmd_handler_install(args: []const u8) void {
     }
 
     // Ensure name has .nv extension
-    var dest_name_buf: [64]u8 = [_]u8{0} ** 64;
+    var dest_name_buf: [64]u8 = @splat(0);
     var dest_name: []const u8 = undefined;
 
     var is_nv = false;
@@ -1604,7 +1604,7 @@ fn cmd_handler_install(args: []const u8) void {
         _ = fat.create_directory(drive, bpb, 0, "/.SYSTEM/CMDS");
 
         // Construct dest path: /.SYSTEM/CMDS/<dest_name>
-        var dest_path_buf: [128]u8 = [_]u8{0} ** 128;
+        var dest_path_buf: [128]u8 = @splat(0);
         const prefix = "/.SYSTEM/CMDS/";
         common.copy(dest_path_buf[0..], prefix);
         common.copy(dest_path_buf[prefix.len..], dest_name);
@@ -1639,7 +1639,7 @@ fn cmd_handler_uninstall(args: []const u8) void {
     const name = args[name_start..i];
 
     // Ensure .nv extension
-    var dest_name_buf: [64]u8 = [_]u8{0} ** 64;
+    var dest_name_buf: [64]u8 = @splat(0);
     var dest_name: []const u8 = undefined;
 
     var is_nv = false;
@@ -1670,7 +1670,7 @@ fn cmd_handler_uninstall(args: []const u8) void {
 
     if (fat.read_bpb(drive)) |bpb| {
         // Construct path: /.SYSTEM/CMDS/<dest_name>
-        var dest_path_buf: [128]u8 = [_]u8{0} ** 128;
+        var dest_path_buf: [128]u8 = @splat(0);
         const prefix = "/.SYSTEM/CMDS/";
         common.copy(dest_path_buf[0..], prefix);
         common.copy(dest_path_buf[prefix.len..], dest_name);

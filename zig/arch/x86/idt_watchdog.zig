@@ -125,7 +125,7 @@ fn generate_key() void {
 fn compute_mac(data: []const u8) [16]u8 {
     if (!key_initialized) generate_key();
 
-    var mac: [16]u8 = [_]u8{0} ** 16;
+    var mac: [16]u8 = @splat(0);
     var state: [4]u32 = undefined;
 
     // Use getKeyByte for obfuscated key access
@@ -331,8 +331,10 @@ pub fn check_idt_safe() bool {
 
 fn get_current_idtr() u32 {
     var idtr: [6]u8 = undefined;
-    asm volatile ("sidt %[mem]"
-        : [mem] "=m" (idtr),
+    asm volatile ("sidt (%[mem])"
+        :
+        : [mem] "r" (&idtr),
+        : .{ .memory = true }
     );
     const base = @as(u32, idtr[2]) | (@as(u32, idtr[3]) << 8) | (@as(u32, idtr[4]) << 16) | (@as(u32, idtr[5]) << 24);
     return base;

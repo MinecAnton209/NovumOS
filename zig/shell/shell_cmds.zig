@@ -1022,7 +1022,7 @@ fn tree_node(drive: ata.Drive, bpb: fat.BPB, dir_cluster: u32, depth: usize) voi
     // Let's add an iterator or just uses a simplified version.
 
     var buffer: [512]u8 = undefined;
-    var lfn: fat.LfnState = .{ .buf = [_]u8{0} ** 256, .active = false, .checksum = 0 };
+    var lfn: fat.LfnState = .{ .buf = @splat(0), .active = false, .checksum = 0 };
 
     if (dir_cluster == 0) {
         if (bpb.fat_type == .FAT32) {
@@ -1357,7 +1357,7 @@ pub export fn cmd_matrix() void {
 
 fn cmd_matrix_vga() void {
     vga.clear_screen();
-    var row_offsets: [256]u8 = [_]u8{0} ** 256;
+    var row_offsets: [256]u8 = @splat(0);
 
     const cols = vga.MAX_COLS;
     const rows = vga.MAX_ROWS;
@@ -1433,7 +1433,7 @@ fn cmd_matrix_lfb() void {
     const rows: u32 = lfb.height / 16; // 16px tall font
     const max_cols = @min(cols, 256);
 
-    var row_offsets: [256]u32 = [_]u32{0} ** 256;
+    var row_offsets: [256]u32 = @splat(0);
 
     // Randomize initial offsets
     var seed: u32 = @intCast(timer.get_ticks());
