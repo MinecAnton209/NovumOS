@@ -101,7 +101,7 @@ pub fn open(regs: *user.Registers) void {
     };
     const cwd_cluster: u32 = 0;
     const handle = fat.fat_open(state[0], state[1], cwd_cluster, path) orelse {
-        regs.eax = 0xFFFFFFFF;
+        regs.eax = @as(u32, @bitCast(@as(i32, -2)));
         return;
     };
     const gi = alloc_global_handle(handle) orelse {
@@ -142,7 +142,7 @@ pub fn close(regs: *user.Registers) void {
 /// Syscall 102: read(EBX=fd, ECX=buf, EDX=count) -> EAX=bytes_read or -1
 pub fn read(regs: *user.Registers) void {
     const handle = get_handle(regs.ebx) orelse {
-        regs.eax = 0xFFFFFFFF;
+        regs.eax = @as(u32, @bitCast(@as(i32, -9)));
         return;
     };
     if (!syscalls.is_safe_user_range(regs.ecx, regs.edx)) {
@@ -166,7 +166,7 @@ pub fn write(regs: *user.Registers) void {
         return;
     }
     const handle = get_handle(regs.ebx) orelse {
-        regs.eax = 0xFFFFFFFF;
+        regs.eax = @as(u32, @bitCast(@as(i32, -9)));
         return;
     };
     if (!syscalls.is_safe_user_range(regs.ecx, regs.edx)) {
@@ -181,7 +181,13 @@ pub fn write(regs: *user.Registers) void {
 /// Syscall 104: lseek(EBX=fd, ECX=offset, EDX=whence) -> EAX=new_pos or -1
 pub fn lseek(regs: *user.Registers) void {
     const handle = get_handle(regs.ebx) orelse {
-        regs.eax = 0xFFFFFFFF;
+        // stdio probes stdin/stdout/stderr with lseek to pick a stream type; they are
+        // pipe-like (no seekable offset), so report ESPIPE rather than a generic failure.
+        if (regs.ebx == 0 or regs.ebx == STDOUT_FD or regs.ebx == STDERR_FD) {
+            regs.eax = @as(u32, @bitCast(@as(i32, -29)));
+        } else {
+            regs.eax = @as(u32, @bitCast(@as(i32, -9)));
+        }
         return;
     };
     const result = fat.fat_lseek(handle, @as(i64, @intCast(regs.ecx)), @intCast(regs.edx));
@@ -241,7 +247,7 @@ pub fn stat(regs: *user.Registers) void {
 /// Syscall 106: fstat(EBX=fd, ECX=stat_buf) -> EAX=0 or -1
 pub fn fstat(regs: *user.Registers) void {
     const handle = get_handle(regs.ebx) orelse {
-        regs.eax = 0xFFFFFFFF;
+        regs.eax = @as(u32, @bitCast(@as(i32, -9)));
         return;
     };
     if (!syscalls.is_safe_user_range(regs.ecx, @sizeOf(KernelStat))) {

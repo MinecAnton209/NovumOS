@@ -56,7 +56,7 @@ pub fn clock_gettime(regs: *user.Registers) void {
         ts.tv_nsec = 0;
         regs.eax = 0;
     } else {
-        regs.eax = 0xFFFFFFFF;
+        regs.eax = @as(u32, @bitCast(@as(i32, -22)));
     }
 }
 
