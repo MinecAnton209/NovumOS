@@ -41,8 +41,25 @@ pub const Phdr = extern struct {
 };
 
 pub const PT_LOAD = 1;
+const ET_DYN = 3;
 
+fn dbgStr(msg: []const u8) void {
+    common.printError(msg);
+}
+
+fn dbgNum(label: []const u8, v: u32) void {
+    var buf: [8]u8 = undefined;
+    for (0..8) |i| {
+        const nib: u4 = @truncate(v >> @intCast((7 - i) * 4));
+        buf[i] = "0123456789ABCDEF"[nib];
+    }
+    common.printError(label);
+    common.printError(&buf);
+    common.printError(" ");
+}
 pub fn load_and_run(data: []const u8) !noreturn {
+    dbgNum("[elf] len=", @intCast(data.len));
+    dbgStr("\n");
     user.set_is_privileged(false);
     if (data.len < @sizeOf(Header)) return error.InvalidElfHeader;
 
@@ -52,18 +69,27 @@ pub fn load_and_run(data: []const u8) !noreturn {
 
     // Verify ELF Magic: \x7fELF
     if (header.ident[0] != 0x7f or header.ident[1] != 'E' or header.ident[2] != 'L' or header.ident[3] != 'F') {
+        dbgStr("[elf] bad magic\n");
         return error.NotAnElf;
     }
 
     // Verify it's 32-bit (1) and Little Endian (1)
     if (header.ident[4] != 1 or header.ident[5] != 1) {
+        dbgStr("[elf] bad class/endian\n");
         return error.UnsupportedArchitecture;
     }
 
     logger.info("Loading ELF executable...");
+    // ET_EXEC images are linked at fixed addresses and carry no relocations, so sliding them breaks absolute references.
+    const slide: usize = if (header.etype == ET_DYN) aslr.elfSlide() else 0;
+
 
     // Validate Program Headers table fits in data
     const ph_table_end = @as(usize, header.phoff) + (@as(usize, header.phnum) * @as(usize, header.phentsize));
+    dbgNum("[elf] phoff=", header.phoff);
+    dbgNum("phnum=", header.phnum);
+    dbgNum("entry=", header.entry);
+    dbgStr("\n");
     if (ph_table_end > data.len) {
         logger.err("ELF Error: Program Headers out of bounds");
         return error.InvalidProgramHeaders;
@@ -75,6 +101,11 @@ pub fn load_and_run(data: []const u8) !noreturn {
         const ph = ph_ptr[i];
         if (ph.ptype == PT_LOAD) {
             // Security: Validate offsets and sizes
+            dbgNum("[elf] seg vaddr=", ph.vaddr);
+            dbgNum("memsz=", ph.memsz);
+            dbgNum("filesz=", ph.filesz);
+            dbgNum("off=", ph.offset);
+            dbgStr("\n");
             if (ph.filesz > ph.memsz) {
                 logger.err("ELF Error: filesz > memsz");
                 return error.InvalidSegmentSize;
@@ -101,10 +132,10 @@ pub fn load_and_run(data: []const u8) !noreturn {
             // map_range handles Ring 3 → Ring 0 transition via syscall 15
             // when called from the shell (running in Ring 3).
             // This avoids #GP on privileged instructions like invlpg.
-            memory.map_range(ph.vaddr + aslr.elfSlide(), ph.memsz, true);
+            memory.map_range(ph.vaddr + slide, ph.memsz, true);
 
             // Copy file data to segment
-            const dest = @as([*]u8, @ptrFromInt(ph.vaddr + aslr.elfSlide()));
+            const dest = @as([*]u8, @ptrFromInt(ph.vaddr + slide));
             @memcpy(dest[0..ph.filesz], data[ph.offset .. ph.offset + ph.filesz]);
 
             // Zero BSS (pages already mapped by the loop above)
@@ -115,7 +146,10 @@ pub fn load_and_run(data: []const u8) !noreturn {
     }
 
     logger.info("Jumping to Ring 3 ELF...");
-    user.jump_to_user_mode_with_entry(header.entry + aslr.elfSlide(), false);
+    dbgNum("[elf] jump entry=", header.entry + slide);
+    dbgNum("slide=", slide);
+    dbgStr("\n");
+    user.jump_to_user_mode_with_entry(header.entry + slide, false);
 }
 
 /// Load and run the embedded nova_legacy.elf (backward compat, same binary).
