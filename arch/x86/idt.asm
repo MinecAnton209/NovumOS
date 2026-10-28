@@ -425,7 +425,7 @@ sysenter_entry:
     pop es
     push 0xAB
     pop fs
-    push 0xAB
+    push 0xB3               ; ring-3 TLS selector: keeps gs:0 pointing at the TCB
     pop gs
 
     ; Defensive Zeroing: Clear SSE/XMM registers to prevent leakage

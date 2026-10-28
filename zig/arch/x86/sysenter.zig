@@ -106,7 +106,8 @@ export fn handle_sysenter_zig(uesp: u32, ueip: u32, num: u32, a1: u32, esi_val: 
         .ds = 0xAB,
         .es = 0xAB,
         .fs = 0xAB,
-        .gs = 0xAB,
+        // The mlibc TLS selector (0xB3): returning with 0xAB would zero GS and break gs:0 TCB reads
+        .gs = 0xB3,
     };
     if (config.ENABLE_SYSCALL_TRACE) {
         const common = @import("../../commands/common.zig");
