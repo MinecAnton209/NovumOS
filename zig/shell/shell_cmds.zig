@@ -30,6 +30,7 @@ const elf = @import("../kernel/elf.zig");
 const pci_cmds = @import("../commands/pci_cmds.zig");
 const lfb = @import("../drivers/lfb.zig");
 const calc = @import("../commands/calc.zig");
+const rust_cmd = @import("../commands/rust_cmd.zig");
 const logger = @import("../kernel/logger.zig");
 const scheduler = @import("../kernel/scheduler.zig");
 const mem_stats = @import("../commands/mem_stats.zig");
@@ -46,6 +47,10 @@ pub export fn cmd_ps() void {
 
 pub export fn cmd_calc(args: [*]const u8, args_len: u32) void {
     calc.execute(args, args_len);
+}
+
+pub export fn cmd_rust() void {
+    rust_cmd.execute();
 }
 
 pub export fn cmd_run(args_ptr: [*]const u8, args_len: u32) void {

@@ -13,6 +13,7 @@ const serial = @import("../drivers/serial.zig");
 const exceptions = @import("../arch/mod.zig").exceptions;
 const smp = @import("../arch/mod.zig").smp;
 const libc_stubs = @import("libc_stubs.zig");
+const rust_bridge = @import("rust_bridge.zig");
 const logger = @import("logger.zig");
 const user = @import("../arch/mod.zig").user;
 const sysenter = @import("../arch/mod.zig").sysenter;
@@ -50,6 +51,7 @@ comptime {
         _ = quantum;
     }
     _ = libc_stubs;
+    _ = rust_bridge;
 }
 
 // External shell functions (exported by shell.zig)

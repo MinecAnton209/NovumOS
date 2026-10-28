@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
 
     const Cfg = struct { text: []const u8, source: []const u8 };
     const cfg: Cfg = blk: {
-        const handle = b.build_root.handle;
+        const handle = std.Io.Dir.cwd();
         const read = struct {
             fn go(h: @TypeOf(handle), io: anytype, path: []const u8, alloc: std.mem.Allocator) ?[]const u8 {
                 return h.readFileAlloc(io, path, alloc, .limited(1024 * 1024)) catch |err| switch (err) {
@@ -125,7 +125,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    const optimize = .ReleaseSmall;
+    const optimize: std.lang.Optimize = .ReleaseSmall;
 
     // Build hash: OS CSPRNG by default; deterministic from BUILD_HASH_SEED (hex)
     // when set, for reproducible builds.  Used for watchdog chaos + ASLR slide.
@@ -208,6 +208,27 @@ pub fn build(b: *std.Build) void {
     nasm_tr.addArg("-o");
     const tramp_bin = nasm_tr.addOutputFileArg("trampoline.bin");
 
+    // Rust kernel module: core + compiler_builtins are built from source for the
+    // custom i686 bare-metal spec, then the staticlib is linked into the kernel.
+    const rust_kmod = b.addSystemCommand(&.{
+        "cargo",
+        "+nightly",
+        "build",
+        "--release",
+        "--manifest-path",
+        "rust/kmod/Cargo.toml",
+        "--target",
+        "rust/kmod/i686-novum.json",
+        "-Zbuild-std=core,compiler_builtins",
+        "-Zbuild-std-features=compiler-builtins-mem",
+        "-Zjson-target-spec",
+        "--quiet",
+    });
+    rust_kmod.addFileInput(b.path("rust/kmod/Cargo.toml"));
+    rust_kmod.addFileInput(b.path("rust/kmod/i686-novum.json"));
+    rust_kmod.addFileInput(b.path("rust/kmod/src/lib.rs"));
+    const rust_kmod_lib = b.path("rust/kmod/target/i686-novum/release/libkmod.a");
+
     // Two links from the same inputs: the unstripped copy keeps the symbols that
     // scripts/prof-symbolize.py needs to resolve `prof report` addresses.
     const link_debug_cmd = b.addSystemCommand(&.{ "zig", "ld.lld", "-m", "elf_i386", "-T" });
@@ -216,6 +237,8 @@ pub fn build(b: *std.Build) void {
     const kernel_debug_elf = link_debug_cmd.addOutputFileArg("kernel32.debug.elf");
     link_debug_cmd.addFileArg(k32_o);
     link_debug_cmd.addFileArg(um_o);
+    link_debug_cmd.step.dependOn(&rust_kmod.step);
+    link_debug_cmd.addFileArg(rust_kmod_lib);
     link_debug_cmd.addFileArg(kernel.getEmittedBin());
 
     const link_cmd = b.addSystemCommand(&.{ "zig", "ld.lld", "-m", "elf_i386", "-T" });
@@ -225,6 +248,8 @@ pub fn build(b: *std.Build) void {
     const kernel_elf = link_cmd.addOutputFileArg("kernel32.elf");
     link_cmd.addFileArg(k32_o);
     link_cmd.addFileArg(um_o);
+    link_cmd.step.dependOn(&rust_kmod.step);
+    link_cmd.addFileArg(rust_kmod_lib);
     link_cmd.addFileArg(kernel.getEmittedBin());
 
     const install_debug_elf = b.addInstallFileWithDir(kernel_debug_elf, .{ .custom = "../build" }, "kernel32.debug.elf");

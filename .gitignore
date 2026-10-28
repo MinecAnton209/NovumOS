@@ -18,6 +18,9 @@ tools/mkiso.exe
 tools/mkiso.o
 tools/mkiso.pdb
 
+# Rust kernel module
+rust/kmod/target/
+
 # Zig
 .zig-cache/
 zig-out/
