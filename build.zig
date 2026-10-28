@@ -25,6 +25,9 @@ pub fn build(b: *std.Build) void {
         break :blk Cfg{ .text = "", .source = "(schema defaults)" };
     };
 
+    b.dependOnFileContents(b.path(".config"));
+    b.dependOnFileContents(b.path("defconfig"));
+
     if (kconfig.validate(&cfg_schema.schema, cfg.text)) |d| {
         if (d.first_line) |fl| {
             std.log.err("invalid config in {s} at line {d}: duplicate key '{s}' (first at line {d})", .{ cfg.source, d.line, d.key, fl });

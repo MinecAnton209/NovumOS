@@ -166,6 +166,12 @@ pub const schema = [_]kconfig.Field{
         .desc = "Enables the classic DOOM PSX procedural fire particle simulation effect in the graphical terminal console.",
     },
     .{
+        .name = "ENABLE_RUST",
+        .default = .{ .bool = true },
+        .help = "Rust kernel module demo command (rust)",
+        .desc = "Enables the rust shell command that calls into the Rust kernel module linked from rust/kmod. Disable to remove the command surface; the Rust module stays linked either way.",
+    },
+    .{
         .name = "ENABLE_MATRIX",
         .default = .{ .bool = true },
         .help = "Matrix rain visual demo command",

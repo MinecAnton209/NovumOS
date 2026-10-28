@@ -49,6 +49,7 @@ linked, and its commands disappear from `help`.
 |------|-------------------|
 | `ENABLE_QUANTUM` | Quantum simulator, all `q*` commands, syscalls 55–57 (−8 KB). With `ENABLE_NOVA=y` legacy nova still links the entropy helpers — add `ENABLE_NOVA=n` for full exclusion (−49 KB total, nova ELF not built) |
 | `ENABLE_DOOMFIRE` | `doomfire` command (also prints "disabled" cleanly if only `QUANTUM=n`) |
+| `ENABLE_RUST` | `rust` command that calls the Rust kernel module (the module itself stays linked) |
 | `ENABLE_MATRIX` | `matrix` command |
 | `ENABLE_BUILTIN_SCRIPTS` | Embedded `hello`/`syscheck` `.nv` scripts |
 | `ENABLE_MOUSE` | PS/2 driver, `mouse` command, IDT/IRQ12 asm wiring — passed to nasm as `-DENABLE_MOUSE=0` (−4 KB) |

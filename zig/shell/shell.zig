@@ -169,7 +169,6 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "run", .help = "run <elf> - Execute an ELF (RAM FS or disk)", .handler = guarded_handler(&shell_cmds.cmd_run, "Usage: run <elf>\n"), .kind = .guarded_args, .usage = "Usage: run <elf>\n" },
     .{ .name = "exec", .help = "Alias for run", .handler = guarded_handler(&shell_cmds.cmd_run, "Usage: run <elf>\n"), .kind = .guarded_args, .usage = "Usage: run <elf>\n" },
     .{ .name = "calc", .help = "Evaluate math & bitwise expressions (e.g. 1 << 8)", .handler = direct_handler(&shell_cmds.cmd_calc), .kind = .direct_args },
-    .{ .name = "rust", .help = "Run the Rust kernel module demo", .handler = no_args_handler(&shell_cmds.cmd_rust), .kind = .no_args },
     .{ .name = "res", .help = "res <w> <h> - Set custom resolution via BGA", .handler = direct_handler(&shell_cmds.cmd_res), .kind = .direct_args },
 } ++ (if (config.ENABLE_DEBUG_CRASH_COMMANDS) [_]Command{
     .{ .name = "panic", .help = "Trigger a CPU exception for testing", .handler = no_args_handler(&shell_cmds.cmd_panic), .kind = .no_args },
@@ -194,6 +193,8 @@ const SHELL_COMMANDS = [_]Command{
     .{ .name = "qtest", .help = "qtest - Bell state and Pauli-X self test", .handler = cmd_handler_qtest, .kind = .custom },
 } else [_]Command{}) ++ (if (config.ENABLE_DOOMFIRE) [_]Command{
     .{ .name = "doomfire", .help = "Quantum-ignited DOOM fire on the framebuffer", .handler = no_args_handler(&doomfire_cmd.cmd_doomfire), .kind = .no_args },
+} else [_]Command{}) ++ (if (config.ENABLE_RUST) [_]Command{
+    .{ .name = "rust", .help = "Run the Rust kernel module demo", .handler = no_args_handler(&shell_cmds.cmd_rust), .kind = .no_args },
 } else [_]Command{}) ++ (if (config.ENABLE_MATRIX) [_]Command{
     .{ .name = "matrix", .help = "Enter the NovumOS Matrix (fun!)", .handler = cmd_handler_matrix, .kind = .custom },
 } else [_]Command{}) ++ (if (config.ENABLE_MOUSE) [_]Command{
