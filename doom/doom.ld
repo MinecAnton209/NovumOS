@@ -4,6 +4,7 @@ ENTRY(_start)
 PHDRS
 {
     text PT_LOAD FILEHDR PHDRS;
+    data PT_LOAD FLAGS(6);
     tls PT_TLS;
 }
 
@@ -32,31 +33,31 @@ SECTIONS
     .data : {
         *(.data*)
         *(.gnu.linkonce.d*)
-    }
+    } :data
 
     .bss : {
         *(.bss*)
         *(COMMON)
-    }
+    } :data
 
     .got : {
         *(.got*)
-    }
+    } :data
 
     .got.plt : {
         *(.got.plt*)
-    }
+    } :data
 
     __init_array_start = .;
     .init_array : {
         *(.init_array*)
-    }
+    } :data
     __init_array_end = .;
 
     __fini_array_start = .;
     .fini_array : {
         *(.fini_array*)
-    }
+    } :data
     __fini_array_end = .;
 
     /DISCARD/ : {
