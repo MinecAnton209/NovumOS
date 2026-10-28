@@ -149,7 +149,7 @@ pub fn load_and_run(data: []const u8) !noreturn {
     dbgNum("[elf] jump entry=", header.entry + slide);
     dbgNum("slide=", slide);
     dbgStr("\n");
-    user.jump_to_user_mode_with_entry(header.entry + slide, false);
+    user.jump_to_user_mode_with_aux(header.entry + slide, @intFromPtr(data.ptr) + header.phoff, header.phnum, false);
 }
 
 /// Load and run the embedded nova_legacy.elf (backward compat, same binary).

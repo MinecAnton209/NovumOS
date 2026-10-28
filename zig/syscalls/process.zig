@@ -86,26 +86,8 @@ pub fn jumpToUser(regs: *user.Registers) void {
         regs.eax = 0;
         return;
     }
-    const eflags: u32 = if (user.get_is_privileged()) 0x3202 else 0x0202;
-    asm volatile (
-        \\cli
-        \\pushl $0xAB
-        \\pushl %[esp]
-        \\pushl %[flags]
-        \\pushl $0xA3
-        \\pushl %[entry]
-        \\movw $0xAB, %%ax
-        \\movw %%ax, %%ds
-        \\movw %%ax, %%es
-        \\movw %%ax, %%fs
-        \\movw %%ax, %%gs
-        \\iret
-        :
-        : [entry] "r" (entry),
-          [esp] "r" (regs.esp_dummy),
-          [flags] "r" (eflags),
-        : .{ .memory = true, .eax = true });
-    unreachable;
+    // Runs in ring 0 (syscall handler): let the user-mode path build a fresh stack instead of reusing the caller's.
+    user.jump_to_user_mode_with_aux(entry, regs.esi, regs.edi, user.get_is_privileged());
 }
 
 /// Syscall 40: Execve(EBX = filename_ptr) — execute ELF from simplefs

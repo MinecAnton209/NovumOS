@@ -191,6 +191,12 @@ pub fn jump_to_user_mode() noreturn {
 }
 
 pub fn jump_to_user_mode_with_entry(entry: usize, privileged: bool) noreturn {
+    jump_to_user_mode_with_aux(entry, 0, 0, privileged);
+}
+
+/// Enters ring 3 with a fresh stack that carries argc/argv/envp and auxv.
+/// phdr_addr/phnum describe the ELF program headers (copied to the stack page for AT_PHDR).
+pub fn jump_to_user_mode_with_aux(entry: usize, phdr_addr: usize, phnum: u32, privileged: bool) noreturn {
     // CPL check first: shell already runs in Ring 3, and everything below
     // (wrmsr, cli, invlpg) faults with #GP if executed at CPL=3.
     var cs_reg: u16 = 0;
@@ -214,6 +220,8 @@ pub fn jump_to_user_mode_with_entry(entry: usize, privileged: bool) noreturn {
               [dx] "={edx}" (dx),
             : [sys] "{eax}" (@as(u32, 12)),
               [ent] "{ebx}" (entry),
+              [aux_p] "{esi}" (phdr_addr),
+              [aux_n] "{edi}" (phnum),
         );
         unreachable;
     }
@@ -259,9 +267,28 @@ pub fn jump_to_user_mode_with_entry(entry: usize, privileged: bool) noreturn {
     // Zero out the stack to avoid artifacts from previous runs
     @memset(@as([*]u8, @ptrFromInt(stack_vaddr))[0..memory.PAGE_SIZE], 0);
 
-    // Top of stack (16-byte aligned for entry point)
-    const user_esp = stack_vaddr + memory.PAGE_SIZE - 16;
-
+    // Initial process stack (System V layout): argc, argv[0]=NULL, envp[0]=NULL, then auxv.
+    // The page sits at 0x3FF000; the program headers are copied to its base and AT_RANDOM points past them.
+    const page: [*]u8 = @ptrFromInt(stack_vaddr);
+    const phdr_bytes: usize = @as(usize, phnum) * 32;
+    if (phdr_addr != 0 and phdr_bytes > 0 and phdr_bytes <= 0xC0) {
+        @memcpy(page[0..phdr_bytes], @as([*]const u8, @ptrFromInt(phdr_addr))[0..phdr_bytes]);
+    }
+    const random_addr = stack_vaddr + 0xC0;
+    const words_base: usize = stack_vaddr + 0xF80;
+    const words: [*]u32 = @ptrFromInt(words_base);
+    const initial_words = [_]u32{
+        0, 0, 0,
+        3, stack_vaddr,
+        4, 32,
+        5, phnum,
+        6, memory.PAGE_SIZE,
+        9, @intCast(entry),
+        25, random_addr,
+        0, 0,
+    };
+    for (initial_words, 0..) |word, i| words[i] = word;
+    const user_esp = words_base;
     // Call the stable assembly transition with entry, stack and eflags
     // Privileged processes get IOPL=3 (0x3000)
     const eflags: u32 = if (privileged) 0x3202 else 0x0202;
