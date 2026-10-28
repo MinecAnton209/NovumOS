@@ -1,6 +1,12 @@
 OUTPUT_FORMAT(elf32-i386)
 ENTRY(_start)
 
+PHDRS
+{
+    text PT_LOAD FILEHDR PHDRS;
+    tls PT_TLS;
+}
+
 SECTIONS
 {
     . = 0x02000000;
@@ -8,12 +14,20 @@ SECTIONS
     .text : {
         *(.text*)
         *(.gnu.linkonce.t*)
-    }
+    } :text
 
     .rodata : {
         *(.rodata*)
         *(.gnu.linkonce.r*)
-    }
+    } :text
+
+    .tdata : {
+        *(.tdata*)
+    } :text :tls
+
+    .tbss : {
+        *(.tbss*)
+    } :tls
 
     .data : {
         *(.data*)
