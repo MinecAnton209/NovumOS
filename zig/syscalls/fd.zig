@@ -10,6 +10,8 @@ const common = @import("../commands/common.zig");
 
 const MAX_GLOBAL_HANDLES = 128;
 const MAX_FD = scheduler.FD_TABLE_SIZE;
+const STDOUT_FD = 1;
+const STDERR_FD = 2;
 const SEEK_SET = 0;
 const SEEK_CUR = 1;
 const SEEK_END = 2;
@@ -151,6 +153,16 @@ pub fn read(regs: *user.Registers) void {
 
 /// Syscall 103: write(EBX=fd, ECX=buf, EDX=count) -> EAX=bytes_written or -1
 pub fn write(regs: *user.Registers) void {
+    if (regs.ebx == STDOUT_FD or regs.ebx == STDERR_FD) {
+        if (!syscalls.is_safe_user_range(regs.ecx, regs.edx)) {
+            regs.eax = 0xFFFFFFFF;
+            return;
+        }
+        const console_data = @as([*]const u8, @ptrFromInt(regs.ecx))[0..regs.edx];
+        common.printBuf(console_data);
+        regs.eax = regs.edx;
+        return;
+    }
     const handle = get_handle(regs.ebx) orelse {
         regs.eax = 0xFFFFFFFF;
         return;
