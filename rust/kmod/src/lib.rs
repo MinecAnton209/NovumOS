@@ -10,7 +10,7 @@ fn console_write(s: &[u8]) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_hello() {
-    console_write(b"Hello from Rust!\n");
+    console_write(b"Hello from Rust to cubeOS Team!\n");
 }
 
 #[panic_handler]
