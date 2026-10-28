@@ -174,6 +174,8 @@ pub const HANDLERS: [256]?HandlerPtr = blk: {
     if (config.ENABLE_DEBUG_COMMANDS and config.ENABLE_STRIDE_SCHEDULER) {
         table[117] = &sched_test_mod.sysSpawn;
     }
+    // mlibc TCB base: points the ring-3 TLS segment (GDT 0xB0) at the TCB
+    table[118] = &process_mod.setTlsBase;
     // Video/Graphics
     table[58] = &video_mod.setResolution;
     table[60] = &video_mod.getVideoMode;

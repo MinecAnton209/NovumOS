@@ -1,3 +1,4 @@
+const std = @import("std");
 const user = @import("../arch/mod.zig").user;
 const memory = @import("../kernel/memory.zig");
 const logger = @import("../kernel/logger.zig");
@@ -186,4 +187,43 @@ pub fn uname(regs: *user.Registers) void {
     @memcpy(uts.machine[0..4], "i386");
     @memcpy(uts.domainname[0..6], "(none)");
     regs.eax = 0;
+}
+
+extern var gdt_kernel_start: u8;
+
+/// Ring-3 TLS data segment: GDT index 22 (selector 0xB0), requested with RPL 3
+const TLS_GDT_OFFSET: usize = 22 * 8;
+const TLS_SEL: u32 = 0xB3;
+
+/// Writes a 32-bit base into a flat GDT descriptor, keeping its access and flag bytes
+fn writeDescriptorBase(desc: *[8]u8, base: u32) void {
+    desc[2] = @truncate(base);
+    desc[3] = @truncate(base >> 8);
+    desc[4] = @truncate(base >> 16);
+    desc[7] = @truncate(base >> 24);
+}
+
+/// Syscall 118: SetTlsBase(EBX = tcb_address) — point the ring-3 TLS segment at the TCB
+pub fn setTlsBase(regs: *user.Registers) void {
+    const base = regs.ebx;
+    if (base == 0 or !syscalls.is_safe_user_range(base, 8)) {
+        regs.eax = 0xFFFFFFFF;
+        return;
+    }
+    const desc: *[8]u8 = @ptrFromInt(@intFromPtr(&gdt_kernel_start) + TLS_GDT_OFFSET);
+    writeDescriptorBase(desc, base);
+    regs.gs = TLS_SEL;
+    regs.eax = 0;
+}
+
+test "writeDescriptorBase scatters the base across fields and keeps access bits" {
+    var desc = [_]u8{ 0xFF, 0xFF, 0, 0, 0, 0x92, 0xCF, 0 };
+    writeDescriptorBase(&desc, 0x0203A759);
+    try std.testing.expectEqual(@as(u8, 0x59), desc[2]);
+    try std.testing.expectEqual(@as(u8, 0xA7), desc[3]);
+    try std.testing.expectEqual(@as(u8, 0x03), desc[4]);
+    try std.testing.expectEqual(@as(u8, 0x02), desc[7]);
+    try std.testing.expectEqual(@as(u8, 0x92), desc[5]);
+    try std.testing.expectEqual(@as(u8, 0xCF), desc[6]);
+    try std.testing.expectEqual(@as(u8, 0xFF), desc[0]);
 }

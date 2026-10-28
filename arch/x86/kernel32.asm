@@ -101,6 +101,7 @@ gdt_kernel_start:
     dw 0x0067, 0x0000, 0x8900, 0x0000 ; DF TSS
     dw 0xffff, 0x0000, 0xfa00, 0x00cf ; User Code segment
     dw 0xffff, 0x0000, 0xf200, 0x00cf ; User Data segment
+    dw 0xffff, 0x0000, 0xf200, 0x00cf ; Ring-3 TLS data segment (0xB0), base set by setTlsBase
 gdt_kernel_real_end:
 global gdt_descriptor_kernel
 gdt_descriptor_kernel:
