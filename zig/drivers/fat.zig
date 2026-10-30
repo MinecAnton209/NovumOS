@@ -6,6 +6,7 @@ pub const fat_read_cached_sector = fat.fat_read_cached_sector;
 pub const FatType = fat.FatType;
 pub const BPB = fat.BPB;
 pub const read_bpb = fat.read_bpb;
+pub const invalidate_bpb_cache = fat.invalidate_bpb_cache;
 pub const disabled_fs_name = fat.disabled_fs_name;
 pub const report_bpb_error = fat.report_bpb_error;
 pub const DirEntry = fat.DirEntry;

@@ -439,6 +439,60 @@ pub fn build(b: *std.Build) void {
     const str_test_step = b.step("test-str", "Run str.zig utility tests");
     str_test_step.dependOn(&run_str_tests.step);
 
+    // FAT driver tests: the driver compiles unchanged, with stubs for ATA, console,
+    // time, VGA and config, and an in-memory disk image in place of the hardware.
+    const fat_ata_stub = b.createModule(.{
+        .root_source_file = b.path("zig/tests/stubs/fat_ata_stub.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const fat_common_stub = b.createModule(.{
+        .root_source_file = b.path("zig/tests/stubs/fat_common_stub.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const fat_config_stub = b.createModule(.{
+        .root_source_file = b.path("zig/tests/stubs/fat_config_stub.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const fat_time_stub = b.createModule(.{
+        .root_source_file = b.path("zig/tests/stubs/fat_time_stub.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const fat_vga_stub = b.createModule(.{
+        .root_source_file = b.path("zig/tests/stubs/fat_vga_stub.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+    });
+    const fat_mod = b.createModule(.{
+        .root_source_file = b.path("zig/drivers/fat.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+        .imports = &.{
+            .{ .name = "../ata.zig", .module = fat_ata_stub },
+            .{ .name = "../../commands/common.zig", .module = fat_common_stub },
+            .{ .name = "../../config.zig", .module = fat_config_stub },
+            .{ .name = "../time/time.zig", .module = fat_time_stub },
+            .{ .name = "../vga.zig", .module = fat_vga_stub },
+        },
+    });
+    const fat_test_mod = b.createModule(.{
+        .root_source_file = b.path("zig/tests/test_fat.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+        .imports = &.{
+            .{ .name = "fat", .module = fat_mod },
+            .{ .name = "fat_ata", .module = fat_ata_stub },
+        },
+    });
+    const fat_tests = b.addTest(.{ .root_module = fat_test_mod });
+    const run_fat_tests = b.addRunArtifact(fat_tests);
+    const fat_test_step = b.step("test-fat", "Run FAT driver tests");
+    fat_test_step.dependOn(&run_fat_tests.step);
+    test_step.dependOn(&run_fat_tests.step);
+
     // profiler_table.zig tests: fixed-capacity sample histogram
     const profiler_table_test_mod = b.createModule(.{
         .root_source_file = b.path("zig/tests/test_profiler_table.zig"),
