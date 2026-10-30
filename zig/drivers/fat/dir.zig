@@ -118,6 +118,12 @@ pub const ResolvedPath = struct {
     path_len: usize,
 };
 
+// A 12-bit FAT entry can straddle the sector boundary: its high byte is the
+// first byte of the next sector when the entry starts at offset 511.
+fn fat12Byte(buf1: [*]u8, buf2: [*]u8, offset: u32) *u8 {
+    return if (offset < 512) &buf1[offset] else &buf2[offset - 512];
+}
+
 pub fn get_fat_entry(drive: ata.Drive, bpb: BPB, cluster: u32) u32 {
     if (bpb.fat_type == .FAT12) {
         const fat_offset = cluster + (cluster / 2);
@@ -127,7 +133,7 @@ pub fn get_fat_entry(drive: ata.Drive, bpb: BPB, cluster: u32) u32 {
         const buf1 = fat_read_cached_sector(drive, sector);
         const buf2 = fat_read_cached_sector(drive, sector + 1);
 
-        const val = @as(u16, buf1[ent_offset]) | (@as(u16, buf2[ent_offset + 1]) << 8);
+        const val = @as(u16, buf1[ent_offset]) | (@as(u16, fat12Byte(buf1, buf2, ent_offset + 1).*) << 8);
         return if (cluster % 2 == 1) val >> 4 else val & 0xFFF;
     } else if (bpb.fat_type == .FAT16) {
         const fat_offset = cluster * 2;
@@ -147,6 +153,16 @@ pub fn get_fat_entry(drive: ata.Drive, bpb: BPB, cluster: u32) u32 {
     }
 }
 
+// Writes one FAT sector to every FAT copy, so a damaged primary table can be
+// rebuilt from the second copy.
+fn write_fat_sector(drive: ata.Drive, bpb: BPB, sector: u32, buf: [*]const u8) void {
+    const spf = if (bpb.sectors_per_fat == 0) bpb.sectors_per_fat32 else bpb.sectors_per_fat;
+    var copy: u32 = 0;
+    while (copy < bpb.num_fats) : (copy += 1) {
+        ata.write_sector(drive, sector + copy * spf, buf);
+    }
+}
+
 pub fn set_fat_entry(drive: ata.Drive, bpb: BPB, cluster: u32, value: u32) void {
     if (bpb.fat_type == .FAT12) {
         const fat_offset = cluster + (cluster / 2);
@@ -156,7 +172,7 @@ pub fn set_fat_entry(drive: ata.Drive, bpb: BPB, cluster: u32, value: u32) void 
         const buf1 = fat_read_cached_sector(drive, sector);
         const buf2 = fat_read_cached_sector(drive, sector + 1);
 
-        var val = @as(u16, buf1[ent_offset]) | (@as(u16, buf2[ent_offset + 1]) << 8);
+        var val = @as(u16, buf1[ent_offset]) | (@as(u16, fat12Byte(buf1, buf2, ent_offset + 1).*) << 8);
         if (cluster % 2 == 1) {
             val = (val & 0x000F) | (@as(u16, @intCast(value)) << 4);
         } else {
@@ -164,10 +180,10 @@ pub fn set_fat_entry(drive: ata.Drive, bpb: BPB, cluster: u32, value: u32) void 
         }
 
         buf1[ent_offset] = @intCast(val & 0xFF);
-        buf2[ent_offset + 1] = @intCast(val >> 8);
+        fat12Byte(buf1, buf2, ent_offset + 1).* = @intCast(val >> 8);
 
-        ata.write_sector(drive, sector, buf1);
-        ata.write_sector(drive, sector + 1, buf2);
+        write_fat_sector(drive, bpb, sector, buf1);
+        write_fat_sector(drive, bpb, sector + 1, buf2);
     } else if (bpb.fat_type == .FAT16) {
         const fat_offset = cluster * 2;
         const sector = bpb.first_fat_sector + (fat_offset / 512);
@@ -176,7 +192,7 @@ pub fn set_fat_entry(drive: ata.Drive, bpb: BPB, cluster: u32, value: u32) void 
         const buf = fat_read_cached_sector(drive, sector);
         buf[ent_offset] = @intCast(value & 0xFF);
         buf[ent_offset + 1] = @intCast(value >> 8);
-        ata.write_sector(drive, sector, buf);
+        write_fat_sector(drive, bpb, sector, buf);
     } else {
         const fat_offset = cluster * 4;
         const sector = bpb.first_fat_sector + (fat_offset / 512);
@@ -189,7 +205,7 @@ pub fn set_fat_entry(drive: ata.Drive, bpb: BPB, cluster: u32, value: u32) void 
         buf[ent_offset + 1] = @intCast((new_val >> 8) & 0xFF);
         buf[ent_offset + 2] = @intCast((new_val >> 16) & 0xFF);
         buf[ent_offset + 3] = @intCast((new_val >> 24) & 0xFF);
-        ata.write_sector(drive, sector, buf);
+        write_fat_sector(drive, bpb, sector, buf);
     }
 }
 
@@ -1000,7 +1016,7 @@ fn copy_all_entries(drive: ata.Drive, bpb: BPB, src_cluster: u32, dest_cluster: 
                 const name = name_info.buf[0..name_info.len];
                 if (common.std_mem_eql(name, ".") or common.std_mem_eql(name, "..")) continue;
 
-                copy_entry_recursive(drive, bpb, current, name, dest_cluster);
+                copy_entry_recursive(drive, bpb, src_cluster, name, dest_cluster);
             }
         }
         current = get_fat_entry(drive, bpb, current);

@@ -10,6 +10,7 @@ pub const FileHandle = struct {
     bpb: BPB,
     dir_cluster: u32,
     name: []const u8,
+    start_cluster: u32,
     cluster: u32,
     offset: u32,
     size: u32,
@@ -26,6 +27,7 @@ pub fn fat_open(drive: ata.Drive, bpb: BPB, dir_cluster: u32, path: []const u8) 
         .bpb = bpb,
         .dir_cluster = res.dir_cluster,
         .name = res.file_name,
+        .start_cluster = @as(u32, entry.first_cluster_low) | (@as(u32, entry.first_cluster_high) << 16),
         .cluster = @as(u32, entry.first_cluster_low) | (@as(u32, entry.first_cluster_high) << 16),
         .offset = 0,
         .size = entry.file_size,
@@ -61,16 +63,30 @@ pub fn fat_lseek(handle: *FileHandle, offset: i64, whence: i32) i64 {
 
     handle.offset = @intCast(new_offset);
 
-    const cluster_offset = handle.offset / (@as(u32, handle.bpb.sectors_per_cluster) * 512);
-    var current = handle.cluster;
+    seek_chain(handle, handle.offset / (@as(u32, handle.bpb.sectors_per_cluster) * 512));
+
+    return new_offset;
+}
+
+// Positions `handle.cluster` on the chain cluster that holds `cluster_index`,
+// walking from the first cluster. Stops at the last allocated cluster so the
+// handle never lands on an EOF marker when the offset is at or past the end.
+fn seek_chain(handle: *FileHandle, cluster_index: u32) void {
+    const eof_limit: u32 = switch (handle.bpb.fat_type) {
+        .FAT12 => 0xFF8,
+        .FAT16 => 0xFFF8,
+        .FAT32 => 0x0FFFFFF8,
+        else => 0xFFF8,
+    };
+    var current = handle.start_cluster;
     var i: u32 = 0;
-    while (i < cluster_offset and current >= 2) {
-        current = get_fat_entry(handle.drive, handle.bpb, current);
+    while (i < cluster_index and current >= 2) {
+        const next = get_fat_entry(handle.drive, handle.bpb, current);
+        if (next < 2 or next >= eof_limit) break;
+        current = next;
         i += 1;
     }
     handle.cluster = current;
-
-    return new_offset;
 }
 
 pub fn fat_tell(handle: *FileHandle) u32 {
@@ -87,7 +103,7 @@ pub fn fat_truncate(handle: *FileHandle, length: u32) i32 {
     const new_clusters_needed = (length + bytes_per_cluster - 1) / bytes_per_cluster;
 
     if (new_clusters_needed < old_clusters_needed) {
-        var current = handle.cluster;
+        var current = handle.start_cluster;
         var i: u32 = 0;
         while (i < new_clusters_needed - 1 and current >= 2) {
             current = get_fat_entry(handle.drive, handle.bpb, current);
@@ -155,7 +171,7 @@ pub fn fat_expand(handle: *FileHandle, length: u32) i32 {
 
     if (new_clusters_needed > old_clusters_needed) {
         const clusters_to_add = new_clusters_needed - old_clusters_needed;
-        var current = handle.cluster;
+        var current = handle.start_cluster;
 
         var i: u32 = 0;
         while (i < old_clusters_needed - 1 and current >= 2) {
@@ -215,13 +231,7 @@ pub fn fat_forward(handle: *FileHandle, count: u32) i32 {
 
     const cluster_size = @as(u32, handle.bpb.sectors_per_cluster) * 512;
     const cluster_offset = handle.offset / cluster_size;
-    var current = handle.cluster;
-    var i: u32 = 0;
-    while (i < cluster_offset and current >= 2) {
-        current = get_fat_entry(handle.drive, handle.bpb, current);
-        i += 1;
-    }
-    handle.cluster = current;
+    seek_chain(handle, cluster_offset);
 
     return @intCast(new_offset);
 }
@@ -281,6 +291,7 @@ pub fn fat_gets(handle: *FileHandle, buffer: [*]u8, max_len: u32) i32 {
 
     var bytes_read: u32 = 0;
     var sector_buf: [512]u8 = undefined;
+    const cluster_size = @as(u32, handle.bpb.sectors_per_cluster) * 512;
 
     while (bytes_read < max_len and handle.offset < handle.size) {
         const win = sector_window(handle);
@@ -288,6 +299,7 @@ pub fn fat_gets(handle: *FileHandle, buffer: [*]u8, max_len: u32) i32 {
 
         const to_read = @min(win.capacity, max_len - bytes_read);
 
+        var line_end = false;
         var j: u32 = 0;
         while (j < to_read and handle.offset < handle.size) {
             const ch = sector_buf[win.off + j];
@@ -295,11 +307,16 @@ pub fn fat_gets(handle: *FileHandle, buffer: [*]u8, max_len: u32) i32 {
             bytes_read += 1;
             handle.offset += 1;
             j += 1;
-            if (ch == '\n') break;
+            if (ch == '\n') {
+                line_end = true;
+                break;
+            }
         }
 
-        if (j < to_read) break;
-        if (!advance_cluster(handle)) break;
+        if (line_end or j < to_read) break;
+        // The FAT lookup is only needed when the next sector starts a new cluster;
+        // sectors inside one cluster are addressed by offset.
+        if (handle.offset % cluster_size == 0 and handle.offset < handle.size and !advance_cluster(handle)) break;
     }
 
     if (bytes_read == 0 and handle.offset >= handle.size) return -1;
@@ -351,7 +368,9 @@ pub fn fat_puts(handle: *FileHandle, str: [*]const u8, len: u32) i32 {
         const win = sector_window(handle);
         const to_write = @min(win.capacity, len - written);
 
-        if (win.off > 0) {
+        // A partial sector keeps the bytes that follow the write; only a
+        // full-sector write can start from zeros.
+        if (win.off > 0 or to_write < 512) {
             ata.read_sector(handle.drive, win.lba, &sector_buf);
         }
 
